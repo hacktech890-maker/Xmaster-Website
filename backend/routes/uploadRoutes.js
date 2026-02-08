@@ -18,7 +18,7 @@ const upload = multer({
  * POST /api/upload
  * Upload video to Abyss.to and save to MongoDB
  */
-router.post('/upload', upload.single('video'), async (req, res) => {
+router.post('/single', upload.single('video'), async (req, res) => {
   try {
     console.log('📤 Upload request received');
 
