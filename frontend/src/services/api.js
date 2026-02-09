@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = process.env.REACT_APP_API_URL || 'https://xmaster-website.onrender.com';
+const API_URL = process.env.REACT_APP_API_URL || "https://xmaster-website.onrender.com/api";
 
 
 // Create axios instance
