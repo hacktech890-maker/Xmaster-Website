@@ -1,93 +1,87 @@
 const axios = require("axios");
 const FormData = require("form-data");
-const stream = require("stream");
 
 class AbyssService {
   constructor() {
     this.apiKey = process.env.ABYSS_API_KEY;
-    this.apiBaseUrl = process.env.ABYSS_API_BASE_URL || "https://api.abyss.to";
     this.uploadBaseUrl = "https://up.abyss.to";
+    this.apiBaseUrl = "https://api.abyss.to";
 
     if (!this.apiKey) {
       console.error("❌ ABYSS_API_KEY is not set in environment variables");
     }
   }
 
-  // Upload video buffer to Abyss.to
   async uploadVideo(fileBuffer, fileName) {
-    try {
-      console.log("📤 Uploading video to Abyss.to:", fileName);
-
-      const formData = new FormData();
-
-      // convert buffer to stream
-      const bufferStream = new stream.PassThrough();
-      bufferStream.end(fileBuffer);
-
-      formData.append("file", bufferStream, fileName);
-
-      const uploadUrl = `${this.uploadBaseUrl}/${this.apiKey}`;
-
-      const response = await axios.post(uploadUrl, formData, {
-        headers: {
-          ...formData.getHeaders(),
-        },
-        maxContentLength: Infinity,
-        maxBodyLength: Infinity,
-        timeout: 600000,
-      });
-
-      // Abyss usually returns slug/filecode
-      const fileCode = response.data?.slug || response.data?.filecode;
-
-      if (!fileCode) {
-        throw new Error("Upload failed: Abyss did not return file_code/slug");
-      }
-
-      // Auto generate embed + thumbnail
-      const embedUrl = `https://short.icu/${fileCode}`;
-      const thumbnail = `https://img.abyss.to/preview/${fileCode}.jpg`;
-
-      // Try getting file info (for duration)
-      const info = await this.getFileInfo(fileCode);
-
-      return {
-        filecode: fileCode,
-        slug: fileCode,
-        embedUrl,
-        thumbnail,
-        info,
-      };
-    } catch (error) {
-      console.error("❌ Error uploading video to Abyss.to:", error.message);
-      if (error.response) {
-        console.error("Response status:", error.response.status);
-        console.error("Response data:", error.response.data);
-      }
-      throw error;
+    if (!this.apiKey) {
+      throw new Error("ABYSS_API_KEY missing in env");
     }
+
+    console.log("📤 Uploading video to Abyss.to:", fileName);
+
+    const formData = new FormData();
+    formData.append("file", fileBuffer, fileName);
+
+    const uploadUrl = `${this.uploadBaseUrl}/${this.apiKey}`;
+
+    const response = await axios.post(uploadUrl, formData, {
+      headers: { ...formData.getHeaders() },
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity,
+      timeout: 600000,
+    });
+
+    console.log("✅ Abyss upload response:", response.data);
+
+    // IMPORTANT: Abyss gives slug + id
+    const slug = response.data?.slug;
+    const filecode = response.data?.id || response.data?.filecode;
+
+    if (!slug) throw new Error("Abyss upload failed: slug missing");
+    if (!filecode) throw new Error("Abyss upload failed: filecode/id missing");
+
+    // Correct embed link
+    const embedUrl = `https://short.icu/${slug}`;
+
+    // Correct thumbnail link (working always)
+    const thumbnail =
+      response.data?.splash_img || `https://abyss.to/splash/${filecode}.jpg`;
+
+    // Optional download link
+    const downloadUrl = `https://abyss.to/${filecode}`;
+
+    return {
+      slug,
+      filecode,
+      embedUrl,
+      thumbnail,
+      downloadUrl,
+    };
   }
 
-  // Get file info (duration, size etc)
-  async getFileInfo(fileId) {
+  async getFileInfo(filecode) {
     try {
-      const response = await axios.get(`${this.apiBaseUrl}/v1/files/${fileId}`, {
-        params: { key: this.apiKey },
+      const response = await axios.get(`${this.apiBaseUrl}/file/info`, {
+        params: {
+          api_key: this.apiKey,
+          file_code: filecode,
+        },
       });
 
       return response.data;
     } catch (error) {
-      console.error("⚠️ Error getting file info from Abyss.to:", error.message);
+      console.log("⚠️ Error getting file info:", error.message);
       return null;
     }
   }
 
-  // Convert seconds to mm:ss
   secondsToDuration(seconds) {
     if (!seconds || isNaN(seconds)) return "00:00";
+
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
-    return `${mins}:${String(secs).padStart(2, "0")}`;
+
+    return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   }
 }
 

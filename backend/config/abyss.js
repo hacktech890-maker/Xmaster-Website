@@ -3,10 +3,7 @@ const FormData = require("form-data");
 
 const ABYSS_API_KEY = process.env.ABYSS_API_KEY;
 
-// Upload server (IMPORTANT)
 const ABYSS_UPLOAD_BASE = "https://up.abyss.to";
-
-// API server (for info/quota etc.)
 const ABYSS_API_BASE = "https://api.abyss.to";
 
 class AbyssService {
@@ -20,10 +17,6 @@ class AbyssService {
     this.apiBaseUrl = ABYSS_API_BASE;
   }
 
-  /**
-   * Upload video to Abyss.to
-   * Returns: { filecode, slug, embedUrl, downloadUrl, thumbnail }
-   */
   async uploadVideo(fileBuffer, fileName) {
     try {
       if (!this.apiKey) {
@@ -33,7 +26,6 @@ class AbyssService {
       const formData = new FormData();
       formData.append("file", fileBuffer, fileName);
 
-      // Correct upload endpoint
       const uploadUrl = `${this.uploadBaseUrl}/${this.apiKey}`;
 
       const response = await axios.post(uploadUrl, formData, {
@@ -49,13 +41,15 @@ class AbyssService {
       }
 
       const slug = response.data.slug;
-      const filecode = response.data.id || response.data.filecode || "";
+
+      // Sometimes abyss returns filecode/id, sometimes not
+      const filecode = response.data.id || response.data.filecode || slug;
 
       const embedUrl = `https://short.icu/${slug}`;
-      const downloadUrl = filecode ? `https://abyss.to/${filecode}` : embedUrl;
+      const downloadUrl = `https://abyss.to/${filecode}`;
 
-      const thumbnail =
-        response.data.splash_img || (filecode ? `https://abyss.to/splash/${filecode}.jpg` : "");
+      // ✅ Correct working thumbnail URL
+      const thumbnail = `https://img.abyss.to/preview/${slug}.jpg`;
 
       return {
         filecode,
@@ -71,9 +65,6 @@ class AbyssService {
     }
   }
 
-  /**
-   * Get file info from Abyss.to
-   */
   async getFileInfo(filecode) {
     try {
       const response = await axios.get(`${this.apiBaseUrl}/file/info`, {
@@ -90,9 +81,6 @@ class AbyssService {
     }
   }
 
-  /**
-   * Get account info / quota
-   */
   async getAccountInfo() {
     try {
       const response = await axios.get(`${this.apiBaseUrl}/account/info`, {

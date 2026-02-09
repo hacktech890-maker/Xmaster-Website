@@ -2,13 +2,13 @@ const express = require("express");
 const router = express.Router();
 const multer = require("multer");
 
-const abyssService = require("../abyssService"); // ✅ FIXED import
+const abyssService = require("../abyssServices");
 const Video = require("../models/Video");
 
 // Multer memory storage
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 * 1024 },
+  limits: { fileSize: 10 * 1024 * 1024 * 1024 }, // 10GB
 });
 
 /**
@@ -20,21 +20,28 @@ router.post("/single", upload.single("video"), async (req, res) => {
     console.log("📤 Upload request received");
 
     if (!req.file) {
-      return res.status(400).json({ error: "No video file uploaded" });
+      return res.status(400).json({
+        success: false,
+        error: "No video file uploaded",
+      });
     }
 
     const { title, description, category } = req.body;
 
     if (!title || title.trim() === "") {
-      return res.status(400).json({ error: "Title is required" });
+      return res.status(400).json({
+        success: false,
+        error: "Title is required",
+      });
     }
 
-    const safeCategory = category && category.trim() ? category.trim() : "General";
+    const safeCategory =
+      category && category.trim() ? category.trim() : "General";
 
     console.log("📊 Upload details:", {
       fileName: req.file.originalname,
       fileSize: `${(req.file.size / 1024 / 1024).toFixed(2)}MB`,
-      title,
+      title: title.trim(),
       category: safeCategory,
     });
 
@@ -45,23 +52,32 @@ router.post("/single", upload.single("video"), async (req, res) => {
     );
 
     const finalFileCode = abyssData.filecode;
-    const finalThumbnail = abyssData.thumbnail;
-    const finalEmbedUrl = abyssData.embedUrl;
+    const finalEmbedUrl = abyssData.embedUrl || "";
+    const finalThumbnail =
+      abyssData.thumbnail ||
+      (finalFileCode ? `https://abyss.to/splash/${finalFileCode}.jpg` : "");
 
-    if (!finalFileCode) throw new Error("Missing file_code from Abyss");
-    if (!finalThumbnail) throw new Error("Missing thumbnail from Abyss");
+    if (!finalFileCode) {
+      throw new Error("Abyss upload succeeded but filecode missing");
+    }
 
-    // Detect duration automatically
+    // Fetch duration from Abyss API
     let finalDuration = "00:00";
 
-    // if abyss API returns duration in seconds
-    const durationSeconds =
-      abyssData.info?.length ||
-      abyssData.info?.duration ||
-      abyssData.info?.result?.length ||
-      0;
+    try {
+      const fileInfo = await abyssService.getFileInfo(finalFileCode);
 
-    finalDuration = abyssService.secondsToDuration(durationSeconds);
+      const durationSeconds =
+        fileInfo?.result?.length ||
+        fileInfo?.result?.duration ||
+        fileInfo?.length ||
+        fileInfo?.duration ||
+        0;
+
+      finalDuration = abyssService.secondsToDuration(durationSeconds);
+    } catch (infoErr) {
+      console.log("⚠️ Could not fetch Abyss file info:", infoErr.message);
+    }
 
     // Save to DB
     const newVideo = new Video({
@@ -70,7 +86,7 @@ router.post("/single", upload.single("video"), async (req, res) => {
       file_code: finalFileCode,
       embed_code: finalEmbedUrl,
       thumbnail: finalThumbnail,
-      duration: finalDuration, // store as mm:ss string
+      duration: finalDuration,
       views: 0,
       category: safeCategory,
       uploadDate: new Date(),
