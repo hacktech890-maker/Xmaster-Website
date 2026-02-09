@@ -14,8 +14,8 @@ function WatchPage() {
       try {
         const response = await publicAPI.getVideo(id);
 
-        // Your backend sometimes returns { success, data }
-        const videoData = response.data?.data || response.data;
+        // backend returns { success: true, video: {...} }
+        const videoData = response.data?.video || response.data?.data || response.data;
 
         setVideo(videoData);
 
@@ -33,7 +33,6 @@ function WatchPage() {
   }, [id]);
 
   useEffect(() => {
-    // Load ads script
     const script = document.createElement("script");
     script.src =
       "https://pl28635101.effectivegatecpm.com/ae/10/47/ae1047454b116c143b22ba661108cf77.js";
@@ -65,30 +64,25 @@ function WatchPage() {
     );
   }
 
-  // Fix duration issue
-  const durationSeconds =
-    typeof video.duration === "number"
+  // ✅ Duration fix (backend stores "mm:ss")
+  const durationText =
+    typeof video.duration === "string" && video.duration.includes(":")
       ? video.duration
-      : parseInt(video.duration) || 0;
+      : "00:00";
 
-  const durationText = `${Math.floor(durationSeconds / 60)}:${String(
-    durationSeconds % 60
-  ).padStart(2, "0")}`;
-
-  // Fix date issue
+  // ✅ Date fix
   const uploadDateText = video.uploadDate
     ? new Date(video.uploadDate).toLocaleDateString()
     : video.createdAt
     ? new Date(video.createdAt).toLocaleDateString()
     : "Unknown Date";
 
-  // Fix embed url issue
+  // ✅ Embed url fix
   const embedUrl = video.embed_code || video.embedUrl || "";
 
   return (
     <div className="watch-page">
       <div className="watch-container">
-        {/* Video Player */}
         <div className="video-player-section">
           <div className="video-player">
             <iframe
@@ -103,7 +97,6 @@ function WatchPage() {
             ></iframe>
           </div>
 
-          {/* Video Info */}
           <div className="video-info">
             <h1 className="video-title">{video.title}</h1>
 
@@ -125,11 +118,14 @@ function WatchPage() {
           </div>
         </div>
 
-        {/* Sidebar with Ads */}
         <aside className="watch-sidebar">
           <div className="ad-unit" id="watch-ad-1"></div>
 
-          <div className="ad-unit" id="watch-ad-2" style={{ marginTop: "20px" }}></div>
+          <div
+            className="ad-unit"
+            id="watch-ad-2"
+            style={{ marginTop: "20px" }}
+          ></div>
         </aside>
       </div>
     </div>

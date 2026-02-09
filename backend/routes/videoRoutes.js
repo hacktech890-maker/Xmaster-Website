@@ -43,7 +43,6 @@ router.get('/latest', async (req, res) => {
   try {
     const { limit = 12 } = req.query;
     const videos = await Video.find({ status: 'public' })
-      .populate('category', 'name slug')
       .sort({ uploadDate: -1 })
       .limit(parseInt(limit));
     res.json({ success: true, videos });

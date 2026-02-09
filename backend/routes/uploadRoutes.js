@@ -1,17 +1,14 @@
 const express = require("express");
 const router = express.Router();
 const multer = require("multer");
-const abyssService = require("../config/abyss");
-const Video = require("../models/Video");
-const cloudinary = require("../config/cloudinary");
-const sharp = require("sharp");
 
-// Multer memory storage for file uploads
+const abyssService = require("../abyssService"); // ✅ FIXED import
+const Video = require("../models/Video");
+
+// Multer memory storage
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 10 * 1024 * 1024 * 1024, // 10GB
-  },
+  limits: { fileSize: 10 * 1024 * 1024 * 1024 },
 });
 
 /**
@@ -22,13 +19,11 @@ router.post("/single", upload.single("video"), async (req, res) => {
   try {
     console.log("📤 Upload request received");
 
-    // 1) Validate file
     if (!req.file) {
       return res.status(400).json({ error: "No video file uploaded" });
     }
 
-    // 2) Validate fields
-    const { title, description, duration, category } = req.body;
+    const { title, description, category } = req.body;
 
     if (!title || title.trim() === "") {
       return res.status(400).json({ error: "Title is required" });
@@ -43,91 +38,60 @@ router.post("/single", upload.single("video"), async (req, res) => {
       category: safeCategory,
     });
 
-    // 3) Upload video to Abyss.to
-    console.log("☁️ Uploading to Abyss.to...");
-    const abyssData = await abyssService.uploadVideo(req.file.buffer, req.file.originalname);
+    // Upload to Abyss
+    const abyssData = await abyssService.uploadVideo(
+      req.file.buffer,
+      req.file.originalname
+    );
 
-    console.log("✅ Abyss upload successful:", {
-      filecode: abyssData.filecode,
-      slug: abyssData.slug,
-      embedUrl: abyssData.embedUrl,
-      thumbnail: abyssData.thumbnail,
-    });
+    const finalFileCode = abyssData.filecode;
+    const finalThumbnail = abyssData.thumbnail;
+    const finalEmbedUrl = abyssData.embedUrl;
 
-    // 4) Fix missing filecode
-    const finalFileCode = abyssData.filecode || abyssData.slug;
+    if (!finalFileCode) throw new Error("Missing file_code from Abyss");
+    if (!finalThumbnail) throw new Error("Missing thumbnail from Abyss");
 
-    // 5) Fix missing thumbnail
-    const finalThumbnail =
-      abyssData.thumbnail ||
-      (abyssData.slug ? `https://img.abyss.to/preview/${abyssData.slug}.jpg` : "");
+    // Detect duration automatically
+    let finalDuration = "00:00";
 
-    if (!finalFileCode) {
-      throw new Error("Abyss upload failed: missing file_code/slug");
-    }
+    // if abyss API returns duration in seconds
+    const durationSeconds =
+      abyssData.info?.length ||
+      abyssData.info?.duration ||
+      abyssData.info?.result?.length ||
+      0;
 
-    if (!finalThumbnail) {
-      throw new Error("Abyss upload failed: missing thumbnail");
-    }
+    finalDuration = abyssService.secondsToDuration(durationSeconds);
 
-    // 6) Save video in MongoDB
+    // Save to DB
     const newVideo = new Video({
       title: title.trim(),
       description: description?.trim() || "",
       file_code: finalFileCode,
-      embed_code: abyssData.embedUrl, // short.icu link
-      download_url: abyssData.downloadUrl || "",
+      embed_code: finalEmbedUrl,
       thumbnail: finalThumbnail,
-      duration: parseInt(duration) || 0,
+      duration: finalDuration, // store as mm:ss string
       views: 0,
       category: safeCategory,
-      uploadedBy: req.user?._id || null,
       uploadDate: new Date(),
     });
 
     await newVideo.save();
 
-    console.log("✅ Video saved to database:", newVideo._id);
+    console.log("✅ Video saved:", newVideo._id);
 
-    // 7) Response
     return res.status(201).json({
       success: true,
       message: "Video uploaded successfully",
-      video: {
-        id: newVideo._id,
-        title: newVideo.title,
-        embedUrl: newVideo.embed_code,
-        thumbnail: newVideo.thumbnail,
-        filecode: newVideo.file_code,
-        category: newVideo.category,
-      },
+      video: newVideo,
     });
   } catch (error) {
     console.error("❌ Upload error:", error);
 
     return res.status(500).json({
+      success: false,
       error: "Upload failed",
       message: error.message,
-    });
-  }
-});
-
-/**
- * GET /api/upload/quota
- */
-router.get("/quota", async (req, res) => {
-  try {
-    const accountInfo = await abyssService.getAccountInfo();
-
-    res.json({
-      success: true,
-      provider: "Abyss.to",
-      quota: accountInfo,
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message,
     });
   }
 });

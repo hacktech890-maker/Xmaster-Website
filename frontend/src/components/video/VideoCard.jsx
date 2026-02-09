@@ -46,7 +46,22 @@ const VideoCard = ({ video, size = 'normal' }) => {
   
   if (!video) return null;
 
-  const { _id, title, thumbnail, views, duration, uploadDate, category, slug } = video;
+  const {
+  _id,
+  title,
+  thumbnail,
+  views,
+  duration,
+  uploadDate,
+  createdAt,
+  category,
+  slug,
+} = video;
+
+const realViews = views ?? video.viewCount ?? 0;
+const realDate = uploadDate || createdAt;
+const realDuration = duration ?? video.videoDuration ?? video.length ?? "0:00";
+
 
   const sizes = {
     small: { title: 'text-sm line-clamp-2', meta: 'text-xs' },
@@ -93,7 +108,7 @@ const VideoCard = ({ video, size = 'normal' }) => {
           {duration && duration !== '00:00' && (
             <div className="absolute bottom-2 right-2 px-2 py-1 bg-black/80 rounded text-white text-xs font-medium flex items-center gap-1">
               <FiClock className="w-3 h-3" />
-              {formatDuration(duration)}
+{formatDuration(realDuration)}
             </div>
           )}
           
@@ -117,12 +132,12 @@ const VideoCard = ({ video, size = 'normal' }) => {
             {/* Views */}
             <span className="flex items-center gap-1">
               <FiEye className="w-3.5 h-3.5" />
-              {formatViews(views)} views
+{formatViews(realViews)} views
             </span>
             
             {/* Date */}
             <span>•</span>
-            <span>{formatDate(uploadDate)}</span>
+<span>{formatDate(realDate)}</span>
           </div>
 
           {/* Category */}
