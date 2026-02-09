@@ -58,10 +58,16 @@ const VideoCard = ({ video, size = 'normal' }) => {
 
   // Get the best thumbnail URL
   const getThumbnailUrl = () => {
-    if (imageError) return PLACEHOLDER_IMAGE;
-    if (thumbnail && thumbnail.length > 10) return thumbnail;
-    return PLACEHOLDER_IMAGE;
-  };
+  if (imageError) return PLACEHOLDER_IMAGE;
+
+  if (thumbnail && thumbnail.length > 10) {
+    if (thumbnail.startsWith("http")) return thumbnail;
+    return `https://${thumbnail}`;
+  }
+
+  return PLACEHOLDER_IMAGE;
+};
+
 
   const handleImageError = () => {
     setImageError(true);

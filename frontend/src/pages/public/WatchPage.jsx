@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
-import axios from 'axios';
-import '../../styles/Watch.css';
+import React, { useState, useEffect } from "react";
+import { useParams } from "react-router-dom";
+import "../../styles/Watch.css";
+import { publicAPI } from "../../services/api";
 
-
-function Watch() {
+function WatchPage() {
   const { id } = useParams();
   const [video, setVideo] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -13,13 +12,17 @@ function Watch() {
   useEffect(() => {
     const fetchVideo = async () => {
       try {
-        const response = await axios.get(`${process.env.REACT_APP_API_URL}/videos/${id}`);
-        setVideo(response.data);
-        
+        const response = await publicAPI.getVideo(id);
+
+        // Your backend sometimes returns { success, data }
+        const videoData = response.data?.data || response.data;
+
+        setVideo(videoData);
+
         // Increment view count
-        await axios.post(`${process.env.REACT_APP_API_URL}/videos/${id}/view`);
+        await publicAPI.recordView(id);
       } catch (err) {
-        setError('Failed to load video');
+        setError("Failed to load video");
         console.error(err);
       } finally {
         setLoading(false);
@@ -31,8 +34,9 @@ function Watch() {
 
   useEffect(() => {
     // Load ads script
-    const script = document.createElement('script');
-    script.src = 'https://pl28635101.effectivegatecpm.com/ae/10/47/ae1047454b116c143b22ba661108cf77.js';
+    const script = document.createElement("script");
+    script.src =
+      "https://pl28635101.effectivegatecpm.com/ae/10/47/ae1047454b116c143b22ba661108cf77.js";
     script.async = true;
     document.body.appendChild(script);
 
@@ -56,10 +60,30 @@ function Watch() {
     return (
       <div className="watch-error">
         <h2>Oops! Video not found</h2>
-        <p>{error || 'This video may have been removed or is unavailable.'}</p>
+        <p>{error || "This video may have been removed or is unavailable."}</p>
       </div>
     );
   }
+
+  // Fix duration issue
+  const durationSeconds =
+    typeof video.duration === "number"
+      ? video.duration
+      : parseInt(video.duration) || 0;
+
+  const durationText = `${Math.floor(durationSeconds / 60)}:${String(
+    durationSeconds % 60
+  ).padStart(2, "0")}`;
+
+  // Fix date issue
+  const uploadDateText = video.uploadDate
+    ? new Date(video.uploadDate).toLocaleDateString()
+    : video.createdAt
+    ? new Date(video.createdAt).toLocaleDateString()
+    : "Unknown Date";
+
+  // Fix embed url issue
+  const embedUrl = video.embed_code || video.embedUrl || "";
 
   return (
     <div className="watch-page">
@@ -67,9 +91,8 @@ function Watch() {
         {/* Video Player */}
         <div className="video-player-section">
           <div className="video-player">
-            {/* CRITICAL FIX: Use embed_code directly from database */}
             <iframe
-              src={video.embed_code}
+              src={embedUrl}
               width="100%"
               height="100%"
               frameBorder="0"
@@ -83,15 +106,17 @@ function Watch() {
           {/* Video Info */}
           <div className="video-info">
             <h1 className="video-title">{video.title}</h1>
+
             <div className="video-meta">
-              <span className="views">{video.views?.toLocaleString() || 0} views</span>
-              <span className="upload-date">
-                {new Date(video.uploadDate).toLocaleDateString()}
+              <span className="views">
+                {(video.views || 0).toLocaleString()} views
               </span>
-              <span className="duration">
-                {Math.floor(video.duration / 60)}:{String(video.duration % 60).padStart(2, '0')}
-              </span>
+
+              <span className="upload-date">{uploadDateText}</span>
+
+              <span className="duration">{durationText}</span>
             </div>
+
             {video.description && (
               <div className="video-description">
                 <p>{video.description}</p>
@@ -102,17 +127,13 @@ function Watch() {
 
         {/* Sidebar with Ads */}
         <aside className="watch-sidebar">
-          <div className="ad-unit" id="watch-ad-1">
-            {/* Ad will be loaded by script */}
-          </div>
-          
-          <div className="ad-unit" id="watch-ad-2" style={{ marginTop: '20px' }}>
-            {/* Second ad unit */}
-          </div>
+          <div className="ad-unit" id="watch-ad-1"></div>
+
+          <div className="ad-unit" id="watch-ad-2" style={{ marginTop: "20px" }}></div>
         </aside>
       </div>
     </div>
   );
 }
 
-export default Watch;
+export default WatchPage;
