@@ -1,119 +1,34 @@
-/* Watch Page Main Layout */
-.watch-page {
-  width: 100%;
-  min-height: 100vh;
-  background: #0f0f0f;
-  padding: 20px;
-  color: white;
-}
+/* ============================================
+   Watch Page Styles
+   Minimal CSS - most styling moved to Tailwind
+   ============================================ */
 
-.watch-container {
-  max-width: 1300px;
-  margin: auto;
-  display: flex;
-  gap: 20px;
-  align-items: flex-start;
-}
-
-/* Left side video section */
-.video-player-section {
-  flex: 1;
-  min-width: 0;
-}
-
-/* Video Player Box */
-.video-player {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  background: black;
-  overflow: hidden;
-  border-radius: 12px;
-}
-
-/* Iframe should fit perfectly */
-.video-player iframe {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+/* Ensure iframe fills container */
+.watch-page iframe {
   border: none;
 }
 
-/* Video Info */
-.video-info {
-  margin-top: 15px;
-  padding: 10px 5px;
+/* Smooth transitions */
+.watch-page * {
+  -webkit-tap-highlight-color: transparent;
 }
 
-.video-title {
-  font-size: 22px;
-  font-weight: 600;
-  margin-bottom: 10px;
-  color: #fff;
+/* Mobile: remove horizontal padding for full-width video */
+@media (max-width: 639px) {
+  .watch-page .video-player-wrapper {
+    margin-left: -1rem;
+    margin-right: -1rem;
+  }
 }
 
-/* Meta Row (views, date, duration) */
-.video-meta {
-  display: flex;
-  gap: 15px;
-  flex-wrap: wrap;
-  font-size: 14px;
-  color: #aaa;
-  margin-bottom: 15px;
-}
-
-.video-meta span {
-  background: rgba(255, 255, 255, 0.05);
-  padding: 6px 10px;
-  border-radius: 8px;
-}
-
-/* Description */
-.video-description {
-  margin-top: 10px;
-  background: rgba(255, 255, 255, 0.04);
-  padding: 12px;
-  border-radius: 10px;
-  font-size: 14px;
-  color: #ddd;
-  line-height: 1.6;
-}
-
-/* Sidebar */
-.watch-sidebar {
-  width: 320px;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-}
-
-/* Ad units */
-.ad-unit {
-  background: rgba(255, 255, 255, 0.05);
-  height: 250px;
-  border-radius: 12px;
-}
-
-/* Loading Screen */
-.watch-loading {
-  min-height: 100vh;
-  background: #0f0f0f;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-
+/* Loading spinner */
 .spinner {
-  width: 50px;
-  height: 50px;
-  border: 4px solid rgba(255, 255, 255, 0.2);
-  border-top: 4px solid white;
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  border-top: 3px solid #ef4444;
   border-radius: 50%;
-  animation: spin 1s linear infinite;
-  margin-bottom: 15px;
+  animation: spin 0.8s linear infinite;
 }
 
 @keyframes spin {
@@ -122,36 +37,29 @@
   }
 }
 
-/* Error Page */
-.watch-error {
-  min-height: 100vh;
-  background: #0f0f0f;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-
-.watch-error h2 {
-  font-size: 24px;
-  margin-bottom: 10px;
-}
-
-.watch-error p {
-  color: #aaa;
-}
-
-/* Responsive Layout */
-@media (max-width: 1024px) {
-  .watch-container {
-    flex-direction: column;
+/* Related video cards - touch friendly on mobile */
+@media (max-width: 639px) {
+  .related-card {
+    padding: 8px 4px;
   }
 
-  .watch-sidebar {
-    width: 100%;
+  .related-card img {
+    border-radius: 8px;
   }
+}
 
-  .ad-unit {
-    height: 200px;
-  }
+/* Prevent layout shift when iframe loads */
+.video-container-ratio {
+  position: relative;
+  width: 100%;
+  padding-top: 56.25%;
+  background: #000;
+}
+
+.video-container-ratio iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
 }
