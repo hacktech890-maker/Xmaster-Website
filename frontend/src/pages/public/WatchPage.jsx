@@ -226,7 +226,7 @@ function WatchPage() {
                     scrolling="no"
                     allowFullScreen
                     title={video.title}
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                   />
                 ) : (
                   <div className="absolute inset-0 flex items-center justify-center text-gray-400">
