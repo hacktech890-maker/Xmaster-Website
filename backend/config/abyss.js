@@ -5,5 +5,5 @@
 // If you were importing from "../config/abyss" anywhere, it will still work.
 // All actual logic lives in /backend/abyssServices.js
 
-const abyssService = require("../abyssServices");
+const abyssService = require("../abyssService");
 module.exports = abyssService;

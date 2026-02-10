@@ -5,7 +5,7 @@ const path = require("path");
 const fs = require("fs");
 const os = require("os");
 
-const abyssService = require("../abyssServices");
+const abyssService = require("../abyssService");
 const Video = require("../models/Video");
 const { extractThumbnail, getVideoMetadata, cleanupThumbnail } = require("../utils/videoProcessor");
 const { uploadImage, deleteImage } = require("../config/cloudinary");
