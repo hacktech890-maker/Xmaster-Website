@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
   FiEye,
@@ -13,8 +13,8 @@ import {
 } from "react-icons/fi";
 import { publicAPI } from "../../services/api";
 import LoadingSpinner from "../../components/common/LoadingSpinner";
+import AdBanner from "../../components/ads/AdBanner";
 
-// Placeholder image
 const PLACEHOLDER =
   "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIwIiBoZWlnaHQ9IjE4MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjMWUxZTFlIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNiIgZmlsbD0iIzY2NiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPk5vIFRodW1ibmFpbDwvdGV4dD48L3N2Zz4=";
 
@@ -60,130 +60,92 @@ function WatchPage() {
   const [showReport, setShowReport] = useState(false);
   const [reportReason, setReportReason] = useState("");
 
-  // Fetch video + related
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
       setError(null);
-
       try {
-        // Fetch video
         const response = await publicAPI.getVideo(id);
         const videoData = response.data?.video || response.data?.data || response.data;
         setVideo(videoData);
         setLikes(videoData.likes || 0);
         setDislikes(videoData.dislikes || 0);
 
-        // Record view
-        try {
-          await publicAPI.recordView(id);
-        } catch (e) {
-          // Silent fail for view count
-        }
+        try { await publicAPI.recordView(id); } catch (e) {}
 
-        // Fetch related videos
         try {
           const relatedRes = await publicAPI.getRelatedVideos(id, 12);
           if (relatedRes.data?.success) {
             setRelatedVideos(relatedRes.data.videos || []);
           }
         } catch (e) {
-          // Try fallback - get latest videos
           try {
             const latestRes = await publicAPI.getLatestVideos(12);
             if (latestRes.data?.success) {
-              // Filter out current video
-              const filtered = (latestRes.data.videos || []).filter((v) => v._id !== id);
-              setRelatedVideos(filtered);
+              setRelatedVideos((latestRes.data.videos || []).filter((v) => v._id !== id));
             }
-          } catch (e2) {
-            console.error("Failed to fetch any recommendations:", e2);
-          }
+          } catch (e2) {}
         }
       } catch (err) {
         setError("Failed to load video");
-        console.error(err);
       } finally {
         setLoading(false);
       }
     };
 
     fetchData();
-    // Scroll to top on video change
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [id]);
 
-  // Handle like
   const handleLike = async () => {
     if (liked) return;
     try {
       await publicAPI.likeVideo(id);
-      setLikes((prev) => prev + 1);
+      setLikes((p) => p + 1);
       setLiked(true);
-      if (disliked) {
-        setDislikes((prev) => prev - 1);
-        setDisliked(false);
-      }
-    } catch (e) {
-      console.error("Like failed:", e);
-    }
+      if (disliked) { setDislikes((p) => p - 1); setDisliked(false); }
+    } catch (e) {}
   };
 
-  // Handle dislike
   const handleDislike = async () => {
     if (disliked) return;
     try {
       await publicAPI.dislikeVideo(id);
-      setDislikes((prev) => prev + 1);
+      setDislikes((p) => p + 1);
       setDisliked(true);
-      if (liked) {
-        setLikes((prev) => prev - 1);
-        setLiked(false);
-      }
-    } catch (e) {
-      console.error("Dislike failed:", e);
-    }
+      if (liked) { setLikes((p) => p - 1); setLiked(false); }
+    } catch (e) {}
   };
 
-  // Handle share
   const handleShare = async () => {
     const url = window.location.href;
     if (navigator.share) {
-      try {
-        await navigator.share({ title: video?.title, url });
-      } catch (e) {
-        // User cancelled
-      }
+      try { await navigator.share({ title: video?.title, url }); } catch (e) {}
     } else {
       navigator.clipboard.writeText(url);
-      alert("Link copied to clipboard!");
+      alert("Link copied!");
     }
   };
 
-  // Handle report
   const handleReport = async () => {
     if (!reportReason.trim()) return;
     try {
       await publicAPI.reportVideo(id, { reason: reportReason });
       setShowReport(false);
       setReportReason("");
-      alert("Report submitted. Thank you!");
-    } catch (e) {
-      alert("Failed to submit report");
-    }
+      alert("Report submitted!");
+    } catch (e) { alert("Failed to submit report"); }
   };
 
-  // Get thumbnail URL
-  const getThumbnail = (video) => {
-    if (!video) return PLACEHOLDER;
-    const thumb = video.thumbnail;
+  const getThumbnail = (v) => {
+    if (!v) return PLACEHOLDER;
+    const thumb = v.thumbnail;
     if (thumb && thumb.startsWith("http")) return thumb;
     if (thumb && thumb.length > 3) return `https://abyss.to/splash/${thumb}.jpg`;
-    if (video.file_code) return `https://abyss.to/splash/${video.file_code}.jpg`;
+    if (v.file_code) return `https://abyss.to/splash/${v.file_code}.jpg`;
     return PLACEHOLDER;
   };
 
-  // LOADING STATE
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-dark-400 flex items-center justify-center">
@@ -192,16 +154,13 @@ function WatchPage() {
     );
   }
 
-  // ERROR STATE
   if (error || !video) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-dark-400 flex flex-col items-center justify-center px-4">
         <div className="text-6xl mb-4">😕</div>
         <h2 className="text-2xl font-bold text-white mb-2">Video Not Found</h2>
         <p className="text-gray-400 mb-6">{error || "This video may have been removed."}</p>
-        <Link to="/" className="btn-primary px-6 py-3">
-          Go Home
-        </Link>
+        <Link to="/" className="btn-primary px-6 py-3">Go Home</Link>
       </div>
     );
   }
@@ -213,7 +172,7 @@ function WatchPage() {
     <div className="min-h-screen bg-gray-50 dark:bg-dark-400">
       <div className="max-w-[1400px] mx-auto px-0 sm:px-4 lg:px-6 py-0 sm:py-4">
         <div className="flex flex-col lg:flex-row gap-0 sm:gap-6">
-          {/* ==================== LEFT: VIDEO + INFO ==================== */}
+          {/* LEFT: VIDEO + INFO */}
           <div className="flex-1 min-w-0">
             {/* Video Player */}
             <div className="relative w-full bg-black sm:rounded-xl overflow-hidden">
@@ -236,79 +195,37 @@ function WatchPage() {
               </div>
             </div>
 
-            {/* Video Info */}
+            {/* Ad Below Video Player */}
             <div className="px-4 sm:px-0 mt-3">
-              {/* Title */}
+              <AdBanner placement="watch_below" className="mb-4" />
+            </div>
+
+            {/* Video Info */}
+            <div className="px-4 sm:px-0">
               <h1 className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-900 dark:text-white leading-tight">
                 {video.title}
               </h1>
 
-              {/* Meta Row */}
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-sm text-gray-500 dark:text-gray-400">
-                <span className="flex items-center gap-1">
-                  <FiEye className="w-4 h-4" />
-                  {formatViews(video.views || 0)} views
-                </span>
+                <span className="flex items-center gap-1"><FiEye className="w-4 h-4" />{formatViews(video.views || 0)} views</span>
                 <span>•</span>
-                <span className="flex items-center gap-1">
-                  <FiCalendar className="w-4 h-4" />
-                  {formatDate(video.uploadDate || video.createdAt)}
-                </span>
-                {duration && (
-                  <>
-                    <span>•</span>
-                    <span className="flex items-center gap-1">
-                      <FiClock className="w-4 h-4" />
-                      {duration}
-                    </span>
-                  </>
-                )}
+                <span className="flex items-center gap-1"><FiCalendar className="w-4 h-4" />{formatDate(video.uploadDate || video.createdAt)}</span>
+                {duration && (<><span>•</span><span className="flex items-center gap-1"><FiClock className="w-4 h-4" />{duration}</span></>)}
               </div>
 
               {/* Action Buttons */}
               <div className="flex flex-wrap items-center gap-2 mt-4 pb-4 border-b border-gray-200 dark:border-dark-100">
-                {/* Like */}
-                <button
-                  onClick={handleLike}
-                  className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-all ${
-                    liked
-                      ? "bg-primary-600 text-white"
-                      : "bg-gray-100 dark:bg-dark-100 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-dark-200"
-                  }`}
-                >
-                  <FiThumbsUp className="w-4 h-4" />
-                  <span>{formatViews(likes)}</span>
+                <button onClick={handleLike} className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-all ${liked ? "bg-primary-600 text-white" : "bg-gray-100 dark:bg-dark-100 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-dark-200"}`}>
+                  <FiThumbsUp className="w-4 h-4" /><span>{formatViews(likes)}</span>
                 </button>
-
-                {/* Dislike */}
-                <button
-                  onClick={handleDislike}
-                  className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-all ${
-                    disliked
-                      ? "bg-gray-600 text-white"
-                      : "bg-gray-100 dark:bg-dark-100 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-dark-200"
-                  }`}
-                >
-                  <FiThumbsDown className="w-4 h-4" />
-                  <span>{formatViews(dislikes)}</span>
+                <button onClick={handleDislike} className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-all ${disliked ? "bg-gray-600 text-white" : "bg-gray-100 dark:bg-dark-100 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-dark-200"}`}>
+                  <FiThumbsDown className="w-4 h-4" /><span>{formatViews(dislikes)}</span>
                 </button>
-
-                {/* Share */}
-                <button
-                  onClick={handleShare}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium bg-gray-100 dark:bg-dark-100 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-dark-200 transition-all"
-                >
-                  <FiShare2 className="w-4 h-4" />
-                  <span className="hidden sm:inline">Share</span>
+                <button onClick={handleShare} className="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium bg-gray-100 dark:bg-dark-100 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-dark-200 transition-all">
+                  <FiShare2 className="w-4 h-4" /><span className="hidden sm:inline">Share</span>
                 </button>
-
-                {/* Report */}
-                <button
-                  onClick={() => setShowReport(!showReport)}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium bg-gray-100 dark:bg-dark-100 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-dark-200 transition-all ml-auto"
-                >
-                  <FiFlag className="w-4 h-4" />
-                  <span className="hidden sm:inline">Report</span>
+                <button onClick={() => setShowReport(!showReport)} className="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium bg-gray-100 dark:bg-dark-100 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-dark-200 transition-all ml-auto">
+                  <FiFlag className="w-4 h-4" /><span className="hidden sm:inline">Report</span>
                 </button>
               </div>
 
@@ -316,11 +233,7 @@ function WatchPage() {
               {showReport && (
                 <div className="mt-3 p-4 bg-gray-100 dark:bg-dark-200 rounded-xl animate-fade-in">
                   <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Report Video</h4>
-                  <select
-                    value={reportReason}
-                    onChange={(e) => setReportReason(e.target.value)}
-                    className="w-full px-3 py-2 bg-white dark:bg-dark-100 border border-gray-200 dark:border-dark-100 rounded-lg text-sm text-gray-900 dark:text-white mb-2"
-                  >
+                  <select value={reportReason} onChange={(e) => setReportReason(e.target.value)} className="w-full px-3 py-2 bg-white dark:bg-dark-100 border border-gray-200 dark:border-dark-100 rounded-lg text-sm text-gray-900 dark:text-white mb-2">
                     <option value="">Select reason...</option>
                     <option value="inappropriate">Inappropriate Content</option>
                     <option value="copyright">Copyright Violation</option>
@@ -329,19 +242,8 @@ function WatchPage() {
                     <option value="other">Other</option>
                   </select>
                   <div className="flex gap-2">
-                    <button
-                      onClick={handleReport}
-                      disabled={!reportReason}
-                      className="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      Submit Report
-                    </button>
-                    <button
-                      onClick={() => setShowReport(false)}
-                      className="px-4 py-2 bg-gray-200 dark:bg-dark-100 text-gray-700 dark:text-gray-300 text-sm rounded-lg"
-                    >
-                      Cancel
-                    </button>
+                    <button onClick={handleReport} disabled={!reportReason} className="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 disabled:opacity-50">Submit</button>
+                    <button onClick={() => setShowReport(false)} className="px-4 py-2 bg-gray-200 dark:bg-dark-100 text-gray-700 dark:text-gray-300 text-sm rounded-lg">Cancel</button>
                   </div>
                 </div>
               )}
@@ -349,36 +251,18 @@ function WatchPage() {
               {/* Description */}
               {video.description && (
                 <div className="mt-4">
-                  <div
-                    className={`bg-gray-100 dark:bg-dark-200 rounded-xl p-4 cursor-pointer transition-all ${
-                      descExpanded ? "" : "max-h-24 overflow-hidden"
-                    }`}
-                    onClick={() => setDescExpanded(!descExpanded)}
-                  >
-                    <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
-                      {video.description}
-                    </p>
+                  <div className={`bg-gray-100 dark:bg-dark-200 rounded-xl p-4 cursor-pointer transition-all ${descExpanded ? "" : "max-h-24 overflow-hidden"}`} onClick={() => setDescExpanded(!descExpanded)}>
+                    <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">{video.description}</p>
                   </div>
                   {video.description.length > 150 && (
-                    <button
-                      onClick={() => setDescExpanded(!descExpanded)}
-                      className="flex items-center gap-1 mt-2 text-sm text-primary-600 hover:text-primary-700 font-medium"
-                    >
-                      {descExpanded ? (
-                        <>
-                          Show less <FiChevronUp className="w-4 h-4" />
-                        </>
-                      ) : (
-                        <>
-                          Show more <FiChevronDown className="w-4 h-4" />
-                        </>
-                      )}
+                    <button onClick={() => setDescExpanded(!descExpanded)} className="flex items-center gap-1 mt-2 text-sm text-primary-600 hover:text-primary-700 font-medium">
+                      {descExpanded ? (<>Show less <FiChevronUp className="w-4 h-4" /></>) : (<>Show more <FiChevronDown className="w-4 h-4" /></>)}
                     </button>
                   )}
                 </div>
               )}
 
-              {/* Category & Tags */}
+              {/* Tags */}
               <div className="flex flex-wrap items-center gap-2 mt-4 mb-6">
                 {video.category && (
                   <span className="px-3 py-1 bg-primary-600/10 text-primary-600 text-xs font-medium rounded-full">
@@ -386,35 +270,24 @@ function WatchPage() {
                   </span>
                 )}
                 {video.tags?.map((tag, i) => (
-                  <Link
-                    key={i}
-                    to={`/tag/${tag}`}
-                    className="px-3 py-1 bg-gray-100 dark:bg-dark-100 text-gray-600 dark:text-gray-400 text-xs rounded-full hover:bg-gray-200 dark:hover:bg-dark-200 transition-colors"
-                  >
-                    #{tag}
-                  </Link>
+                  <Link key={i} to={`/tag/${tag}`} className="px-3 py-1 bg-gray-100 dark:bg-dark-100 text-gray-600 dark:text-gray-400 text-xs rounded-full hover:bg-gray-200 dark:hover:bg-dark-200 transition-colors">#{tag}</Link>
                 ))}
               </div>
             </div>
 
-            {/* ==================== MOBILE: Related Videos Below ==================== */}
+            {/* MOBILE: Related Videos */}
             <div className="lg:hidden px-4 sm:px-0 mt-2 mb-8">
-              <RelatedVideosList
-                videos={relatedVideos}
-                getThumbnail={getThumbnail}
-                currentVideoId={id}
-              />
+              <AdBanner placement="watch_related" className="mb-4" />
+              <RelatedVideosList videos={relatedVideos} getThumbnail={getThumbnail} currentVideoId={id} />
             </div>
           </div>
 
-          {/* ==================== RIGHT SIDEBAR: Related Videos (Desktop) ==================== */}
+          {/* RIGHT SIDEBAR */}
           <div className="hidden lg:block w-[400px] flex-shrink-0">
-            <div className="sticky top-20">
-              <RelatedVideosList
-                videos={relatedVideos}
-                getThumbnail={getThumbnail}
-                currentVideoId={id}
-              />
+            <div className="sticky top-20 space-y-4">
+              <AdBanner placement="watch_sidebar" />
+              <RelatedVideosList videos={relatedVideos} getThumbnail={getThumbnail} currentVideoId={id} />
+              <AdBanner placement="watch_sidebar" />
             </div>
           </div>
         </div>
@@ -423,74 +296,41 @@ function WatchPage() {
   );
 }
 
-// ==================== RELATED VIDEOS LIST COMPONENT ====================
 const RelatedVideosList = ({ videos, getThumbnail, currentVideoId }) => {
   if (!videos || videos.length === 0) {
-    return (
-      <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-        <p className="text-sm">No recommendations available</p>
-      </div>
-    );
+    return <div className="text-center py-8 text-gray-500"><p className="text-sm">No recommendations</p></div>;
   }
 
   return (
     <div>
-      <h3 className="text-base font-bold text-gray-900 dark:text-white mb-4">
-        Recommended Videos
-      </h3>
+      <h3 className="text-base font-bold text-gray-900 dark:text-white mb-4">Recommended Videos</h3>
       <div className="space-y-3">
-        {videos
-          .filter((v) => v._id !== currentVideoId)
-          .slice(0, 15)
-          .map((v) => (
-            <RelatedVideoCard key={v._id} video={v} getThumbnail={getThumbnail} />
-          ))}
+        {videos.filter((v) => v._id !== currentVideoId).slice(0, 15).map((v) => (
+          <RelatedVideoCard key={v._id} video={v} getThumbnail={getThumbnail} />
+        ))}
       </div>
     </div>
   );
 };
 
-// ==================== SINGLE RELATED VIDEO CARD ====================
 const RelatedVideoCard = ({ video, getThumbnail }) => {
   const [imgError, setImgError] = useState(false);
 
   return (
-    <Link
-      to={`/watch/${video._id}${video.slug ? `/${video.slug}` : ""}`}
-      className="flex gap-3 group rounded-lg hover:bg-gray-100 dark:hover:bg-dark-200 p-1.5 transition-colors"
-    >
-      {/* Thumbnail */}
+    <Link to={`/watch/${video._id}${video.slug ? `/${video.slug}` : ""}`} className="flex gap-3 group rounded-lg hover:bg-gray-100 dark:hover:bg-dark-200 p-1.5 transition-colors">
       <div className="relative w-[168px] min-w-[168px] sm:w-[180px] sm:min-w-[180px]">
         <div className="aspect-video rounded-lg overflow-hidden bg-gray-200 dark:bg-dark-100">
-          <img
-            src={imgError ? PLACEHOLDER : getThumbnail(video)}
-            alt={video.title}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-            loading="lazy"
-            onError={() => setImgError(true)}
-          />
+          <img src={imgError ? PLACEHOLDER : getThumbnail(video)} alt={video.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" loading="lazy" onError={() => setImgError(true)} />
         </div>
-        {/* Duration badge */}
         {video.duration && video.duration !== "00:00" && (
-          <span className="absolute bottom-1 right-1 px-1.5 py-0.5 bg-black/80 text-white text-[10px] font-medium rounded">
-            {video.duration}
-          </span>
+          <span className="absolute bottom-1 right-1 px-1.5 py-0.5 bg-black/80 text-white text-[10px] font-medium rounded">{video.duration}</span>
         )}
       </div>
-
-      {/* Info */}
       <div className="flex-1 min-w-0 py-0.5">
-        <h4 className="text-sm font-medium text-gray-900 dark:text-white group-hover:text-primary-600 dark:group-hover:text-primary-500 line-clamp-2 leading-snug transition-colors">
-          {video.title}
-        </h4>
+        <h4 className="text-sm font-medium text-gray-900 dark:text-white group-hover:text-primary-600 line-clamp-2 leading-snug transition-colors">{video.title}</h4>
         <div className="mt-1.5 space-y-0.5">
-          <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
-            <FiEye className="w-3 h-3" />
-            {formatViews(video.views || 0)} views
-          </p>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            {formatRelativeDate(video.uploadDate || video.createdAt)}
-          </p>
+          <p className="text-xs text-gray-500 flex items-center gap-1"><FiEye className="w-3 h-3" />{formatViews(video.views || 0)} views</p>
+          <p className="text-xs text-gray-500">{formatRelativeDate(video.uploadDate || video.createdAt)}</p>
         </div>
       </div>
     </Link>
