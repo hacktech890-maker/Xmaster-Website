@@ -1,4 +1,4 @@
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense, lazy, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import LoadingSpinner from './components/common/LoadingSpinner';
@@ -34,6 +34,25 @@ const PublicLayout = ({ children }) => (
 );
 
 function App() {
+  // Load Popunder script globally (runs once on any page)
+  useEffect(() => {
+    // Only load on public pages, not admin
+    if (window.location.pathname.startsWith('/admin') || window.location.pathname === '/xmaster-admin') {
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = 'https://pl28635101.effectivegatecpm.com/ae/10/47/ae1047454b116c143b22ba661108cf77.js';
+    script.async = true;
+    document.body.appendChild(script);
+
+    return () => {
+      if (document.body.contains(script)) {
+        document.body.removeChild(script);
+      }
+    };
+  }, []);
+
   return (
     <Suspense fallback={<LoadingSpinner fullScreen />}>
       <Routes>
