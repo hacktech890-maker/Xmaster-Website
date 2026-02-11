@@ -2,6 +2,8 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { FiHeart } from 'react-icons/fi';
 
+const LOGO_URL = "https://i.pinimg.com/736x/02/69/f5/0269f5864fb318eb5e17bac1c4c9bcff.jpg";
+
 const Footer = () => {
   const currentYear = new Date().getFullYear();
 
@@ -13,20 +15,10 @@ const Footer = () => {
           <div className="col-span-1 md:col-span-2">
             <Link to="/" className="flex items-center gap-2 mb-4">
               <img
-                src="/logo.svg"
+                src={LOGO_URL}
                 alt="Xmaster"
-                className="h-10 w-10 rounded-lg"
-                onError={(e) => {
-                  e.target.style.display = "none";
-                  if (e.target.nextSibling) e.target.nextSibling.style.display = "flex";
-                }}
+                className="h-10 w-10 rounded-lg object-cover"
               />
-              <div
-                className="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-700 rounded-lg items-center justify-center"
-                style={{ display: "none" }}
-              >
-                <span className="text-white font-bold text-xl">X</span>
-              </div>
               <span className="text-xl font-bold text-gray-900 dark:text-white">Xmaster</span>
             </Link>
             <p className="text-gray-600 dark:text-gray-400 text-sm max-w-md">

@@ -11,6 +11,8 @@ import {
 import SearchBar from "./SearchBar";
 import ThemeToggle from "./ThemeToggle";
 
+const LOGO_URL = "https://i.pinimg.com/736x/02/69/f5/0269f5864fb318eb5e17bac1c4c9bcff.jpg";
+
 const Navbar = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -28,20 +30,10 @@ const Navbar = () => {
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2 flex-shrink-0">
             <img
-              src="/logo.svg"
+              src={LOGO_URL}
               alt="Xmaster"
-              className="h-8 w-8 sm:h-10 sm:w-10 rounded-lg object-contain"
-              onError={(e) => {
-                e.target.style.display = "none";
-                if (e.target.nextSibling) e.target.nextSibling.style.display = "flex";
-              }}
+              className="h-9 w-9 sm:h-10 sm:w-10 rounded-lg object-cover"
             />
-            <div
-              className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-primary-500 to-primary-700 rounded-lg items-center justify-center"
-              style={{ display: "none" }}
-            >
-              <span className="text-white font-bold text-lg sm:text-xl">X</span>
-            </div>
             <span className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white hidden sm:block">
               Xmaster
             </span>
