@@ -7,6 +7,7 @@ const os = require("os");
 class AbyssService {
   constructor() {
     this.apiKey = process.env.ABYSS_API_KEY;
+    this.apiBaseUrl = process.env.ABYSS_API_BASE_URL || "https://api.abyss.to";
     this.uploadBaseUrl = "https://up.abyss.to";
 
     if (!this.apiKey) {
@@ -41,7 +42,7 @@ class AbyssService {
       headers: { ...formData.getHeaders() },
       maxContentLength: Infinity,
       maxBodyLength: Infinity,
-      timeout: 1800000, // 30 minutes
+      timeout: 1800000,
     });
 
     console.log("✅ Abyss raw response:", JSON.stringify(response.data, null, 2));
@@ -83,12 +84,12 @@ class AbyssService {
   }
 
   /**
-   * Get file info from Abyss API
+   * Get file info from Abyss API (UPDATED to correct endpoint)
    */
   async getFileInfo(filecode) {
     try {
-      const response = await axios.get("https://api.abyss.to/file/info", {
-        params: { api_key: this.apiKey, file_code: filecode },
+      const response = await axios.get(`${this.apiBaseUrl}/v1/files/${filecode}`, {
+        params: { key: this.apiKey },
         timeout: 10000,
       });
       return response.data;
@@ -99,25 +100,87 @@ class AbyssService {
   }
 
   /**
-   * Get account info
+   * Get account info (UPDATED to correct endpoint)
    */
   async getAccountInfo() {
-    const response = await axios.get("https://api.abyss.to/account/info", {
-      params: { api_key: this.apiKey },
+    const response = await axios.get(`${this.apiBaseUrl}/v1/about`, {
+      params: { key: this.apiKey },
       timeout: 10000,
     });
     return response.data;
   }
 
   /**
-   * Get file list from Abyss
+   * Get file list from Abyss (UPDATED to correct endpoint /v1/resources)
    */
   async getFileList(page = 1, perPage = 50) {
-    const response = await axios.get("https://api.abyss.to/file/list", {
-      params: { api_key: this.apiKey, page, per_page: perPage },
-      timeout: 15000,
-    });
-    return response.data;
+    try {
+      let allFiles = [];
+      let pageToken = null;
+      let currentPage = 0;
+      const targetPage = page;
+
+      // Abyss uses pageToken pagination, not page numbers
+      // We need to iterate through pages to get to the requested page
+      while (true) {
+        const params = {
+          key: this.apiKey,
+          type: "files",
+          maxResults: perPage,
+          orderBy: "createdAt:desc",
+        };
+
+        if (pageToken) {
+          params.pageToken = pageToken;
+        }
+
+        const response = await axios.get(`${this.apiBaseUrl}/v1/resources`, {
+          params,
+          timeout: 15000,
+        });
+
+        const data = response.data;
+        const items = (data.items || []).filter((item) => !item.isDir);
+
+        currentPage++;
+
+        if (currentPage === targetPage) {
+          // Transform to match expected format
+          const files = items.map((item) => ({
+            file_code: item.id,
+            filecode: item.id,
+            slug: item.id,
+            title: (item.name || item.id).replace(/\.(mp4|mkv|avi|mov|webm|flv|3gp)$/i, ""),
+            name: item.name || item.id,
+            size: item.size || 0,
+            status: item.status || "ready",
+            views: 0,
+            created: item.createdAt,
+            thumbnail: `https://abyss.to/splash/${item.id}.jpg`,
+          }));
+
+          return {
+            result: {
+              files: files,
+              total: files.length,
+            },
+            files: files,
+          };
+        }
+
+        // Check for next page
+        if (data.pageToken && items.length > 0) {
+          pageToken = data.pageToken;
+        } else {
+          break;
+        }
+      }
+
+      return { result: { files: [], total: 0 }, files: [] };
+    } catch (error) {
+      console.error("⚠️ getFileList error:", error.message);
+      return { result: { files: [], total: 0 }, files: [] };
+    }
   }
 
   /**
