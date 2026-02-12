@@ -3,12 +3,22 @@
   "name": "Xmaster - Watch Videos Online",
   "icons": [
     {
-      "src": "https://i.pinimg.com/736x/02/69/f5/0269f5864fb318eb5e17bac1c4c9bcff.jpg",
-      "sizes": "192x192",
-      "type": "image/jpeg"
+      "src": "logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
     },
     {
-      "src": "https://i.pinimg.com/736x/02/69/f5/0269f5864fb318eb5e17bac1c4c9bcff.jpg",
+      "src": "logo192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "logo512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "logo.jpg",
       "sizes": "512x512",
       "type": "image/jpeg"
     }
