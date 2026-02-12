@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   FiHome, FiVideo, FiUpload, FiGrid, FiDollarSign,
-  FiFlag, FiLogOut, FiMenu, FiX, FiSettings
+  FiFlag, FiLogOut, FiMenu, FiX, FiSettings, FiMessageSquare
 } from 'react-icons/fi';
 import { useAuth } from '../../context/AuthContext';
 
@@ -17,6 +17,7 @@ const AdminSidebar = () => {
     { name: 'Videos', path: '/admin/videos', icon: FiVideo },
     { name: 'Upload', path: '/admin/upload', icon: FiUpload },
     { name: 'Categories', path: '/admin/categories', icon: FiGrid },
+    { name: 'Comments', path: '/admin/comments', icon: FiMessageSquare },
     { name: 'Ads', path: '/admin/ads', icon: FiDollarSign },
     { name: 'Reports', path: '/admin/reports', icon: FiFlag },
   ];
@@ -33,9 +34,11 @@ const AdminSidebar = () => {
       {/* Logo */}
       <div className="p-4 sm:p-6 border-b border-gray-200 dark:border-dark-100">
         <Link to="/admin/dashboard" className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-700 rounded-lg flex items-center justify-center">
-            <span className="text-white font-bold text-xl">X</span>
-          </div>
+          <img
+            src="/logo.jpg"
+            alt="Xmaster"
+            className="w-10 h-10 rounded-lg object-cover"
+          />
           <div>
             <h2 className="text-lg font-bold text-gray-900 dark:text-white">Xmaster</h2>
             <p className="text-xs text-gray-500">Admin Panel</p>
@@ -94,10 +97,7 @@ const AdminSidebar = () => {
 
       {/* Mobile Overlay */}
       {mobileOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-30 md:hidden"
-          onClick={() => setMobileOpen(false)}
-        />
+        <div className="fixed inset-0 bg-black/50 z-30 md:hidden" onClick={() => setMobileOpen(false)} />
       )}
 
       {/* Sidebar */}

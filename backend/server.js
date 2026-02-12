@@ -112,6 +112,7 @@ const categoryRoutes = require("./routes/categoryRoutes");
 const adRoutes = require("./routes/adRoutes");
 const searchRoutes = require("./routes/searchRoutes");
 const publicRoutes = require("./routes/publicRoutes");
+const commentRoutes = require("./routes/commentRoutes");
 
 // ============================================
 // USE ROUTES
@@ -123,6 +124,7 @@ app.use("/api/categories", categoryRoutes);
 app.use("/api/ads", adRoutes);
 app.use("/api/search", searchRoutes);
 app.use("/api/public", publicRoutes);
+app.use("/api/comments", commentRoutes);
 
 // ============================================
 // HEALTH CHECK ROUTES

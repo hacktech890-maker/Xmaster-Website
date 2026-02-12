@@ -83,6 +83,12 @@ export const publicAPI = {
   
   // Stats
   getPublicStats: () => api.get('/public/stats'),
+
+
+  // Comments
+  getPublicComments: (page = 1, limit = 20) =>
+    api.get('/comments/public', { params: { page, limit } }),
+  submitComment: (data) => api.post('/comments', data),
 };
 
 // ==================== ADMIN API ====================
@@ -150,6 +156,15 @@ export const adminAPI = {
   // Reports
   getReports: (params) => api.get('/analytics/reports', { params }),
   updateReport: (id, data) => api.put(`/analytics/reports/${id}`, data),
+
+
+    // Comments
+  getComments: (params) => api.get('/comments/admin', { params }),
+  toggleCommentVisibility: (id) => api.put(`/comments/${id}/toggle-visibility`),
+  markCommentRead: (id) => api.put(`/comments/${id}/read`),
+  addCommentNote: (id, note) => api.put(`/comments/${id}/note`, { note }),
+  deleteComment: (id) => api.delete(`/comments/${id}`),
+  bulkDeleteComments: (ids) => api.post('/comments/bulk-delete', { ids }),
 };
 
 export default api;

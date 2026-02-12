@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useEffect } from 'react';
+import React, { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import LoadingSpinner from './components/common/LoadingSpinner';
@@ -18,6 +18,7 @@ const UploadPage = lazy(() => import('./pages/admin/UploadPage'));
 const CategoriesManager = lazy(() => import('./pages/admin/CategoriesManager'));
 const AdsManager = lazy(() => import('./pages/admin/AdsManager'));
 const ReportsPage = lazy(() => import('./pages/admin/ReportsPage'));
+const CommentsManager = lazy(() => import('./pages/admin/CommentsManager'));
 
 const AdminLayout = ({ children }) => {
   const { isAuthenticated } = useAuth();
@@ -34,25 +35,6 @@ const PublicLayout = ({ children }) => (
 );
 
 function App() {
-  // Load Popunder script globally (runs once on any page)
-  useEffect(() => {
-    // Only load on public pages, not admin
-    if (window.location.pathname.startsWith('/admin') || window.location.pathname === '/xmaster-admin') {
-      return;
-    }
-
-    const script = document.createElement('script');
-    script.src = 'https://pl28635101.effectivegatecpm.com/ae/10/47/ae1047454b116c143b22ba661108cf77.js';
-    script.async = true;
-    document.body.appendChild(script);
-
-    return () => {
-      if (document.body.contains(script)) {
-        document.body.removeChild(script);
-      }
-    };
-  }, []);
-
   return (
     <Suspense fallback={<LoadingSpinner fullScreen />}>
       <Routes>
@@ -69,6 +51,7 @@ function App() {
         <Route path="/admin/videos" element={<AdminLayout><VideosManager /></AdminLayout>} />
         <Route path="/admin/upload" element={<AdminLayout><UploadPage /></AdminLayout>} />
         <Route path="/admin/categories" element={<AdminLayout><CategoriesManager /></AdminLayout>} />
+        <Route path="/admin/comments" element={<AdminLayout><CommentsManager /></AdminLayout>} />
         <Route path="/admin/ads" element={<AdminLayout><AdsManager /></AdminLayout>} />
         <Route path="/admin/reports" element={<AdminLayout><ReportsPage /></AdminLayout>} />
 
