@@ -8,59 +8,47 @@ const videoSchema = new mongoose.Schema(
       unique: true,
       index: true,
     },
-
     embed_code: {
       type: String,
       default: "",
     },
-
     title: {
       type: String,
       required: true,
       trim: true,
       maxlength: 200,
     },
-
     slug: {
       type: String,
       unique: true,
       sparse: true,
     },
-
     description: {
       type: String,
       default: "",
       maxlength: 5000,
     },
-
     thumbnail: {
       type: String,
       default: "",
     },
-
-    // Cloudinary public ID for thumbnail management
     cloudinary_public_id: {
       type: String,
       default: "",
     },
-
     duration: {
       type: String,
       default: "00:00",
     },
-
-    // Duration in seconds (for sorting/filtering)
     duration_seconds: {
       type: Number,
       default: 0,
     },
-
     category: {
       type: String,
       default: "General",
       index: true,
     },
-
     tags: [
       {
         type: String,
@@ -68,36 +56,59 @@ const videoSchema = new mongoose.Schema(
         trim: true,
       },
     ],
-
     views: {
       type: Number,
       default: 0,
       index: true,
     },
-
     likes: {
       type: Number,
       default: 0,
     },
-
     dislikes: {
       type: Number,
       default: 0,
     },
-
     status: {
       type: String,
-      enum: ["public", "private", "unlisted", "processing"],
+      enum: ["public", "private", "unlisted", "processing", "duplicate"],
       default: "public",
       index: true,
     },
-
     featured: {
       type: Boolean,
       default: false,
       index: true,
     },
-
+    // ==========================================
+    // DUPLICATE DETECTION FIELDS
+    // ==========================================
+    isDuplicate: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    duplicateOf: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Video",
+      default: null,
+    },
+    duplicateReasons: [{
+      type: String,
+      enum: ["title", "duration", "file", "thumbnail"],
+    }],
+    // Normalized title for comparison (lowercase, no spaces/special chars)
+    titleNormalized: {
+      type: String,
+      default: "",
+      index: true,
+    },
+    // File hash for content matching
+    fileHash: {
+      type: String,
+      default: "",
+      index: true,
+    },
     uploadDate: {
       type: Date,
       default: Date.now,
@@ -109,9 +120,9 @@ const videoSchema = new mongoose.Schema(
   }
 );
 
-// Pre-save: generate slug and embed_code
+// Pre-save: generate slug, embed_code, normalized title, duration_seconds
 videoSchema.pre("save", function (next) {
-  // Generate slug from title + file_code
+  // Generate slug
   if (this.title && !this.slug) {
     this.slug =
       this.title
@@ -122,13 +133,21 @@ videoSchema.pre("save", function (next) {
       this.file_code.substring(0, 8);
   }
 
-  // Generate embed URL from file_code
+  // Generate embed URL
   if (this.file_code && !this.embed_code) {
     this.embed_code = `https://short.icu/${this.file_code}`;
   }
 
-  // Parse duration string to seconds for sorting
-  if (this.duration && this.duration !== "00:00" && !this.duration_seconds) {
+  // Normalize title for duplicate detection
+  if (this.title) {
+    this.titleNormalized = this.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "")
+      .trim();
+  }
+
+  // Parse duration string to seconds
+  if (this.duration && this.duration !== "00:00") {
     const parts = this.duration.split(":").map(Number);
     if (parts.length === 3) {
       this.duration_seconds = parts[0] * 3600 + parts[1] * 60 + parts[2];

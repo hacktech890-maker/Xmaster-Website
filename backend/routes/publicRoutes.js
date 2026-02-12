@@ -7,15 +7,15 @@ const Category = require('../models/Category');
 router.get('/home', async (req, res) => {
   try {
     const [featuredVideos, latestVideos, trendingVideos, categories] = await Promise.all([
-      Video.find({ status: 'public', featured: true })
+      Video.find({ status: 'public', featured: true, isDuplicate: { $ne: true } })
         .sort({ uploadDate: -1 })
         .limit(6)
         .populate('category', 'name slug'),
-      Video.find({ status: 'public' })
+      Video.find({ status: 'public', isDuplicate: { $ne: true } })
         .sort({ uploadDate: -1 })
         .limit(12)
         .populate('category', 'name slug'),
-      Video.find({ status: 'public' })
+      Video.find({ status: 'public', isDuplicate: { $ne: true } })
         .sort({ views: -1 })
         .limit(12)
         .populate('category', 'name slug'),
@@ -38,8 +38,11 @@ router.get('/home', async (req, res) => {
 router.get('/stats', async (req, res) => {
   try {
     const [videoCount, totalViews, categoryCount] = await Promise.all([
-      Video.countDocuments({ status: 'public' }),
-      Video.aggregate([{ $group: { _id: null, total: { $sum: '$views' } } }]),
+      Video.countDocuments({ status: 'public', isDuplicate: { $ne: true } }),
+      Video.aggregate([
+        { $match: { status: 'public', isDuplicate: { $ne: true } } },
+        { $group: { _id: null, total: { $sum: '$views' } } }
+      ]),
       Category.countDocuments({ isActive: true })
     ]);
 

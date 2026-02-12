@@ -165,6 +165,19 @@ export const adminAPI = {
   addCommentNote: (id, note) => api.put(`/comments/${id}/note`, { note }),
   deleteComment: (id) => api.delete(`/comments/${id}`),
   bulkDeleteComments: (ids) => api.post('/comments/bulk-delete', { ids }),
+
+
+    // Duplicates
+  getDuplicates: (params) => api.get('/duplicates', { params }),
+  scanDuplicates: () => api.post('/duplicates/scan'),
+  checkDuplicate: (data) => api.post('/duplicates/check', data),
+  keepDuplicate: (id) => api.put(`/duplicates/${id}/keep`),
+  makePublicDuplicate: (id) => api.put(`/duplicates/${id}/make-public`),
+  deleteDuplicate: (id) => api.delete(`/duplicates/${id}`),
+  bulkDeleteDuplicates: (ids) => api.post('/duplicates/bulk-delete', { ids }),
+  clearAllDuplicates: () => api.post('/duplicates/clear-all'),
 };
+
+
 
 export default api;

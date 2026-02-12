@@ -19,6 +19,7 @@ const CategoriesManager = lazy(() => import('./pages/admin/CategoriesManager'));
 const AdsManager = lazy(() => import('./pages/admin/AdsManager'));
 const ReportsPage = lazy(() => import('./pages/admin/ReportsPage'));
 const CommentsManager = lazy(() => import('./pages/admin/CommentsManager'));
+const DuplicateManager = lazy(() => import('./pages/admin/DuplicateManager'));
 
 const AdminLayout = ({ children }) => {
   const { isAuthenticated } = useAuth();
@@ -54,6 +55,7 @@ function App() {
         <Route path="/admin/comments" element={<AdminLayout><CommentsManager /></AdminLayout>} />
         <Route path="/admin/ads" element={<AdminLayout><AdsManager /></AdminLayout>} />
         <Route path="/admin/reports" element={<AdminLayout><ReportsPage /></AdminLayout>} />
+        <Route path="/admin/duplicates" element={<AdminLayout><DuplicateManager /></AdminLayout>} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

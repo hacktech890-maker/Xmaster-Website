@@ -1,0 +1,737 @@
+/* ==========================================
+   DUPLICATE MANAGER - PAGE LAYOUT
+   ========================================== */
+
+.dup-page-wrapper {
+  display: flex;
+  min-height: 100vh;
+  background: #0f0f0f;
+}
+
+.dup-main-content {
+  flex: 1;
+  margin-left: 256px;
+  padding: 24px;
+  position: relative;
+  min-height: 100vh;
+}
+
+/* ==========================================
+   NOTIFICATION
+   ========================================== */
+
+.dup-notification {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  padding: 14px 24px;
+  border-radius: 8px;
+  color: #fff;
+  font-weight: 600;
+  z-index: 9999;
+  animation: dupSlideIn 0.3s ease;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  font-size: 14px;
+}
+
+.dup-notification-success {
+  background: linear-gradient(135deg, #27ae60, #2ecc71);
+}
+
+.dup-notification-error {
+  background: linear-gradient(135deg, #c0392b, #e74c3c);
+}
+
+@keyframes dupSlideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* ==========================================
+   HEADER
+   ========================================== */
+
+.dup-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.dup-header h1 {
+  font-size: 28px;
+  color: #fff;
+  margin: 0;
+}
+
+.dup-subtitle {
+  color: #8e8e93;
+  margin: 4px 0 0;
+  font-size: 14px;
+}
+
+.dup-header-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ==========================================
+   BUTTONS
+   ========================================== */
+
+.dup-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+
+.dup-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.dup-btn-scan {
+  background: linear-gradient(135deg, #3498db, #2980b9);
+  color: #fff;
+}
+
+.dup-btn-scan:hover:not(:disabled) {
+  background: linear-gradient(135deg, #2980b9, #1f6dad);
+  transform: translateY(-1px);
+}
+
+.dup-btn-clear {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ccc;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.dup-btn-clear:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.dup-btn-danger {
+  background: linear-gradient(135deg, #e74c3c, #c0392b);
+  color: #fff;
+}
+
+.dup-btn-danger:hover:not(:disabled) {
+  background: linear-gradient(135deg, #c0392b, #a93226);
+}
+
+.dup-btn-secondary {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ccc;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.dup-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* ==========================================
+   SCAN RESULT
+   ========================================== */
+
+.dup-scan-result {
+  background: rgba(39, 174, 96, 0.15);
+  border: 1px solid rgba(39, 174, 96, 0.3);
+  border-radius: 8px;
+  padding: 14px 20px;
+  margin-bottom: 20px;
+  color: #2ecc71;
+  font-size: 14px;
+}
+
+/* ==========================================
+   STATS GRID
+   ========================================== */
+
+.dup-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.dup-stat-card {
+  background: #1e1e1e;
+  border: 2px solid #333;
+  border-radius: 12px;
+  padding: 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.dup-stat-card:hover {
+  border-color: #555;
+  transform: translateY(-2px);
+}
+
+.dup-stat-card.active {
+  border-color: #3498db;
+  background: rgba(52, 152, 219, 0.1);
+}
+
+.dup-stat-card.dup-stat-title.active {
+  border-color: #e74c3c;
+  background: rgba(231, 76, 60, 0.1);
+}
+
+.dup-stat-card.dup-stat-duration.active {
+  border-color: #f39c12;
+  background: rgba(243, 156, 18, 0.1);
+}
+
+.dup-stat-card.dup-stat-file.active {
+  border-color: #9b59b6;
+  background: rgba(155, 89, 182, 0.1);
+}
+
+.dup-stat-number {
+  font-size: 36px;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1;
+}
+
+.dup-stat-label {
+  font-size: 13px;
+  color: #8e8e93;
+  margin-top: 8px;
+}
+
+/* ==========================================
+   BULK ACTION BAR
+   ========================================== */
+
+.dup-bulk-bar {
+  background: linear-gradient(135deg, #2c3e50, #34495e);
+  border-radius: 8px;
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 16px;
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+/* ==========================================
+   LIST CONTAINER
+   ========================================== */
+
+.dup-list-container {
+  background: #1a1a1a;
+  border-radius: 12px;
+  border: 1px solid #2a2a2a;
+  overflow: hidden;
+}
+
+.dup-list-header {
+  padding: 12px 20px;
+  border-bottom: 1px solid #2a2a2a;
+  background: #1e1e1e;
+}
+
+.dup-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #ccc;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.dup-checkbox-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #3498db;
+  cursor: pointer;
+}
+
+/* ==========================================
+   LOADING & EMPTY STATES
+   ========================================== */
+
+.dup-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  color: #8e8e93;
+}
+
+.dup-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: dupSpin 0.6s linear infinite;
+  display: inline-block;
+}
+
+.dup-spinner-large {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  border-top-color: #3498db;
+  border-radius: 50%;
+  animation: dupSpin 0.8s linear infinite;
+  margin-bottom: 16px;
+}
+
+@keyframes dupSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.dup-empty {
+  text-align: center;
+  padding: 60px 20px;
+}
+
+.dup-empty-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.dup-empty h3 {
+  color: #fff;
+  font-size: 20px;
+  margin: 0 0 8px;
+}
+
+.dup-empty p {
+  color: #8e8e93;
+  font-size: 14px;
+  max-width: 400px;
+  margin: 0 auto;
+  line-height: 1.5;
+}
+
+/* ==========================================
+   VIDEO CARD
+   ========================================== */
+
+.dup-video-card {
+  display: flex;
+  align-items: flex-start;
+  padding: 16px 20px;
+  border-bottom: 1px solid #2a2a2a;
+  gap: 14px;
+  transition: background 0.2s ease;
+}
+
+.dup-video-card:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.dup-video-card.selected {
+  background: rgba(52, 152, 219, 0.08);
+  border-left: 3px solid #3498db;
+}
+
+.dup-video-card:last-child {
+  border-bottom: none;
+}
+
+.dup-video-select {
+  display: flex;
+  align-items: center;
+  padding-top: 12px;
+}
+
+.dup-video-select input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #3498db;
+  cursor: pointer;
+}
+
+/* ==========================================
+   THUMBNAIL
+   ========================================== */
+
+.dup-video-thumb {
+  position: relative;
+  width: 140px;
+  min-width: 140px;
+  height: 90px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #2a2a2a;
+  flex-shrink: 0;
+}
+
+.dup-video-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.dup-thumb-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  background: #2a2a2a;
+}
+
+.dup-duration-badge {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* ==========================================
+   VIDEO INFO
+   ========================================== */
+
+.dup-video-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.dup-video-title {
+  font-size: 15px;
+  color: #fff;
+  margin: 0 0 8px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dup-video-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  color: #8e8e93;
+  margin-bottom: 8px;
+}
+
+/* ==========================================
+   REASON BADGES
+   ========================================== */
+
+.dup-reasons {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  color: #8e8e93;
+  margin-bottom: 6px;
+}
+
+.dup-reasons strong {
+  margin-right: 4px;
+}
+
+.dup-reason-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+}
+
+/* ==========================================
+   STATUS BADGES
+   ========================================== */
+
+.dup-status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.dup-status-private {
+  background: rgba(231, 76, 60, 0.2);
+  color: #e74c3c;
+}
+
+.dup-status-public {
+  background: rgba(39, 174, 96, 0.2);
+  color: #27ae60;
+}
+
+.dup-status-duplicate {
+  background: rgba(243, 156, 18, 0.2);
+  color: #f39c12;
+}
+
+/* ==========================================
+   ORIGINAL REFERENCE
+   ========================================== */
+
+.dup-original-ref {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #8e8e93;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 6px 10px;
+  border-radius: 6px;
+  margin-top: 4px;
+}
+
+.dup-original-label {
+  color: #f39c12;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.dup-original-title {
+  color: #ccc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 300px;
+}
+
+/* ==========================================
+   ACTION BUTTONS
+   ========================================== */
+
+.dup-video-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.dup-action-btn {
+  padding: 7px 14px;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.dup-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dup-action-keep {
+  background: rgba(39, 174, 96, 0.15);
+  color: #2ecc71;
+  border: 1px solid rgba(39, 174, 96, 0.3);
+}
+
+.dup-action-keep:hover:not(:disabled) {
+  background: rgba(39, 174, 96, 0.25);
+}
+
+.dup-action-public {
+  background: rgba(52, 152, 219, 0.15);
+  color: #3498db;
+  border: 1px solid rgba(52, 152, 219, 0.3);
+}
+
+.dup-action-public:hover:not(:disabled) {
+  background: rgba(52, 152, 219, 0.25);
+}
+
+.dup-action-delete {
+  background: rgba(231, 76, 60, 0.15);
+  color: #e74c3c;
+  border: 1px solid rgba(231, 76, 60, 0.3);
+}
+
+.dup-action-delete:hover:not(:disabled) {
+  background: rgba(231, 76, 60, 0.25);
+}
+
+/* ==========================================
+   PAGINATION
+   ========================================== */
+
+.dup-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 16px 20px;
+  border-top: 1px solid #2a2a2a;
+}
+
+.dup-pagination button {
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid #333;
+  color: #fff;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.2s;
+}
+
+.dup-pagination button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.dup-pagination button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.dup-pagination span {
+  color: #8e8e93;
+  font-size: 13px;
+}
+
+/* ==========================================
+   RESPONSIVE
+   ========================================== */
+
+@media (max-width: 1024px) {
+  .dup-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .dup-main-content {
+    margin-left: 0;
+    padding: 16px;
+    padding-top: 60px;
+  }
+
+  .dup-header {
+    flex-direction: column;
+  }
+
+  .dup-header h1 {
+    font-size: 22px;
+  }
+
+  .dup-header-actions {
+    width: 100%;
+  }
+
+  .dup-btn {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .dup-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  .dup-stat-card {
+    padding: 14px;
+  }
+
+  .dup-stat-number {
+    font-size: 28px;
+  }
+
+  .dup-video-card {
+    flex-direction: column;
+    padding: 14px;
+  }
+
+  .dup-video-thumb {
+    width: 100%;
+    height: 160px;
+  }
+
+  .dup-video-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .dup-action-btn {
+    flex: 1;
+    text-align: center;
+  }
+
+  .dup-bulk-bar {
+    flex-direction: column;
+    text-align: center;
+    gap: 10px;
+  }
+
+  .dup-video-title {
+    white-space: normal;
+  }
+
+  .dup-original-title {
+    max-width: 150px;
+  }
+
+  .dup-video-select {
+    padding-top: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .dup-stats-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+
+  .dup-stat-card {
+    padding: 12px;
+  }
+
+  .dup-stat-number {
+    font-size: 24px;
+  }
+
+  .dup-stat-label {
+    font-size: 11px;
+  }
+
+  .dup-video-meta {
+    gap: 8px;
+    font-size: 11px;
+  }
+
+  .dup-action-btn {
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+}

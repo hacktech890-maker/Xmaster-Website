@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   FiHome, FiVideo, FiUpload, FiGrid, FiDollarSign,
-  FiFlag, FiLogOut, FiMenu, FiX, FiSettings, FiMessageSquare
+  FiFlag, FiLogOut, FiMenu, FiX, FiSettings, FiMessageSquare,
+  FiCopy
 } from 'react-icons/fi';
 import { useAuth } from '../../context/AuthContext';
 
@@ -18,6 +19,7 @@ const AdminSidebar = () => {
     { name: 'Upload', path: '/admin/upload', icon: FiUpload },
     { name: 'Categories', path: '/admin/categories', icon: FiGrid },
     { name: 'Comments', path: '/admin/comments', icon: FiMessageSquare },
+    { name: 'Duplicates', path: '/admin/duplicates', icon: FiCopy },
     { name: 'Ads', path: '/admin/ads', icon: FiDollarSign },
     { name: 'Reports', path: '/admin/reports', icon: FiFlag },
   ];

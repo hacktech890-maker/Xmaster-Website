@@ -8,7 +8,7 @@ const Report = require('../models/Report');
 router.get('/', async (req, res) => {
   try {
     const { page = 1, limit = 20, sort = 'newest', category = '', tag = '' } = req.query;
-    const query = { status: 'public' };
+    const query = { status: 'public', isDuplicate: { $ne: true } };
 
     if (category) query.category = category;
     if (tag) query.tags = { $in: [tag.toLowerCase()] };
@@ -42,7 +42,7 @@ router.get('/', async (req, res) => {
 router.get('/latest', async (req, res) => {
   try {
     const { limit = 12 } = req.query;
-    const videos = await Video.find({ status: 'public' })
+    const videos = await Video.find({ status: 'public', isDuplicate: { $ne: true } })
       .sort({ uploadDate: -1 })
       .limit(parseInt(limit));
     res.json({ success: true, videos });
@@ -56,7 +56,7 @@ router.get('/latest', async (req, res) => {
 router.get('/trending', async (req, res) => {
   try {
     const { limit = 12 } = req.query;
-    const videos = await Video.find({ status: 'public' })
+    const videos = await Video.find({ status: 'public', isDuplicate: { $ne: true } })
       .populate('category', 'name slug')
       .sort({ views: -1, uploadDate: -1 })
       .limit(parseInt(limit));
@@ -71,7 +71,7 @@ router.get('/trending', async (req, res) => {
 router.get('/featured', async (req, res) => {
   try {
     const { limit = 6 } = req.query;
-    const videos = await Video.find({ status: 'public', featured: true })
+    const videos = await Video.find({ status: 'public', featured: true, isDuplicate: { $ne: true } })
       .populate('category', 'name slug')
       .sort({ uploadDate: -1 })
       .limit(parseInt(limit));
@@ -87,7 +87,8 @@ router.get('/:id', async (req, res) => {
   try {
     const video = await Video.findOne({
       _id: req.params.id,
-      status: { $in: ['public', 'unlisted'] }
+      status: { $in: ['public', 'unlisted'] },
+      isDuplicate: { $ne: true }
     }).populate('category', 'name slug');
 
     if (!video) return res.status(404).json({ error: 'Video not found' });
@@ -108,7 +109,8 @@ router.get('/:id/related', async (req, res) => {
 
     let relatedVideos = await Video.find({
       _id: { $ne: video._id },
-      status: 'public'
+      status: 'public',
+      isDuplicate: { $ne: true }
     }).populate('category', 'name slug').sort({ views: -1 }).limit(parseInt(limit));
 
     res.json({ success: true, videos: relatedVideos });

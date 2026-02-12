@@ -113,6 +113,7 @@ const adRoutes = require("./routes/adRoutes");
 const searchRoutes = require("./routes/searchRoutes");
 const publicRoutes = require("./routes/publicRoutes");
 const commentRoutes = require("./routes/commentRoutes");
+const duplicateRoutes = require("./routes/duplicateRoutes");
 
 // ============================================
 // USE ROUTES
@@ -125,6 +126,7 @@ app.use("/api/ads", adRoutes);
 app.use("/api/search", searchRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/comments", commentRoutes);
+app.use("/api/duplicates", duplicateRoutes);
 
 // ============================================
 // HEALTH CHECK ROUTES
