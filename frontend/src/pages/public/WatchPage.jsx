@@ -183,37 +183,33 @@ const ShareModal = ({ video, onClose }) => {
   if (!video) return null;
 
   const thumbnail = getThumbnail(video);
-  // Use the backend share URL for social previews (has OG tags)
+  // Share URL = backend share page (has OG tags for previews)
   const shareUrl = `${API_BASE}/public/share/${video._id}`;
-  // Direct page URL
-  const pageUrl = `${window.location.origin}/watch/${video._id}${video.slug ? '/' + video.slug : ''}`;
+  // Video page URL (where user lands after clicking)
+  const videoPageUrl = `${window.location.origin}/watch/${video._id}${video.slug ? '/' + video.slug : ''}`;
   const shareTitle = video.title || "Watch this video";
-  const shareText = `${shareTitle}\n\n🎬 Watch now:`;
 
   const handleNativeShare = async () => {
     if (navigator.share) {
       try {
         await navigator.share({
           title: shareTitle,
-          text: shareText,
+          text: shareTitle,
           url: shareUrl,
         });
         onClose();
-      } catch (e) {
-        // User cancelled
-      }
+      } catch (e) {}
     }
   };
 
   const handleCopyLink = async () => {
     try {
-      await navigator.clipboard.writeText(shareUrl);
+      await navigator.clipboard.writeText(videoPageUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (e) {
-      // Fallback
-      const input = document.createElement("input");
-      input.value = shareUrl;
+      var input = document.createElement("input");
+      input.value = videoPageUrl;
       document.body.appendChild(input);
       input.select();
       document.execCommand("copy");
@@ -232,7 +228,7 @@ const ShareModal = ({ video, onClose }) => {
         </svg>
       ),
       color: "bg-[#0088cc]",
-      url: `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareText)}`,
+      url: `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareTitle)}`,
     },
     {
       name: "WhatsApp",
@@ -242,7 +238,7 @@ const ShareModal = ({ video, onClose }) => {
         </svg>
       ),
       color: "bg-[#25D366]",
-      url: `https://wa.me/?text=${encodeURIComponent(shareText + "\n" + shareUrl)}`,
+      url: `https://wa.me/?text=${encodeURIComponent(shareTitle + "\n\n" + shareUrl)}`,
     },
     {
       name: "Facebook",
@@ -262,113 +258,58 @@ const ShareModal = ({ video, onClose }) => {
         </svg>
       ),
       color: "bg-black",
-      url: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`,
+      url: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareTitle)}&url=${encodeURIComponent(shareUrl)}`,
     },
   ];
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" onClick={onClose}>
-      {/* Backdrop */}
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
 
-      {/* Modal */}
       <div
         className="relative w-full sm:w-[420px] bg-white dark:bg-dark-300 rounded-t-2xl sm:rounded-2xl overflow-hidden animate-slide-up"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-dark-100">
           <h3 className="text-lg font-bold text-gray-900 dark:text-white">Share Video</h3>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-dark-100 transition-colors"
-          >
+          <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-dark-100 transition-colors">
             <FiX className="w-5 h-5 text-gray-500" />
           </button>
         </div>
 
-        {/* Video Preview */}
         <div className="flex gap-3 p-4 bg-gray-50 dark:bg-dark-200">
           <div className="w-24 h-16 rounded-lg overflow-hidden bg-gray-200 dark:bg-dark-100 flex-shrink-0">
-            <img
-              src={thumbnail}
-              alt={video.title}
-              className="w-full h-full object-cover"
-              onError={(e) => { e.target.src = PLACEHOLDER; }}
-            />
+            <img src={thumbnail} alt={video.title} className="w-full h-full object-cover" onError={(e) => { e.target.src = PLACEHOLDER; }} />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-gray-900 dark:text-white line-clamp-2">
-              {video.title}
-            </p>
-            <p className="text-xs text-gray-500 mt-1">
-              {formatViews(video.views || 0)} views • {video.duration || ""}
-            </p>
+            <p className="text-sm font-semibold text-gray-900 dark:text-white line-clamp-2">{video.title}</p>
+            <p className="text-xs text-gray-500 mt-1">{formatViews(video.views || 0)} views • {video.duration || ""}</p>
           </div>
         </div>
 
-        {/* Share Buttons */}
         <div className="p-4">
           <div className="grid grid-cols-4 gap-3 mb-4">
             {shareLinks.map((link) => (
-              <a
-                key={link.name}
-                href={link.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex flex-col items-center gap-2 group"
-                onClick={() => setTimeout(onClose, 500)}
-              >
-                <div
-                  className={`w-14 h-14 ${link.color} rounded-full flex items-center justify-center text-white shadow-lg group-hover:scale-110 transition-transform`}
-                >
+              <a key={link.name} href={link.url} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center gap-2 group" onClick={() => setTimeout(onClose, 500)}>
+                <div className={`w-14 h-14 ${link.color} rounded-full flex items-center justify-center text-white shadow-lg group-hover:scale-110 transition-transform`}>
                   {link.icon}
                 </div>
-                <span className="text-xs text-gray-600 dark:text-gray-400 font-medium">
-                  {link.name}
-                </span>
+                <span className="text-xs text-gray-600 dark:text-gray-400 font-medium">{link.name}</span>
               </a>
             ))}
           </div>
 
-          {/* Native Share (Mobile) */}
           {navigator.share && (
-            <button
-              onClick={handleNativeShare}
-              className="w-full py-3 mb-3 bg-primary-600 text-white rounded-xl font-medium hover:bg-primary-700 transition-colors flex items-center justify-center gap-2"
-            >
+            <button onClick={handleNativeShare} className="w-full py-3 mb-3 bg-primary-600 text-white rounded-xl font-medium hover:bg-primary-700 transition-colors flex items-center justify-center gap-2">
               <FiShare2 className="w-5 h-5" />
               More Share Options
             </button>
           )}
 
-          {/* Copy Link */}
           <div className="flex items-center gap-2 p-3 bg-gray-100 dark:bg-dark-200 rounded-xl">
-            <input
-              type="text"
-              readOnly
-              value={shareUrl}
-              className="flex-1 bg-transparent text-sm text-gray-700 dark:text-gray-300 outline-none truncate"
-            />
-            <button
-              onClick={handleCopyLink}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                copied
-                  ? "bg-green-500 text-white"
-                  : "bg-primary-600 text-white hover:bg-primary-700"
-              }`}
-            >
-              {copied ? (
-                <>
-                  <FiCheck className="w-4 h-4" />
-                  Copied!
-                </>
-              ) : (
-                <>
-                  <FiCopy className="w-4 h-4" />
-                  Copy
-                </>
-              )}
+            <input type="text" readOnly value={videoPageUrl} className="flex-1 bg-transparent text-sm text-gray-700 dark:text-gray-300 outline-none truncate" />
+            <button onClick={handleCopyLink} className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all ${copied ? "bg-green-500 text-white" : "bg-primary-600 text-white hover:bg-primary-700"}`}>
+              {copied ? (<><FiCheck className="w-4 h-4" /> Copied!</>) : (<><FiCopy className="w-4 h-4" /> Copy</>)}
             </button>
           </div>
         </div>
@@ -379,9 +320,7 @@ const ShareModal = ({ video, onClose }) => {
           from { transform: translateY(100%); opacity: 0; }
           to { transform: translateY(0); opacity: 1; }
         }
-        .animate-slide-up {
-          animation: slide-up 0.3s ease-out;
-        }
+        .animate-slide-up { animation: slide-up 0.3s ease-out; }
       `}</style>
     </div>
   );
