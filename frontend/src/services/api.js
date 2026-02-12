@@ -89,6 +89,14 @@ export const publicAPI = {
   getPublicComments: (page = 1, limit = 20) =>
     api.get('/comments/public', { params: { page, limit } }),
   submitComment: (data) => api.post('/comments', data),
+
+
+    // Share tracking
+  trackShare: (id, platform) => api.post(`/public/share/${id}/track`, { platform }),
+  
+  // Share debug (for testing)
+  getShareDebug: (id) => api.get(`/public/share/${id}/debug`),
+
 };
 
 // ==================== ADMIN API ====================
