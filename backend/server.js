@@ -39,7 +39,7 @@ console.log("✅ Allowed Origins:", allowedOrigins);
 app.use(
   cors({
     origin: function (origin, callback) {
-      // Allow requests with no origin (like mobile apps, curl, Postman)
+      // Allow requests with no origin (like mobile apps, curl, Postman, bots)
       if (!origin) {
         return callback(null, true);
       }
@@ -63,7 +63,7 @@ app.use(
       "Origin",
     ],
     exposedHeaders: ["Content-Range", "X-Content-Range"],
-    maxAge: 86400, // 24 hours
+    maxAge: 86400,
   })
 );
 
@@ -86,7 +86,7 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 // RATE LIMITING
 // ============================================
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 15 * 60 * 1000,
   max: 1000,
   message: { error: "Too many requests, please try again later." },
   standardHeaders: true,
@@ -132,48 +132,4 @@ app.use("/api/duplicates", duplicateRoutes);
 // HEALTH CHECK ROUTES
 // ============================================
 app.get("/", (req, res) => {
-  res.json({
-    message: "XMASTER API is running!",
-    status: "healthy",
-    timestamp: new Date().toISOString(),
-    cors: "enabled",
-    allowedOrigins: allowedOrigins,
-  });
-});
-
-app.get("/api/health", (req, res) => {
-  res.json({
-    status: "ok",
-    mongodb: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
-    cors: "enabled",
-  });
-});
-
-// ============================================
-// 404 HANDLER
-// ============================================
-app.use((req, res) => {
-  res.status(404).json({ error: "Route not found", path: req.path });
-});
-
-// ============================================
-// ERROR HANDLER
-// ============================================
-app.use((err, req, res, next) => {
-  console.error("❌ Error:", err);
-
-  res.status(err.status || 500).json({
-    error: err.message || "Internal Server Error",
-  });
-});
-
-// ============================================
-// START SERVER
-// ============================================
-const PORT = process.env.PORT || 5000;
-
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📍 Environment: ${process.env.NODE_ENV || "development"}`);
-  console.log(`🌐 CORS enabled for: ${allowedOrigins.join(", ")}`);
-});
+  
