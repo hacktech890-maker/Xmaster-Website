@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
   FiEye, FiCalendar, FiClock, FiThumbsUp, FiThumbsDown,
-  FiShare2, FiFlag, FiChevronDown, FiChevronUp,
+  FiShare2, FiFlag, FiChevronDown, FiChevronUp, FiX,
+  FiCopy, FiCheck,
 } from "react-icons/fi";
 import { publicAPI } from "../../services/api";
 import LoadingSpinner from "../../components/common/LoadingSpinner";
@@ -11,9 +12,10 @@ import LoadingSpinner from "../../components/common/LoadingSpinner";
 const PLACEHOLDER =
   "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIwIiBoZWlnaHQ9IjE4MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjMWUxZTFlIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNiIgZmlsbD0iIzY2NiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPk5vIFRodW1ibmFpbDwvdGV4dD48L3N2Zz4=";
 
+const API_BASE = process.env.REACT_APP_API_URL || "https://api.xmaster.guru/api";
+
 // ==================== AD CODES ====================
 const ADS = {
-  // 300x250 - Sidebar between recommendations
   sidebar300x250: `<script>
     atOptions = {
       'key' : '14ec0d1a96c62198d09309e2e93cdbe1',
@@ -25,7 +27,6 @@ const ADS = {
   </script>
   <script src="https://www.highperformanceformat.com/14ec0d1a96c62198d09309e2e93cdbe1/invoke.js"></script>`,
 
-  // 728x90 - Below content (desktop)
   bottom728x90: `<script>
     atOptions = {
       'key' : '63bdafcb22010cae5f0bf88ebb77480d',
@@ -37,7 +38,6 @@ const ADS = {
   </script>
   <script src="https://www.highperformanceformat.com/63bdafcb22010cae5f0bf88ebb77480d/invoke.js"></script>`,
 
-  // 320x50 - Mobile below video
   mobile320x50: `<script>
     atOptions = {
       'key' : '6234f16279422f68f13fae0f6cd38e19',
@@ -49,11 +49,9 @@ const ADS = {
   </script>
   <script src="https://www.highperformanceformat.com/6234f16279422f68f13fae0f6cd38e19/invoke.js"></script>`,
 
-  // Native Banner - Between description and recommendations
   nativeBanner: `<script async="async" data-cfasync="false" src="https://pl28697514.effectivegatecpm.com/ff1ceb8407fd04d767e71ec9b3d366ef/invoke.js"></script>
   <div id="container-ff1ceb8407fd04d767e71ec9b3d366ef"></div>`,
 
-  // Social Bar - Floating
   socialBar: `<script src="https://pl28697422.effectivegatecpm.com/7e/56/ba/7e56ba1b0754a8958ee3f0800dac7a0d.js"></script>`,
 };
 
@@ -178,6 +176,217 @@ const SocialBarLoader = () => {
   return null;
 };
 
+// ==================== SHARE MODAL ====================
+const ShareModal = ({ video, onClose }) => {
+  const [copied, setCopied] = useState(false);
+
+  if (!video) return null;
+
+  const thumbnail = getThumbnail(video);
+  // Use the backend share URL for social previews (has OG tags)
+  const shareUrl = `${API_BASE}/public/share/${video._id}`;
+  // Direct page URL
+  const pageUrl = `${window.location.origin}/watch/${video._id}${video.slug ? '/' + video.slug : ''}`;
+  const shareTitle = video.title || "Watch this video";
+  const shareText = `${shareTitle}\n\n🎬 Watch now:`;
+
+  const handleNativeShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: shareTitle,
+          text: shareText,
+          url: shareUrl,
+        });
+        onClose();
+      } catch (e) {
+        // User cancelled
+      }
+    }
+  };
+
+  const handleCopyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (e) {
+      // Fallback
+      const input = document.createElement("input");
+      input.value = shareUrl;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand("copy");
+      document.body.removeChild(input);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const shareLinks = [
+    {
+      name: "Telegram",
+      icon: (
+        <svg viewBox="0 0 24 24" className="w-6 h-6" fill="currentColor">
+          <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.96 6.504-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+        </svg>
+      ),
+      color: "bg-[#0088cc]",
+      url: `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareText)}`,
+    },
+    {
+      name: "WhatsApp",
+      icon: (
+        <svg viewBox="0 0 24 24" className="w-6 h-6" fill="currentColor">
+          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+        </svg>
+      ),
+      color: "bg-[#25D366]",
+      url: `https://wa.me/?text=${encodeURIComponent(shareText + "\n" + shareUrl)}`,
+    },
+    {
+      name: "Facebook",
+      icon: (
+        <svg viewBox="0 0 24 24" className="w-6 h-6" fill="currentColor">
+          <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+        </svg>
+      ),
+      color: "bg-[#1877F2]",
+      url: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`,
+    },
+    {
+      name: "Twitter",
+      icon: (
+        <svg viewBox="0 0 24 24" className="w-6 h-6" fill="currentColor">
+          <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+        </svg>
+      ),
+      color: "bg-black",
+      url: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`,
+    },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" onClick={onClose}>
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+
+      {/* Modal */}
+      <div
+        className="relative w-full sm:w-[420px] bg-white dark:bg-dark-300 rounded-t-2xl sm:rounded-2xl overflow-hidden animate-slide-up"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-dark-100">
+          <h3 className="text-lg font-bold text-gray-900 dark:text-white">Share Video</h3>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-dark-100 transition-colors"
+          >
+            <FiX className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+
+        {/* Video Preview */}
+        <div className="flex gap-3 p-4 bg-gray-50 dark:bg-dark-200">
+          <div className="w-24 h-16 rounded-lg overflow-hidden bg-gray-200 dark:bg-dark-100 flex-shrink-0">
+            <img
+              src={thumbnail}
+              alt={video.title}
+              className="w-full h-full object-cover"
+              onError={(e) => { e.target.src = PLACEHOLDER; }}
+            />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-gray-900 dark:text-white line-clamp-2">
+              {video.title}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">
+              {formatViews(video.views || 0)} views • {video.duration || ""}
+            </p>
+          </div>
+        </div>
+
+        {/* Share Buttons */}
+        <div className="p-4">
+          <div className="grid grid-cols-4 gap-3 mb-4">
+            {shareLinks.map((link) => (
+              <a
+                key={link.name}
+                href={link.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex flex-col items-center gap-2 group"
+                onClick={() => setTimeout(onClose, 500)}
+              >
+                <div
+                  className={`w-14 h-14 ${link.color} rounded-full flex items-center justify-center text-white shadow-lg group-hover:scale-110 transition-transform`}
+                >
+                  {link.icon}
+                </div>
+                <span className="text-xs text-gray-600 dark:text-gray-400 font-medium">
+                  {link.name}
+                </span>
+              </a>
+            ))}
+          </div>
+
+          {/* Native Share (Mobile) */}
+          {navigator.share && (
+            <button
+              onClick={handleNativeShare}
+              className="w-full py-3 mb-3 bg-primary-600 text-white rounded-xl font-medium hover:bg-primary-700 transition-colors flex items-center justify-center gap-2"
+            >
+              <FiShare2 className="w-5 h-5" />
+              More Share Options
+            </button>
+          )}
+
+          {/* Copy Link */}
+          <div className="flex items-center gap-2 p-3 bg-gray-100 dark:bg-dark-200 rounded-xl">
+            <input
+              type="text"
+              readOnly
+              value={shareUrl}
+              className="flex-1 bg-transparent text-sm text-gray-700 dark:text-gray-300 outline-none truncate"
+            />
+            <button
+              onClick={handleCopyLink}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                copied
+                  ? "bg-green-500 text-white"
+                  : "bg-primary-600 text-white hover:bg-primary-700"
+              }`}
+            >
+              {copied ? (
+                <>
+                  <FiCheck className="w-4 h-4" />
+                  Copied!
+                </>
+              ) : (
+                <>
+                  <FiCopy className="w-4 h-4" />
+                  Copy
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes slide-up {
+          from { transform: translateY(100%); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+        .animate-slide-up {
+          animation: slide-up 0.3s ease-out;
+        }
+      `}</style>
+    </div>
+  );
+};
+
 // ==================== MAIN WATCH PAGE ====================
 function WatchPage() {
   const { id } = useParams();
@@ -191,6 +400,7 @@ function WatchPage() {
   const [liked, setLiked] = useState(false);
   const [disliked, setDisliked] = useState(false);
   const [showReport, setShowReport] = useState(false);
+  const [showShare, setShowShare] = useState(false);
   const [reportReason, setReportReason] = useState("");
   const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
 
@@ -200,6 +410,43 @@ function WatchPage() {
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
+
+  // Update document head with OG tags for this video
+  useEffect(() => {
+    if (!video) return;
+
+    const thumbnail = getThumbnail(video);
+
+    // Update page title
+    document.title = `${video.title} - Xmaster`;
+
+    // Update or create meta tags
+    const updateMeta = (property, content, isName = false) => {
+      const attr = isName ? "name" : "property";
+      let tag = document.querySelector(`meta[${attr}="${property}"]`);
+      if (!tag) {
+        tag = document.createElement("meta");
+        tag.setAttribute(attr, property);
+        document.head.appendChild(tag);
+      }
+      tag.setAttribute("content", content);
+    };
+
+    updateMeta("og:title", video.title);
+    updateMeta("og:description", video.description || `Watch ${video.title} on Xmaster`);
+    updateMeta("og:image", thumbnail);
+    updateMeta("og:url", window.location.href);
+    updateMeta("og:type", "video.other");
+    updateMeta("og:site_name", "Xmaster");
+    updateMeta("twitter:card", "summary_large_image", true);
+    updateMeta("twitter:title", video.title, true);
+    updateMeta("twitter:description", video.description || `Watch ${video.title} on Xmaster`, true);
+    updateMeta("twitter:image", thumbnail, true);
+
+    return () => {
+      document.title = "Xmaster - Watch Videos Online";
+    };
+  }, [video]);
 
   // Fetch data
   useEffect(() => {
@@ -257,16 +504,6 @@ function WatchPage() {
     } catch (e) {}
   };
 
-  const handleShare = async () => {
-    const url = window.location.href;
-    if (navigator.share) {
-      try { await navigator.share({ title: video?.title, url }); } catch (e) {}
-    } else {
-      navigator.clipboard.writeText(url);
-      alert("Link copied!");
-    }
-  };
-
   const handleReport = async () => {
     if (!reportReason.trim()) return;
     try {
@@ -306,8 +543,10 @@ function WatchPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-dark-400">
-      {/* Social Bar - loads globally, floating */}
       <SocialBarLoader />
+
+      {/* Share Modal */}
+      {showShare && <ShareModal video={video} onClose={() => setShowShare(false)} />}
 
       <div className="max-w-[1400px] mx-auto px-0 sm:px-4 lg:px-6 py-0 sm:py-4">
         <div className="flex flex-col lg:flex-row gap-0 sm:gap-6">
@@ -336,12 +575,10 @@ function WatchPage() {
 
             {/* Video Info */}
             <div className="px-4 sm:px-0 mt-3">
-              {/* Title */}
               <h1 className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-900 dark:text-white leading-tight">
                 {video.title}
               </h1>
 
-              {/* Meta */}
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-sm text-gray-500 dark:text-gray-400">
                 <span className="flex items-center gap-1">
                   <FiEye className="w-4 h-4" />
@@ -363,7 +600,7 @@ function WatchPage() {
                 )}
               </div>
 
-              {/* Social Bar - Like/Dislike/Share/Report */}
+              {/* Social Bar */}
               <div className="flex flex-wrap items-center gap-2 mt-4 pb-4 border-b border-gray-200 dark:border-dark-100">
                 <button
                   onClick={handleLike}
@@ -390,7 +627,7 @@ function WatchPage() {
                 </button>
 
                 <button
-                  onClick={handleShare}
+                  onClick={() => setShowShare(true)}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium bg-gray-100 dark:bg-dark-100 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-dark-200 transition-all"
                 >
                   <FiShare2 className="w-4 h-4" />
@@ -490,36 +727,21 @@ function WatchPage() {
                 ))}
               </div>
 
-              {/* ============ DESKTOP AD #2: Native Banner below description ============ */}
               {!isMobile && (
                 <div className="mt-6">
-                  <AdSlot
-                    adCode={ADS.nativeBanner}
-                    label="Suggested for you"
-                    className="rounded-xl overflow-hidden"
-                  />
+                  <AdSlot adCode={ADS.nativeBanner} label="Suggested for you" className="rounded-xl overflow-hidden" />
                 </div>
               )}
 
-              {/* ============ DESKTOP AD #3: 728x90 below content ============ */}
               {!isMobile && (
                 <div className="mt-6 mb-6">
-                  <AdSlot
-                    adCode={ADS.bottom728x90}
-                    label="Sponsored"
-                    className="flex justify-center"
-                  />
+                  <AdSlot adCode={ADS.bottom728x90} label="Sponsored" className="flex justify-center" />
                 </div>
               )}
 
-              {/* ============ MOBILE AD: Single 320x50 below social bar ============ */}
               {isMobile && (
                 <div className="mt-6">
-                  <AdSlot
-                    adCode={ADS.mobile320x50}
-                    label="Sponsored"
-                    className="flex justify-center"
-                  />
+                  <AdSlot adCode={ADS.mobile320x50} label="Sponsored" className="flex justify-center" />
                 </div>
               )}
             </div>
@@ -537,19 +759,17 @@ function WatchPage() {
             </div>
           </div>
 
-          {/* ==================== RIGHT SIDEBAR (Desktop Only) ==================== */}
+          {/* ==================== RIGHT SIDEBAR ==================== */}
           <div className="hidden lg:block w-[400px] flex-shrink-0">
             <div className="sticky top-20">
               <h3 className="text-base font-bold text-gray-900 dark:text-white mb-4">
                 Recommended Videos
               </h3>
               <div className="space-y-3">
-                {/* First 3 recommendations */}
                 {filtered.slice(0, 3).map((v) => (
                   <RelatedVideoCard key={v._id} video={v} />
                 ))}
 
-                {/* ============ DESKTOP AD #1: 300x250 between recommendations ============ */}
                 <div className="py-2">
                   <AdSlot
                     adCode={ADS.sidebar300x250}
@@ -558,7 +778,6 @@ function WatchPage() {
                   />
                 </div>
 
-                {/* Remaining recommendations */}
                 {filtered.slice(3, 12).map((v) => (
                   <RelatedVideoCard key={v._id} video={v} />
                 ))}
@@ -580,7 +799,6 @@ const RelatedVideoCard = ({ video }) => {
       to={`/watch/${video._id}${video.slug ? `/${video.slug}` : ""}`}
       className="flex gap-3 group rounded-xl hover:bg-gray-100 dark:hover:bg-dark-200 p-2 transition-colors"
     >
-      {/* Thumbnail */}
       <div className="relative w-[168px] min-w-[168px] sm:w-[180px] sm:min-w-[180px]">
         <div className="aspect-video rounded-lg overflow-hidden bg-gray-200 dark:bg-dark-100">
           <img
@@ -598,7 +816,6 @@ const RelatedVideoCard = ({ video }) => {
         )}
       </div>
 
-      {/* Info */}
       <div className="flex-1 min-w-0 py-0.5">
         <h4 className="text-sm font-medium text-gray-900 dark:text-white group-hover:text-primary-600 dark:group-hover:text-primary-500 line-clamp-2 leading-snug transition-colors">
           {video.title}
