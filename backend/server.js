@@ -13,8 +13,9 @@ app.set("trust proxy", 1);
 // CORS CONFIGURATION - VERY IMPORTANT!
 // ============================================
 const allowedOrigins = [
-  "https://xmaster-videoss.netlify.app",
-  "https://xmaster-cj1.pages.dev", // ✅ Cloudflare Pages Domain (change if different)
+  "https://xmaster.guru",
+  "https://www.xmaster.guru",
+  "https://xmaster-cj1.pages.dev",
   "http://localhost:3000",
   "http://localhost:3001",
 ];
