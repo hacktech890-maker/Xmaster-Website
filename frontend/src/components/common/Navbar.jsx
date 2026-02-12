@@ -11,8 +11,6 @@ import {
 import SearchBar from "./SearchBar";
 import ThemeToggle from "./ThemeToggle";
 
-const LOGO_URL = "https://i.pinimg.com/736x/02/69/f5/0269f5864fb318eb5e17bac1c4c9bcff.jpg";
-
 const Navbar = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -30,7 +28,7 @@ const Navbar = () => {
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2 flex-shrink-0">
             <img
-              src={LOGO_URL}
+              src="/logo.jpg"
               alt="Xmaster"
               className="h-9 w-9 sm:h-10 sm:w-10 rounded-lg object-cover"
             />

@@ -2,8 +2,6 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { FiHeart } from 'react-icons/fi';
 
-const LOGO_URL = "https://i.pinimg.com/736x/02/69/f5/0269f5864fb318eb5e17bac1c4c9bcff.jpg";
-
 const Footer = () => {
   const currentYear = new Date().getFullYear();
 
@@ -15,7 +13,7 @@ const Footer = () => {
           <div className="col-span-1 md:col-span-2">
             <Link to="/" className="flex items-center gap-2 mb-4">
               <img
-                src={LOGO_URL}
+                src="/logo.jpg"
                 alt="Xmaster"
                 className="h-10 w-10 rounded-lg object-cover"
               />
