@@ -17,17 +17,17 @@ function getFrontendUrl() {
 
 // Helper: get best thumbnail URL for a video
 function getBestThumbnail(video) {
-  // 1. Cloudinary (original, no transforms - better quality)
   if (video.cloudinary_public_id) {
     return 'https://res.cloudinary.com/' +
       (process.env.CLOUDINARY_CLOUD_NAME || 'dzjw6z7fy') +
-      '/image/upload/' + video.cloudinary_public_id + '.jpg';
+      '/image/upload/w_1280,h_720,c_fill,q_90/' + video.cloudinary_public_id + '.jpg';
   }
-  // 2. Direct thumbnail URL from DB
   if (video.thumbnail && video.thumbnail.startsWith('http')) {
+    if (video.thumbnail.indexOf('cloudinary') !== -1 && video.thumbnail.indexOf('/upload/') !== -1) {
+      return video.thumbnail.replace('/upload/', '/upload/w_1280,h_720,c_fill,q_90/');
+    }
     return video.thumbnail;
   }
-  // 3. Fallback
   return '';
 }
 
