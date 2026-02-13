@@ -1,4 +1,5 @@
-# Xmaster Robots.txt
+export async function onRequest(context) {
+  const robotsTxt = `# Xmaster Robots.txt
 # https://xmaster.guru
 
 User-agent: *
@@ -27,10 +28,19 @@ Allow: /
 User-agent: WhatsApp
 Allow: /
 
-# Sitemaps - primary (proxied through frontend domain) and backup (direct backend)
+# Sitemaps
 Sitemap: https://xmaster.guru/sitemap.xml
 Sitemap: https://api.xmaster.guru/api/public/sitemap.xml
 
 # Crawl delay
 User-agent: *
-Crawl-delay: 1
+Crawl-delay: 1`;
+
+  return new Response(robotsTxt, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "public, max-age=86400",
+    },
+  });
+}
