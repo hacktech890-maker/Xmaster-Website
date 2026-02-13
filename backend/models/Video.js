@@ -111,6 +111,18 @@ const videoSchema = new mongoose.Schema(
       unknown: { type: Number, default: 0 },
     },
 
+
+    sharedOnTG: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
+    sharedOnTGDate: {
+      type: Date,
+      default: null,
+    },
+
     status: {
       type: String,
       enum: ["public", "private", "unlisted", "processing", "duplicate"],

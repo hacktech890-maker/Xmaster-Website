@@ -31,6 +31,11 @@ const simpleAdminAuth = (req, res, next) => {
   }
 };
 
+function getBackendUrl() {
+  var raw = process.env.BACKEND_URL || 'https://api.xmaster.guru';
+  return raw.replace(/\/+$/, '');
+}
+
 // POST /api/admin/login
 router.post('/login', (req, res) => {
   try {
@@ -68,7 +73,7 @@ router.get('/dashboard', simpleAdminAuth, async (req, res) => {
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-    const [totalVideos, publicVideos, totalViewsResult, totalCategories, totalAds, pendingReports, todayVideos, weekVideos] = await Promise.all([
+    const [totalVideos, publicVideos, totalViewsResult, totalCategories, totalAds, pendingReports, todayVideos, weekVideos, sharedOnTGCount] = await Promise.all([
       Video.countDocuments(),
       Video.countDocuments({ status: 'public' }),
       Video.aggregate([{ $group: { _id: null, total: { $sum: '$views' } } }]),
@@ -76,7 +81,8 @@ router.get('/dashboard', simpleAdminAuth, async (req, res) => {
       Ad.countDocuments({ enabled: true }),
       Report.countDocuments({ status: 'pending' }),
       Video.countDocuments({ uploadDate: { $gte: today } }),
-      Video.countDocuments({ uploadDate: { $gte: weekAgo } })
+      Video.countDocuments({ uploadDate: { $gte: weekAgo } }),
+      Video.countDocuments({ sharedOnTG: true })
     ]);
 
     const topVideos = await Video.find({ status: 'public' })
@@ -99,7 +105,8 @@ router.get('/dashboard', simpleAdminAuth, async (req, res) => {
         totalAds,
         pendingReports,
         todayVideos,
-        weekVideos
+        weekVideos,
+        sharedOnTGCount
       },
       topVideos,
       recentUploads,
@@ -114,7 +121,7 @@ router.get('/dashboard', simpleAdminAuth, async (req, res) => {
 // GET /api/admin/videos
 router.get('/videos', simpleAdminAuth, async (req, res) => {
   try {
-    const { page = 1, limit = 20, search = '', status = '', featured = '', sort = 'newest' } = req.query;
+    const { page = 1, limit = 20, search = '', status = '', featured = '', sort = 'newest', sharedOnTG = '' } = req.query;
     const query = {};
 
     if (search) {
@@ -126,6 +133,8 @@ router.get('/videos', simpleAdminAuth, async (req, res) => {
     if (status) query.status = status;
     if (featured === 'true') query.featured = true;
     if (featured === 'false') query.featured = false;
+    if (sharedOnTG === 'true') query.sharedOnTG = true;
+    if (sharedOnTG === 'false') { query.sharedOnTG = { $ne: true }; }
 
     let sortOption = {};
     switch (sort) {
@@ -149,6 +158,145 @@ router.get('/videos', simpleAdminAuth, async (req, res) => {
   } catch (error) {
     console.error('Get Videos Error:', error);
     res.status(500).json({ error: 'Failed to get videos' });
+  }
+});
+
+// ==========================================
+// BULK SHARE TO TELEGRAM
+// ==========================================
+
+// GET /api/admin/videos/tg-share-stats
+// Returns count of eligible videos for sharing
+router.get('/videos/tg-share-stats', simpleAdminAuth, async (req, res) => {
+  try {
+    const eligible = await Video.countDocuments({
+      status: 'public',
+      isDuplicate: { $ne: true },
+      sharedOnTG: { $ne: true },
+    });
+
+    const alreadyShared = await Video.countDocuments({
+      sharedOnTG: true,
+    });
+
+    const totalPublic = await Video.countDocuments({
+      status: 'public',
+      isDuplicate: { $ne: true },
+    });
+
+    res.json({
+      success: true,
+      stats: {
+        eligible,
+        alreadyShared,
+        totalPublic,
+      },
+    });
+  } catch (error) {
+    console.error('TG Share Stats Error:', error);
+    res.status(500).json({ error: 'Failed to get share stats' });
+  }
+});
+
+// POST /api/admin/videos/tg-share-fetch
+// Fetches the next N eligible videos for sharing
+router.post('/videos/tg-share-fetch', simpleAdminAuth, async (req, res) => {
+  try {
+    const { count = 50 } = req.body;
+    const limit = Math.min(Math.max(parseInt(count) || 50, 1), 1000);
+
+    const videos = await Video.find({
+      status: 'public',
+      isDuplicate: { $ne: true },
+      sharedOnTG: { $ne: true },
+    })
+      .sort({ uploadDate: 1 })
+      .limit(limit)
+      .select('_id title slug thumbnail views duration uploadDate sharedOnTG');
+
+    var backendUrl = getBackendUrl();
+
+    const videosWithLinks = videos.map(function(v) {
+      return {
+        _id: v._id,
+        title: v.title,
+        slug: v.slug,
+        thumbnail: v.thumbnail,
+        views: v.views,
+        duration: v.duration,
+        uploadDate: v.uploadDate,
+        shareUrl: backendUrl + '/api/public/share/' + v._id,
+      };
+    });
+
+    res.json({
+      success: true,
+      videos: videosWithLinks,
+      count: videosWithLinks.length,
+    });
+  } catch (error) {
+    console.error('TG Share Fetch Error:', error);
+    res.status(500).json({ error: 'Failed to fetch videos for sharing' });
+  }
+});
+
+// POST /api/admin/videos/tg-share-mark
+// Marks videos as shared on Telegram
+router.post('/videos/tg-share-mark', simpleAdminAuth, async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'No video IDs provided' });
+    }
+
+    const result = await Video.updateMany(
+      { _id: { $in: ids } },
+      {
+        $set: {
+          sharedOnTG: true,
+          sharedOnTGDate: new Date(),
+        },
+      }
+    );
+
+    res.json({
+      success: true,
+      markedCount: result.modifiedCount,
+      message: result.modifiedCount + ' videos marked as shared on Telegram',
+    });
+  } catch (error) {
+    console.error('TG Share Mark Error:', error);
+    res.status(500).json({ error: 'Failed to mark videos as shared' });
+  }
+});
+
+// POST /api/admin/videos/tg-share-unmark
+// Unmarks videos (reset shared status)
+router.post('/videos/tg-share-unmark', simpleAdminAuth, async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'No video IDs provided' });
+    }
+
+    const result = await Video.updateMany(
+      { _id: { $in: ids } },
+      {
+        $set: {
+          sharedOnTG: false,
+          sharedOnTGDate: null,
+        },
+      }
+    );
+
+    res.json({
+      success: true,
+      unmarkedCount: result.modifiedCount,
+      message: result.modifiedCount + ' videos unmarked',
+    });
+  } catch (error) {
+    console.error('TG Share Unmark Error:', error);
+    res.status(500).json({ error: 'Failed to unmark videos' });
   }
 });
 

@@ -128,8 +128,8 @@ const BulkUploadSection = ({ categories }) => {
         formData.append('status', item.videoStatus);
         if (item.category) formData.append('category', item.category);
 
-        await adminAPI.uploadVideo(formData, (progress) => {
-          updateQueueItem(item.id, { progress });
+        await adminAPI.uploadVideo(formData, (progress, loaded, total) => {
+          updateQueueItem(item.id, { progress, uploadedBytes: loaded, totalBytes: total });
         });
 
         updateQueueItem(item.id, { status: 'success', progress: 100 });
@@ -374,16 +374,18 @@ const QueueItem = ({ item, categories, onUpdate, onRemove, isUploading }) => {
             )}
           </div>
 
-          {/* Progress Bar */}
+                    {/* Progress Bar with MB */}
           {item.status === 'uploading' && (
             <div className="mt-3">
               <div className="flex justify-between text-sm mb-1">
-                <span className="text-gray-400">Uploading...</span>
-                <span className="text-white">{item.progress}%</span>
+                <span className="text-gray-400">
+                  Uploading... {item.uploadedBytes ? (item.uploadedBytes / (1024 * 1024)).toFixed(1) : ((item.size * item.progress) / (100 * 1024 * 1024)).toFixed(1)}MB / {item.totalBytes ? (item.totalBytes / (1024 * 1024)).toFixed(1) : (item.size / (1024 * 1024)).toFixed(1)}MB
+                </span>
+                <span className="text-white font-medium">{item.progress}%</span>
               </div>
-              <div className="w-full h-2 bg-dark-200 rounded-full overflow-hidden">
+              <div className="w-full h-2.5 bg-dark-200 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-primary-500 transition-all duration-300"
+                  className="h-full bg-gradient-to-r from-primary-500 to-blue-500 transition-all duration-300 rounded-full"
                   style={{ width: `${item.progress}%` }}
                 />
               </div>

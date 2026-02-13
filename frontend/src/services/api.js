@@ -120,12 +120,25 @@ export const adminAPI = {
   bulkDeleteVideos: (ids) => api.post('/admin/videos/bulk-delete', { ids }),
   toggleFeatured: (id) => api.put(`/admin/videos/${id}/feature`),
   updateVideoStatus: (id, status) => api.put(`/admin/videos/${id}/status`, { status }),
+
+
+
+  // Telegram Bulk Share
+  getTGShareStats: () => api.get('/admin/videos/tg-share-stats'),
+  fetchTGShareVideos: (count) => api.post('/admin/videos/tg-share-fetch', { count }),
+  markTGShared: (ids) => api.post('/admin/videos/tg-share-mark', { ids }),
+  unmarkTGShared: (ids) => api.post('/admin/videos/tg-share-unmark', { ids }),
   
   // Upload
   uploadVideo: (formData, onProgress) => 
     api.post('/upload/single', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
-      onUploadProgress: (e) => onProgress && onProgress(Math.round((e.loaded * 100) / e.total)),
+      onUploadProgress: (e) => {
+        if (onProgress) {
+          const percent = Math.round((e.loaded * 100) / e.total);
+          onProgress(percent, e.loaded, e.total);
+        }
+      },
     }),
   addByFileCode: (data) => api.post('/upload/file-code', data),
   bulkAddFileCodes: (videos) => api.post('/upload/bulk-file-codes', { videos }),
