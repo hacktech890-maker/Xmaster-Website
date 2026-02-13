@@ -25,7 +25,6 @@ function getFrontendUrl() {
 }
 
 function getBackendUrl() {
-  // Used for thumbnail proxy URL
   var raw = process.env.BACKEND_URL || 'https://api.xmaster.guru';
   return raw.replace(/\/+$/, '');
 }
@@ -33,60 +32,50 @@ function getBackendUrl() {
 /**
  * Build the BEST possible thumbnail URL for Telegram
  * 
- * RULES FOR TELEGRAM:
- * 1. Must be HTTPS
- * 2. Must return image/jpeg content-type
- * 3. Must NOT redirect (302/301 kills preview)
- * 4. Must be < 5MB
- * 5. Ideal size: 1280x720 (16:9)
- * 6. Must respond within 5 seconds
- * 7. URL must end with image extension OR return proper content-type
+ * ALWAYS use the proxy endpoint because:
+ * 1. Guarantees correct Content-Type header (image/jpeg)
+ * 2. No redirects (Telegram hates redirects)
+ * 3. Guaranteed HTTPS
+ * 4. URL ends with .jpg (Telegram likes this)
+ * 5. Serves a big enough image for large preview card
+ * 6. Single consistent URL format for all videos
  */
 function getTelegramOptimizedThumbnail(video) {
-  // Strategy: Use our own proxy endpoint to guarantee
-  // correct headers, no redirects, and fast response
   var backendUrl = getBackendUrl();
-  
-  // Option 1: Direct Cloudinary URL with transformations (preferred)
+  return backendUrl + '/api/public/thumb/' + video._id + '.jpg';
+}
+
+/**
+ * Get the SOURCE thumbnail URL from Cloudinary or other sources
+ * Used internally by the proxy endpoint
+ */
+function getSourceThumbnailUrl(video) {
   if (video.cloudinary_public_id) {
-    // Cloudinary direct URL with explicit format and dimensions
-    // f_jpg forces JPEG format
-    // w_1280,h_720,c_fill ensures exact dimensions
-    // q_85 for good quality but reasonable size
-    // fl_progressive for faster loading
     return 'https://res.cloudinary.com/' + CLOUDINARY_CLOUD_NAME +
-      '/image/upload/f_jpg,w_1280,h_720,c_fill,q_85,fl_progressive/' +
+      '/image/upload/w_1280,h_720,c_fill,q_90,f_jpg/' +
       video.cloudinary_public_id + '.jpg';
   }
-
-  // Option 2: thumbnailUrl field
-  if (video.thumbnailUrl && video.thumbnailUrl.startsWith('https://')) {
+  if (video.thumbnailUrl && video.thumbnailUrl.startsWith('http')) {
     if (video.thumbnailUrl.indexOf('cloudinary') !== -1) {
-      // Add transformations to existing Cloudinary URL
       return video.thumbnailUrl.replace(
         '/upload/',
-        '/upload/f_jpg,w_1280,h_720,c_fill,q_85,fl_progressive/'
+        '/upload/w_1280,h_720,c_fill,q_90,f_jpg/'
       );
     }
     return video.thumbnailUrl;
   }
-
-  // Option 3: thumbnail field
-  if (video.thumbnail && video.thumbnail.startsWith('https://')) {
+  if (video.thumbnail && video.thumbnail.startsWith('http')) {
     if (video.thumbnail.indexOf('cloudinary') !== -1) {
       return video.thumbnail.replace(
         '/upload/',
-        '/upload/f_jpg,w_1280,h_720,c_fill,q_85,fl_progressive/'
+        '/upload/w_1280,h_720,c_fill,q_90,f_jpg/'
       );
     }
     return video.thumbnail;
   }
-
-  // Option 4: Use proxy (guarantees correct headers)
-  if (video.thumbnail || video.file_code) {
-    return backendUrl + '/api/public/thumb/' + video._id + '.jpg';
+  if (video.file_code) {
+    return 'https://abyss.to/splash/' + video.file_code + '.jpg';
   }
-
   return '';
 }
 
@@ -154,9 +143,7 @@ function cleanDescription(video) {
   if (!desc || desc.trim().length < 10) {
     desc = 'Watch ' + (video.title || 'this video') + ' on ' + SITE_NAME;
   }
-  // Remove HTML tags
   desc = desc.replace(/<[^>]*>/g, '');
-  // Truncate to 200 chars
   if (desc.length > 200) {
     desc = desc.substring(0, 197) + '...';
   }
@@ -176,13 +163,9 @@ function formatViews(views) {
 // ==========================================
 // SHARE PAGE - THE CRITICAL ENDPOINT
 // ==========================================
-// This is what Telegram/WhatsApp/Facebook will fetch
-// URL: https://api.xmaster.guru/api/public/share/{videoId}
-// ==========================================
 
 router.get('/share/:id', async (req, res) => {
   try {
-    // Validate ID format to prevent MongoDB errors
     if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
       return res.redirect(getFrontendUrl());
     }
@@ -205,7 +188,6 @@ router.get('/share/:id', async (req, res) => {
     var duration = video.duration || '';
     var userAgent = req.headers['user-agent'] || '';
     var botRequest = isCrawlerBot(userAgent);
-    var telegramBot = isTelegramBot(userAgent);
 
     // Share page URL (self-referencing for og:url)
     var sharePageUrl = getBackendUrl() + '/api/public/share/' + video._id;
@@ -223,32 +205,27 @@ router.get('/share/:id', async (req, res) => {
     // ==========================================
     // OPEN GRAPH TAGS (Critical for Telegram)
     // ==========================================
-    // og:type MUST come first
     html += '<!-- OpenGraph Meta Tags -->\n';
     html += '<meta property="og:type" content="article" />\n';
     html += '<meta property="og:title" content="' + title + '" />\n';
     html += '<meta property="og:description" content="' + description + '" />\n';
-    
-    // og:url should point to the canonical URL where user lands
+
+    // og:url MUST point to THIS share page (not the React SPA)
     html += '<meta property="og:url" content="' + sharePageUrl + '" />\n';
     html += '<meta property="og:site_name" content="' + SITE_NAME + '" />\n';
     html += '<meta property="og:locale" content="en_US" />\n';
 
     // ==========================================
-    // IMAGE TAGS (Most critical for Telegram thumbnail)
+    // IMAGE TAGS (Telegram thumbnail)
+    // Uses proxy URL → guaranteed big image, correct headers
     // ==========================================
     if (thumbnail) {
-      html += '\n<!-- Image Tags (Telegram-optimized) -->\n';
-      // Primary og:image
+      html += '\n<!-- Image Tags (Telegram-optimized via proxy) -->\n';
       html += '<meta property="og:image" content="' + thumbnail + '" />\n';
-      // Secure URL (required for some crawlers)
       html += '<meta property="og:image:secure_url" content="' + thumbnail + '" />\n';
-      // Explicit type - Telegram needs this
       html += '<meta property="og:image:type" content="image/jpeg" />\n';
-      // Exact dimensions - Telegram needs this
       html += '<meta property="og:image:width" content="1280" />\n';
       html += '<meta property="og:image:height" content="720" />\n';
-      // Alt text
       html += '<meta property="og:image:alt" content="' + title + '" />\n';
     }
 
@@ -274,20 +251,12 @@ router.get('/share/:id', async (req, res) => {
       html += '<link rel="image_src" href="' + thumbnail + '" />\n';
     }
 
-    // ==========================================
-    // TELEGRAM-SPECIFIC: Allow bot to index
-    // ==========================================
     html += '<meta name="robots" content="index, follow" />\n';
 
     // ==========================================
     // RESPONSE BASED ON REQUESTER TYPE
     // ==========================================
     if (botRequest) {
-      // ======================
-      // BOT RESPONSE
-      // Minimal HTML, just OG tags + basic content
-      // NO redirect, NO JavaScript
-      // ======================
       html += '</head>\n';
       html += '<body>\n';
       html += '<h1>' + title + '</h1>\n';
@@ -303,10 +272,6 @@ router.get('/share/:id', async (req, res) => {
       html += '</body>\n';
       html += '</html>';
     } else {
-      // ======================
-      // HUMAN RESPONSE
-      // Show brief loading screen, then redirect
-      // ======================
       html += '<meta http-equiv="refresh" content="0;url=' + videoPageUrl + '" />\n';
       html += '<style>\n';
       html += '* { margin: 0; padding: 0; box-sizing: border-box; }\n';
@@ -339,17 +304,11 @@ router.get('/share/:id', async (req, res) => {
       html += '</html>';
     }
 
-    // ==========================================
-    // RESPONSE HEADERS (Critical for Telegram)
-    // ==========================================
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    // Don't cache for bots - allows re-scraping
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
-    // Allow all origins to fetch this
     res.setHeader('Access-Control-Allow-Origin', '*');
-    // Explicitly set status 200 (not 301/302)
     res.status(200).send(html);
 
   } catch (error) {
@@ -362,18 +321,13 @@ router.get('/share/:id', async (req, res) => {
 // ==========================================
 // THUMBNAIL PROXY ENDPOINT
 // ==========================================
-// This guarantees:
-// - Correct Content-Type header (image/jpeg)
-// - No redirects
-// - CORS headers
-// - Fast response with caching
-// 
+// Serves the actual image to Telegram
+// Guarantees: correct headers, big image, no redirects
 // URL: /api/public/thumb/{videoId}.jpg
 // ==========================================
 
 router.get('/thumb/:idWithExt', async (req, res) => {
   try {
-    // Strip .jpg extension if present
     var videoId = req.params.idWithExt.replace(/\.\w+$/, '');
 
     if (!videoId.match(/^[0-9a-fA-F]{24}$/)) {
@@ -383,28 +337,16 @@ router.get('/thumb/:idWithExt', async (req, res) => {
     var video = await Video.findById(videoId).lean();
     if (!video) return res.status(404).send('Not found');
 
-    // Determine source thumbnail URL
-    var thumbnailUrl = '';
-    if (video.cloudinary_public_id) {
-      thumbnailUrl = 'https://res.cloudinary.com/' + CLOUDINARY_CLOUD_NAME +
-        '/image/upload/f_jpg,w_1280,h_720,c_fill,q_85/' +
-        video.cloudinary_public_id + '.jpg';
-    } else if (video.thumbnailUrl && video.thumbnailUrl.startsWith('http')) {
-      thumbnailUrl = video.thumbnailUrl;
-    } else if (video.thumbnail && video.thumbnail.startsWith('http')) {
-      thumbnailUrl = video.thumbnail;
-    } else if (video.file_code) {
-      thumbnailUrl = 'https://abyss.to/splash/' + video.file_code + '.jpg';
-    }
+    var thumbnailUrl = getSourceThumbnailUrl(video);
 
     if (!thumbnailUrl) {
       return res.status(404).send('No thumbnail');
     }
 
-    // Fetch the image
+    // Fetch the image from source
     var imageResponse = await axios.get(thumbnailUrl, {
       responseType: 'arraybuffer',
-      timeout: 10000,
+      timeout: 15000,
       maxRedirects: 5,
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; XmasterBot/1.0)',
@@ -414,18 +356,49 @@ router.get('/thumb/:idWithExt', async (req, res) => {
 
     var imageBuffer = Buffer.from(imageResponse.data);
 
-    // Set headers that Telegram expects
+    // Set all headers Telegram needs
     res.setHeader('Content-Type', 'image/jpeg');
     res.setHeader('Content-Length', imageBuffer.length);
-    res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+    res.setHeader('Cache-Control', 'public, max-age=604800');
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    // No redirects - direct response
     res.status(200).send(imageBuffer);
 
   } catch (error) {
     console.error('Thumb proxy error:', error.message);
-    // Return a 1x1 transparent GIF as fallback
+
+    // Try fallback: original thumbnail without transforms
+    try {
+      var fallbackId = req.params.idWithExt.replace(/\.\w+$/, '');
+      var video2 = await Video.findById(fallbackId).lean();
+      if (video2) {
+        var fallbackUrl = '';
+        if (video2.thumbnail && video2.thumbnail.startsWith('http')) {
+          fallbackUrl = video2.thumbnail;
+        } else if (video2.file_code) {
+          fallbackUrl = 'https://abyss.to/splash/' + video2.file_code + '.jpg';
+        }
+        if (fallbackUrl) {
+          var fallbackResponse = await axios.get(fallbackUrl, {
+            responseType: 'arraybuffer',
+            timeout: 10000,
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (compatible; XmasterBot/1.0)',
+            },
+          });
+          var fallbackBuffer = Buffer.from(fallbackResponse.data);
+          res.setHeader('Content-Type', 'image/jpeg');
+          res.setHeader('Content-Length', fallbackBuffer.length);
+          res.setHeader('Cache-Control', 'public, max-age=604800');
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          return res.status(200).send(fallbackBuffer);
+        }
+      }
+    } catch (e2) {
+      console.error('Thumb fallback error:', e2.message);
+    }
+
+    // Last resort: 1x1 transparent GIF
     var fallback = Buffer.from(
       'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
       'base64'
@@ -437,10 +410,7 @@ router.get('/thumb/:idWithExt', async (req, res) => {
 
 
 // ==========================================
-// SHARE TRACKING ENDPOINT (Optional)
-// ==========================================
-// POST /api/public/share/:id/track
-// Body: { platform: "telegram" | "whatsapp" | "facebook" | "twitter" | "copy" | "native" }
+// SHARE TRACKING ENDPOINT
 // ==========================================
 
 router.post('/share/:id/track', async (req, res) => {
@@ -476,9 +446,6 @@ router.post('/share/:id/track', async (req, res) => {
 // ==========================================
 // OG DEBUG ENDPOINT
 // ==========================================
-// GET /api/public/share/:id/debug
-// Returns JSON with all the OG tag data for debugging
-// ==========================================
 
 router.get('/share/:id/debug', async (req, res) => {
   try {
@@ -498,21 +465,36 @@ router.get('/share/:id/debug', async (req, res) => {
     }
 
     var thumbnail = getTelegramOptimizedThumbnail(video);
+    var sourceThumbnail = getSourceThumbnailUrl(video);
 
-    // Test thumbnail accessibility
-    var thumbnailStatus = 'unknown';
-    var thumbnailContentType = 'unknown';
-    var thumbnailSize = 'unknown';
+    // Test proxy thumbnail accessibility
+    var proxyStatus = 'unknown';
+    var proxyContentType = 'unknown';
+    var proxySize = 'unknown';
     try {
       var testResponse = await axios.head(thumbnail, {
+        timeout: 10000,
+        maxRedirects: 0,
+      });
+      proxyStatus = testResponse.status;
+      proxyContentType = testResponse.headers['content-type'] || 'not set';
+      proxySize = testResponse.headers['content-length'] || 'not set';
+    } catch (e) {
+      proxyStatus = 'ERROR: ' + e.message;
+    }
+
+    // Test source thumbnail accessibility
+    var sourceStatus = 'unknown';
+    var sourceSize = 'unknown';
+    try {
+      var sourceResponse = await axios.head(sourceThumbnail, {
         timeout: 5000,
         maxRedirects: 5,
       });
-      thumbnailStatus = testResponse.status;
-      thumbnailContentType = testResponse.headers['content-type'] || 'not set';
-      thumbnailSize = testResponse.headers['content-length'] || 'not set';
+      sourceStatus = sourceResponse.status;
+      sourceSize = sourceResponse.headers['content-length'] || 'not set';
     } catch (e) {
-      thumbnailStatus = 'ERROR: ' + e.message;
+      sourceStatus = 'ERROR: ' + e.message;
     }
 
     res.json({
@@ -525,26 +507,30 @@ router.get('/share/:id/debug', async (req, res) => {
         videoPageUrl: videoPageUrl,
         shareUrl: getBackendUrl() + '/api/public/share/' + video._id,
         thumbnail: {
-          computed: thumbnail,
+          proxy: thumbnail,
+          source: sourceThumbnail,
           raw_thumbnail: video.thumbnail || null,
           raw_thumbnailUrl: video.thumbnailUrl || null,
           cloudinary_public_id: video.cloudinary_public_id || null,
           file_code: video.file_code || null,
-          status: thumbnailStatus,
-          contentType: thumbnailContentType,
-          size: thumbnailSize,
+          proxyStatus: proxyStatus,
+          proxyContentType: proxyContentType,
+          proxySize: proxySize,
+          sourceStatus: sourceStatus,
+          sourceSize: sourceSize,
         },
         telegramTest: {
           shareLink: 'https://t.me/share/url?url=' + encodeURIComponent(getBackendUrl() + '/api/public/share/' + video._id),
           webpageBotLink: 'Send this URL to @WebpageBot on Telegram: ' + getBackendUrl() + '/api/public/share/' + video._id,
-          forceRefreshCommand: 'Send to @WebpageBot: ' + getBackendUrl() + '/api/public/share/' + video._id,
+          cacheBustTest: getBackendUrl() + '/api/public/share/' + video._id + '?v=' + Date.now(),
         },
         checks: {
           hasTitle: !!video.title,
           hasThumbnail: !!thumbnail,
           thumbnailIsHttps: thumbnail ? thumbnail.startsWith('https://') : false,
-          thumbnailIsJpeg: thumbnail ? (thumbnail.indexOf('.jpg') !== -1 || thumbnail.indexOf('f_jpg') !== -1) : false,
+          thumbnailEndsWithJpg: thumbnail ? thumbnail.endsWith('.jpg') : false,
           hasCloudinaryId: !!video.cloudinary_public_id,
+          proxyWorking: proxyStatus === 200,
         },
       },
     });
