@@ -16,13 +16,11 @@ const CommentForm = () => {
   const [success, setSuccess] = useState(false);
   const [serverError, setServerError] = useState('');
 
-  // Email validation
   const isValidEmail = (email) => {
     const regex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
     return regex.test(email);
   };
 
-  // Validate current step
   const validateStep = (currentStep) => {
     const newErrors = {};
 
@@ -60,7 +58,6 @@ const CommentForm = () => {
     return Object.keys(newErrors).length === 0;
   };
 
-  // Go to next step
   const nextStep = () => {
     if (validateStep(step)) {
       setStep(step + 1);
@@ -68,14 +65,12 @@ const CommentForm = () => {
     }
   };
 
-  // Go to previous step
   const prevStep = () => {
     setStep(step - 1);
     setErrors({});
     setServerError('');
   };
 
-  // Submit form
   const handleSubmit = async () => {
     if (!validateStep(3)) return;
 
@@ -96,7 +91,6 @@ const CommentForm = () => {
         setFormData({ name: '', email: '', reason: '', message: '', category: 'suggestion' });
         setStep(1);
 
-        // Reset success after 5 seconds
         setTimeout(() => setSuccess(false), 5000);
       }
     } catch (error) {
@@ -106,16 +100,13 @@ const CommentForm = () => {
     }
   };
 
-  // Update form field
   const updateField = (field, value) => {
     setFormData({ ...formData, [field]: value });
-    // Clear error for this field
     if (errors[field]) {
       setErrors({ ...errors, [field]: '' });
     }
   };
 
-  // Success state
   if (success) {
     return (
       <div className="bg-white dark:bg-dark-200 rounded-2xl p-8 border border-gray-200 dark:border-dark-100 text-center">
@@ -214,7 +205,6 @@ const CommentForm = () => {
                   className={`w-full pl-11 pr-4 py-3 bg-gray-50 dark:bg-dark-100 border rounded-xl text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all ${
                     errors.name ? 'border-red-500' : 'border-gray-200 dark:border-dark-100'
                   }`}
-                  autoFocus
                 />
               </div>
               {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name}</p>}
@@ -291,7 +281,6 @@ const CommentForm = () => {
                   className={`w-full pl-11 pr-4 py-3 bg-gray-50 dark:bg-dark-100 border rounded-xl text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all ${
                     errors.reason ? 'border-red-500' : 'border-gray-200 dark:border-dark-100'
                   }`}
-                  autoFocus
                 />
               </div>
               {errors.reason && <p className="text-red-500 text-xs mt-1">{errors.reason}</p>}
@@ -331,7 +320,6 @@ const CommentForm = () => {
                 className={`w-full px-4 py-3 bg-gray-50 dark:bg-dark-100 border rounded-xl text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none transition-all ${
                   errors.message ? 'border-red-500' : 'border-gray-200 dark:border-dark-100'
                 }`}
-                autoFocus
               />
               {errors.message && <p className="text-red-500 text-xs mt-1">{errors.message}</p>}
               <p className="text-gray-500 text-xs mt-1 text-right">

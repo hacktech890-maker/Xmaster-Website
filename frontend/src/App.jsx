@@ -4,7 +4,7 @@ import { useAuth } from './context/AuthContext';
 import LoadingSpinner from './components/common/LoadingSpinner';
 import Navbar from './components/common/Navbar';
 import Footer from './components/common/Footer';
-import ScrollToTop from './components/common/ScrollToTop'; // ← ADD THIS
+import ScrollToTop from './components/common/ScrollToTop';
 
 const HomePage = lazy(() => import('./pages/public/HomePage'));
 const WatchPage = lazy(() => import('./pages/public/WatchPage'));
@@ -39,7 +39,7 @@ const PublicLayout = ({ children }) => (
 function App() {
   return (
     <>
-      <ScrollToTop /> {/* ← ADD THIS LINE */}
+      <ScrollToTop />
       <Suspense fallback={<LoadingSpinner fullScreen />}>
         <Routes>
           <Route path="/" element={<PublicLayout><HomePage /></PublicLayout>} />
