@@ -1,6 +1,7 @@
 {
   "short_name": "Xmaster",
-  "name": "Xmaster - Watch Videos Online",
+  "name": "Xmaster - Free ___ Videos | HD ___ Streaming",
+  "description": "Watch free HD ___ videos online. Stream thousands of ___ clips in HD & 4K quality. Updated daily.",
   "icons": [
     {
       "src": "logo.svg",
@@ -23,8 +24,10 @@
       "type": "image/jpeg"
     }
   ],
-  "start_url": ".",
+  "start_url": "/",
   "display": "standalone",
   "theme_color": "#0f0f0f",
-  "background_color": "#0f0f0f"
+  "background_color": "#0f0f0f",
+  "categories": ["entertainment"],
+  "lang": "en"
 }

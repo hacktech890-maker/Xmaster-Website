@@ -3,16 +3,11 @@ import { Helmet } from 'react-helmet-async';
 import { FiTrendingUp } from 'react-icons/fi';
 import { publicAPI } from '../../services/api';
 import VideoGrid, { VideoGridSkeleton } from '../../components/video/VideoGrid';
-import Pagination from '../../components/common/Pagination';
 import AdBanner from '../../components/ads/AdBanner';
-import CommentForm from '../../components/comments/CommentForm';
-import CommentsList from '../../components/comments/CommentsList';
 
 const TrendingPage = () => {
   const [videos, setVideos] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
-  const [pagination, setPagination] = useState({ pages: 1, total: 0 });
 
   useEffect(() => {
     const fetchTrending = async () => {
@@ -28,7 +23,6 @@ const TrendingPage = () => {
         setLoading(false);
       }
     };
-
     fetchTrending();
   }, []);
 
@@ -54,39 +48,13 @@ const TrendingPage = () => {
             </p>
           </div>
 
-          {/* Top Ad */}
           <AdBanner placement="search_top" className="mb-6" />
 
-          {/* Videos Grid */}
           {loading ? (
             <VideoGridSkeleton count={12} />
           ) : (
             <VideoGrid videos={videos} columns={4} emptyMessage="No trending videos found" />
           )}
-
-          {/* Pagination */}
-          {pagination.pages > 1 && (
-            <Pagination
-              currentPage={page}
-              totalPages={pagination.pages}
-              onPageChange={setPage}
-            />
-          )}
-
-          {/* Comments Section */}
-          <div className="mt-16 border-t border-gray-200 dark:border-dark-100 pt-10">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Comment Form */}
-              <div>
-                <CommentForm />
-              </div>
-
-              {/* Comments List */}
-              <div>
-                <CommentsList />
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </>

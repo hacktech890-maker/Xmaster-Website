@@ -1,13 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { FiGrid } from 'react-icons/fi';
 import { publicAPI } from '../../services/api';
 import VideoGrid, { VideoGridSkeleton } from '../../components/video/VideoGrid';
 import Pagination from '../../components/common/Pagination';
 import AdBanner from '../../components/ads/AdBanner';
-import CommentForm from '../../components/comments/CommentForm';
-import CommentsList from '../../components/comments/CommentsList';
 
 const CategoryPage = () => {
   const { slug } = useParams();
@@ -21,13 +18,11 @@ const CategoryPage = () => {
     const fetchCategory = async () => {
       setLoading(true);
       try {
-        // Fetch category info
         const catResponse = await publicAPI.getCategory(slug);
         if (catResponse.data?.success) {
           setCategory(catResponse.data.category);
         }
 
-        // Fetch category videos
         const vidResponse = await publicAPI.getCategoryVideos(slug, { page, limit: 20 });
         if (vidResponse.data?.success) {
           setVideos(vidResponse.data.videos || []);
@@ -79,10 +74,8 @@ const CategoryPage = () => {
             </div>
           </div>
 
-          {/* Top Ad */}
           <AdBanner placement="category_top" className="mb-6" />
 
-          {/* Videos Grid */}
           {loading ? (
             <VideoGridSkeleton count={12} />
           ) : (
@@ -93,7 +86,6 @@ const CategoryPage = () => {
             />
           )}
 
-          {/* Pagination */}
           {pagination.pages > 1 && (
             <Pagination
               currentPage={page}
@@ -104,21 +96,6 @@ const CategoryPage = () => {
               }}
             />
           )}
-
-          {/* Comments Section */}
-          <div className="mt-16 border-t border-gray-200 dark:border-dark-100 pt-10">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Comment Form */}
-              <div>
-                <CommentForm />
-              </div>
-
-              {/* Comments List */}
-              <div>
-                <CommentsList />
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </>

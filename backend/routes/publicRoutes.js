@@ -593,4 +593,81 @@ router.get('/stats', async (req, res) => {
 });
 
 
+// ==========================================
+// DYNAMIC SITEMAP
+// ==========================================
+router.get('/sitemap.xml', async (req, res) => {
+  try {
+    var frontendUrl = getFrontendUrl();
+    var videos = await Video.find({ status: 'public', isDuplicate: { $ne: true } })
+      .sort({ uploadDate: -1 })
+      .limit(5000)
+      .select('_id slug uploadDate')
+      .lean();
+
+    var categories = await Category.find({ isActive: true }).select('slug').lean();
+
+    var xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+    xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
+
+    // Homepage
+    xml += '  <url>\n';
+    xml += '    <loc>' + frontendUrl + '</loc>\n';
+    xml += '    <changefreq>daily</changefreq>\n';
+    xml += '    <priority>1.0</priority>\n';
+    xml += '  </url>\n';
+
+    // Trending
+    xml += '  <url>\n';
+    xml += '    <loc>' + frontendUrl + '/trending</loc>\n';
+    xml += '    <changefreq>daily</changefreq>\n';
+    xml += '    <priority>0.8</priority>\n';
+    xml += '  </url>\n';
+
+    // Search/Browse
+    xml += '  <url>\n';
+    xml += '    <loc>' + frontendUrl + '/search</loc>\n';
+    xml += '    <changefreq>daily</changefreq>\n';
+    xml += '    <priority>0.7</priority>\n';
+    xml += '  </url>\n';
+
+    // Categories
+    for (var c = 0; c < categories.length; c++) {
+      xml += '  <url>\n';
+      xml += '    <loc>' + frontendUrl + '/category/' + categories[c].slug + '</loc>\n';
+      xml += '    <changefreq>weekly</changefreq>\n';
+      xml += '    <priority>0.7</priority>\n';
+      xml += '  </url>\n';
+    }
+
+    // Videos
+    for (var v = 0; v < videos.length; v++) {
+      var videoUrl = frontendUrl + '/watch/' + videos[v]._id;
+      if (videos[v].slug) {
+        videoUrl += '/' + videos[v].slug;
+      }
+      var lastmod = videos[v].uploadDate ? new Date(videos[v].uploadDate).toISOString().split('T')[0] : '';
+
+      xml += '  <url>\n';
+      xml += '    <loc>' + videoUrl + '</loc>\n';
+      if (lastmod) {
+        xml += '    <lastmod>' + lastmod + '</lastmod>\n';
+      }
+      xml += '    <changefreq>monthly</changefreq>\n';
+      xml += '    <priority>0.6</priority>\n';
+      xml += '  </url>\n';
+    }
+
+    xml += '</urlset>';
+
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.status(200).send(xml);
+  } catch (error) {
+    console.error('Sitemap error:', error);
+    res.status(500).send('Sitemap generation failed');
+  }
+});
+
+
 module.exports = router;

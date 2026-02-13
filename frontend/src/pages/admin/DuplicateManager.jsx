@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { adminAPI } from "../../services/api";
-import AdminSidebar from "../../components/admin/AdminSidebar";
-import "./DuplicateManager.css";
+import AdminLayout from "../../components/admin/AdminLayout";
 
 const DuplicateManager = () => {
   const [duplicates, setDuplicates] = useState([]);
@@ -13,12 +12,6 @@ const DuplicateManager = () => {
   const [selectedIds, setSelectedIds] = useState([]);
   const [actionLoading, setActionLoading] = useState({});
   const [scanResult, setScanResult] = useState(null);
-  const [notification, setNotification] = useState(null);
-
-  const showNotification = (message, type = "success") => {
-    setNotification({ message, type });
-    setTimeout(() => setNotification(null), 4000);
-  };
 
   const fetchDuplicates = useCallback(async (page = 1, filter = activeFilter) => {
     setLoading(true);
@@ -31,7 +24,6 @@ const DuplicateManager = () => {
       }
     } catch (error) {
       console.error("Failed to fetch duplicates:", error);
-      showNotification("Failed to fetch duplicates", "error");
     } finally {
       setLoading(false);
     }
@@ -43,141 +35,84 @@ const DuplicateManager = () => {
 
   const handleScan = async () => {
     if (scanning) return;
-    if (!window.confirm("This will scan all videos for duplicates. This may take a while for large libraries. Continue?")) {
-      return;
-    }
+    if (!window.confirm("Scan all videos for duplicates? This may take a while.")) return;
     setScanning(true);
     setScanResult(null);
     try {
       const res = await adminAPI.scanDuplicates();
       if (res.data.success) {
         setScanResult(res.data);
-        showNotification(res.data.message, "success");
         fetchDuplicates(1, activeFilter);
       }
     } catch (error) {
       console.error("Scan failed:", error);
-      showNotification("Scan failed. Check console for details.", "error");
     } finally {
       setScanning(false);
     }
   };
 
-  const handleDelete = async (id, title) => {
-    if (!window.confirm(`Delete duplicate "${title}"? This cannot be undone.`)) return;
-    setActionLoading((prev) => ({ ...prev, [id]: "deleting" }));
+  const handleAction = async (action, id, title) => {
+    if (action === 'delete' && !window.confirm(`Delete "${title}"? This cannot be undone.`)) return;
+    setActionLoading(prev => ({ ...prev, [id]: action }));
     try {
-      const res = await adminAPI.deleteDuplicate(id);
-      if (res.data.success) {
-        showNotification("Duplicate deleted successfully");
-        setDuplicates((prev) => prev.filter((v) => v._id !== id));
-        setSelectedIds((prev) => prev.filter((sid) => sid !== id));
-        setStats((prev) => ({ ...prev, total: prev.total - 1 }));
+      let res;
+      if (action === 'delete') res = await adminAPI.deleteDuplicate(id);
+      else if (action === 'keep') res = await adminAPI.keepDuplicate(id);
+      else if (action === 'public') res = await adminAPI.makePublicDuplicate(id);
+      
+      if (res?.data?.success) {
+        setDuplicates(prev => prev.filter(v => v._id !== id));
+        setStats(prev => ({ ...prev, total: prev.total - 1 }));
       }
     } catch (error) {
-      showNotification("Failed to delete", "error");
+      console.error(`${action} failed:`, error);
     } finally {
-      setActionLoading((prev) => ({ ...prev, [id]: null }));
-    }
-  };
-
-  const handleMakePublic = async (id) => {
-    setActionLoading((prev) => ({ ...prev, [id]: "publishing" }));
-    try {
-      const res = await adminAPI.makePublicDuplicate(id);
-      if (res.data.success) {
-        showNotification("Video is now public");
-        setDuplicates((prev) => prev.filter((v) => v._id !== id));
-        setStats((prev) => ({ ...prev, total: prev.total - 1 }));
-      }
-    } catch (error) {
-      showNotification("Failed to make public", "error");
-    } finally {
-      setActionLoading((prev) => ({ ...prev, [id]: null }));
-    }
-  };
-
-  const handleKeep = async (id) => {
-    setActionLoading((prev) => ({ ...prev, [id]: "keeping" }));
-    try {
-      const res = await adminAPI.keepDuplicate(id);
-      if (res.data.success) {
-        showNotification("Video marked as unique and made public");
-        setDuplicates((prev) => prev.filter((v) => v._id !== id));
-        setStats((prev) => ({ ...prev, total: prev.total - 1 }));
-      }
-    } catch (error) {
-      showNotification("Failed to update", "error");
-    } finally {
-      setActionLoading((prev) => ({ ...prev, [id]: null }));
+      setActionLoading(prev => ({ ...prev, [id]: null }));
     }
   };
 
   const handleBulkDelete = async () => {
     if (selectedIds.length === 0) return;
-    if (!window.confirm(`Delete ${selectedIds.length} selected duplicates? This cannot be undone.`)) return;
+    if (!window.confirm(`Delete ${selectedIds.length} duplicates?`)) return;
     setLoading(true);
     try {
-      const res = await adminAPI.bulkDeleteDuplicates(selectedIds);
-      if (res.data.success) {
-        showNotification(res.data.message);
-        setSelectedIds([]);
-        fetchDuplicates(pagination.page, activeFilter);
-      }
+      await adminAPI.bulkDeleteDuplicates(selectedIds);
+      setSelectedIds([]);
+      fetchDuplicates(pagination.page, activeFilter);
     } catch (error) {
-      showNotification("Bulk delete failed", "error");
+      console.error("Bulk delete failed:", error);
     } finally {
       setLoading(false);
     }
   };
 
   const handleClearAll = async () => {
-    if (!window.confirm("This will remove all duplicate flags (videos won't be deleted). Continue?")) return;
+    if (!window.confirm("Clear all duplicate flags? (Videos won't be deleted)")) return;
     setLoading(true);
     try {
-      const res = await adminAPI.clearAllDuplicates();
-      if (res.data.success) {
-        showNotification(res.data.message);
-        fetchDuplicates(1, activeFilter);
-      }
+      await adminAPI.clearAllDuplicates();
+      fetchDuplicates(1, activeFilter);
     } catch (error) {
-      showNotification("Failed to clear flags", "error");
+      console.error("Clear failed:", error);
     } finally {
       setLoading(false);
     }
   };
 
   const toggleSelect = (id) => {
-    setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((sid) => sid !== id) : [...prev, id]
-    );
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(sid => sid !== id) : [...prev, id]);
   };
 
   const toggleSelectAll = () => {
-    if (selectedIds.length === duplicates.length) {
-      setSelectedIds([]);
-    } else {
-      setSelectedIds(duplicates.map((d) => d._id));
-    }
+    if (selectedIds.length === duplicates.length) setSelectedIds([]);
+    else setSelectedIds(duplicates.map(d => d._id));
   };
 
-  const getReasonBadge = (reason) => {
-    const badges = {
-      title: { label: "Matching Title", color: "#e74c3c" },
-      duration: { label: "Matching Duration", color: "#f39c12" },
-      file: { label: "Matching File", color: "#9b59b6" },
-      thumbnail: { label: "Matching Thumbnail", color: "#3498db" },
-    };
-    const badge = badges[reason] || { label: reason, color: "#95a5a6" };
-    return (
-      <span
-        key={reason}
-        className="dup-reason-badge"
-        style={{ backgroundColor: badge.color }}
-      >
-        {badge.label}
-      </span>
-    );
+  const getThumbnail = (video) => {
+    if (!video) return '';
+    if (video.thumbnail && video.thumbnail.startsWith('http')) return video.thumbnail;
+    if (video.file_code) return `https://abyss.to/splash/${video.file_code}.jpg`;
+    return '';
   };
 
   const formatDuration = (seconds) => {
@@ -189,251 +124,325 @@ const DuplicateManager = () => {
     return `${m}:${String(s).padStart(2, "0")}`;
   };
 
+  const reasonColors = {
+    title: 'bg-red-500/20 text-red-400 border-red-500/30',
+    duration: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+    file: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+    thumbnail: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+  };
+
+  const reasonLabels = {
+    title: 'Title Match',
+    duration: 'Duration Match',
+    file: 'File Match',
+    thumbnail: 'Thumbnail Match',
+  };
+
   return (
-    <div className="dup-page-wrapper">
-      <AdminSidebar />
-      <div className="dup-main-content">
-        {/* Notification */}
-        {notification && (
-          <div className={`dup-notification dup-notification-${notification.type}`}>
-            {notification.type === "success" ? "✅" : "❌"} {notification.message}
-          </div>
-        )}
-
-        {/* Header */}
-        <div className="dup-header">
-          <div className="dup-header-left">
-            <h1>📌 Duplicate Videos</h1>
-            <p className="dup-subtitle">
-              Manage duplicate videos detected during bulk uploads
-            </p>
-          </div>
-          <div className="dup-header-actions">
-            <button
-              className="dup-btn dup-btn-scan"
-              onClick={handleScan}
-              disabled={scanning}
-            >
-              {scanning ? (
-                <>
-                  <span className="dup-spinner"></span> Scanning...
-                </>
-              ) : (
-                <>🔍 Scan for Duplicates</>
-              )}
-            </button>
-            {stats.total > 0 && (
-              <button className="dup-btn dup-btn-clear" onClick={handleClearAll}>
-                🧹 Clear All Flags
-              </button>
+    <AdminLayout title="Duplicate Manager">
+      {/* Header Actions */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+        <p className="text-gray-400 text-sm">Manage duplicate videos detected during uploads</p>
+        <div className="flex gap-2">
+          <button
+            onClick={handleScan}
+            disabled={scanning}
+            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
+          >
+            {scanning ? (
+              <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Scanning...</>
+            ) : (
+              <>🔍 Scan for Duplicates</>
             )}
-          </div>
-        </div>
-
-        {/* Scan Result */}
-        {scanResult && (
-          <div className="dup-scan-result">
-            <strong>Last Scan Result:</strong> Found {scanResult.duplicatesFound} duplicates
-            out of {scanResult.totalScanned} videos scanned.
-          </div>
-        )}
-
-        {/* Stats Cards */}
-        <div className="dup-stats-grid">
-          <div
-            className={`dup-stat-card ${activeFilter === "all" ? "active" : ""}`}
-            onClick={() => setActiveFilter("all")}
-          >
-            <div className="dup-stat-number">{stats.total}</div>
-            <div className="dup-stat-label">Total Duplicates</div>
-          </div>
-          <div
-            className={`dup-stat-card dup-stat-title ${activeFilter === "title" ? "active" : ""}`}
-            onClick={() => setActiveFilter("title")}
-          >
-            <div className="dup-stat-number">{stats.byTitle}</div>
-            <div className="dup-stat-label">Matching Title</div>
-          </div>
-          <div
-            className={`dup-stat-card dup-stat-duration ${activeFilter === "duration" ? "active" : ""}`}
-            onClick={() => setActiveFilter("duration")}
-          >
-            <div className="dup-stat-number">{stats.byDuration}</div>
-            <div className="dup-stat-label">Matching Duration</div>
-          </div>
-          <div
-            className={`dup-stat-card dup-stat-file ${activeFilter === "file" ? "active" : ""}`}
-            onClick={() => setActiveFilter("file")}
-          >
-            <div className="dup-stat-number">{stats.byFile}</div>
-            <div className="dup-stat-label">Matching File</div>
-          </div>
-        </div>
-
-        {/* Bulk Actions */}
-        {selectedIds.length > 0 && (
-          <div className="dup-bulk-bar">
-            <span>{selectedIds.length} selected</span>
-            <button className="dup-btn dup-btn-danger" onClick={handleBulkDelete}>
-              🗑️ Delete Selected ({selectedIds.length})
+          </button>
+          {stats.total > 0 && (
+            <button onClick={handleClearAll} className="px-4 py-2.5 bg-dark-100 hover:bg-dark-300 text-gray-300 rounded-lg font-medium transition-colors">
+              🧹 Clear All Flags
             </button>
-            <button
-              className="dup-btn dup-btn-secondary"
-              onClick={() => setSelectedIds([])}
-            >
-              Cancel
-            </button>
-          </div>
-        )}
-
-        {/* Duplicate List */}
-        <div className="dup-list-container">
-          {loading ? (
-            <div className="dup-loading">
-              <div className="dup-spinner-large"></div>
-              <p>Loading duplicates...</p>
-            </div>
-          ) : duplicates.length === 0 ? (
-            <div className="dup-empty">
-              <div className="dup-empty-icon">✨</div>
-              <h3>No Duplicates Found</h3>
-              <p>
-                {activeFilter !== "all"
-                  ? `No duplicates matching by ${activeFilter}. Try "All" filter or run a scan.`
-                  : 'Your library is clean! Click "Scan for Duplicates" to check.'}
-              </p>
-            </div>
-          ) : (
-            <>
-              {/* Select All */}
-              <div className="dup-list-header">
-                <label className="dup-checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.length === duplicates.length && duplicates.length > 0}
-                    onChange={toggleSelectAll}
-                  />
-                  Select All ({duplicates.length})
-                </label>
-              </div>
-
-              {/* Video Cards */}
-              {duplicates.map((video) => (
-                <div
-                  key={video._id}
-                  className={`dup-video-card ${selectedIds.includes(video._id) ? "selected" : ""}`}
-                >
-                  <div className="dup-video-select">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.includes(video._id)}
-                      onChange={() => toggleSelect(video._id)}
-                    />
-                  </div>
-
-                  <div className="dup-video-thumb">
-                    {video.thumbnail ? (
-                      <img src={video.thumbnail} alt={video.title} />
-                    ) : (
-                      <div className="dup-thumb-placeholder">🎬</div>
-                    )}
-                    <span className="dup-duration-badge">
-                      {video.duration || formatDuration(video.duration_seconds)}
-                    </span>
-                  </div>
-
-                  <div className="dup-video-info">
-                    <h3 className="dup-video-title">{video.title}</h3>
-
-                    <div className="dup-video-meta">
-                      <span>📁 {video.file_code}</span>
-                      <span>👁️ {video.views || 0} views</span>
-                      <span>📅 {new Date(video.createdAt).toLocaleDateString()}</span>
-                      <span className="dup-status-badge dup-status-private">
-                        🔒 Private
-                      </span>
-                    </div>
-
-                    <div className="dup-reasons">
-                      <strong>Duplicate because:</strong>
-                      {video.duplicateReasons &&
-                        video.duplicateReasons.map((reason) => getReasonBadge(reason))}
-                    </div>
-
-                    {/* Original Video Reference */}
-                    {video.duplicateOf && (
-                      <div className="dup-original-ref">
-                        <span className="dup-original-label">↳ Original:</span>
-                        <span className="dup-original-title">
-                          {typeof video.duplicateOf === "object"
-                            ? video.duplicateOf.title || "Unknown"
-                            : "Loading..."}
-                        </span>
-                        {typeof video.duplicateOf === "object" && video.duplicateOf.status && (
-                          <span
-                            className={`dup-status-badge dup-status-${video.duplicateOf.status}`}
-                          >
-                            {video.duplicateOf.status}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="dup-video-actions">
-                    <button
-                      className="dup-action-btn dup-action-keep"
-                      onClick={() => handleKeep(video._id)}
-                      disabled={!!actionLoading[video._id]}
-                      title="Mark as unique & make public"
-                    >
-                      {actionLoading[video._id] === "keeping" ? "..." : "✅ Keep"}
-                    </button>
-                    <button
-                      className="dup-action-btn dup-action-public"
-                      onClick={() => handleMakePublic(video._id)}
-                      disabled={!!actionLoading[video._id]}
-                      title="Make this video public"
-                    >
-                      {actionLoading[video._id] === "publishing" ? "..." : "🌐 Public"}
-                    </button>
-                    <button
-                      className="dup-action-btn dup-action-delete"
-                      onClick={() => handleDelete(video._id, video.title)}
-                      disabled={!!actionLoading[video._id]}
-                      title="Delete this duplicate"
-                    >
-                      {actionLoading[video._id] === "deleting" ? "..." : "🗑️ Delete"}
-                    </button>
-                  </div>
-                </div>
-              ))}
-
-              {/* Pagination */}
-              {pagination.pages > 1 && (
-                <div className="dup-pagination">
-                  <button
-                    disabled={pagination.page <= 1}
-                    onClick={() => fetchDuplicates(pagination.page - 1)}
-                  >
-                    ← Prev
-                  </button>
-                  <span>
-                    Page {pagination.page} of {pagination.pages} ({pagination.total} total)
-                  </span>
-                  <button
-                    disabled={pagination.page >= pagination.pages}
-                    onClick={() => fetchDuplicates(pagination.page + 1)}
-                  >
-                    Next →
-                  </button>
-                </div>
-              )}
-            </>
           )}
         </div>
       </div>
-    </div>
+
+      {/* Scan Result */}
+      {scanResult && (
+        <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl text-blue-400 text-sm">
+          Found {scanResult.duplicatesFound} duplicates out of {scanResult.totalScanned} videos scanned.
+        </div>
+      )}
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        {[
+          { key: 'all', label: 'Total', value: stats.total, color: 'border-gray-500' },
+          { key: 'title', label: 'Title Match', value: stats.byTitle, color: 'border-red-500' },
+          { key: 'duration', label: 'Duration Match', value: stats.byDuration, color: 'border-yellow-500' },
+          { key: 'file', label: 'File Match', value: stats.byFile, color: 'border-purple-500' },
+        ].map(stat => (
+          <button
+            key={stat.key}
+            onClick={() => setActiveFilter(stat.key)}
+            className={`p-4 rounded-xl border-2 transition-all text-left ${
+              activeFilter === stat.key
+                ? `${stat.color} bg-dark-100`
+                : 'border-dark-100 bg-dark-200 hover:bg-dark-100'
+            }`}
+          >
+            <p className="text-2xl font-bold text-white">{stat.value}</p>
+            <p className="text-xs text-gray-400 mt-1">{stat.label}</p>
+          </button>
+        ))}
+      </div>
+
+      {/* Bulk Actions */}
+      {selectedIds.length > 0 && (
+        <div className="mb-4 flex items-center gap-4 p-4 bg-dark-100 rounded-xl">
+          <span className="text-gray-400">{selectedIds.length} selected</span>
+          <button onClick={handleBulkDelete} className="px-4 py-2 bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded-lg transition-colors text-sm">
+            🗑️ Delete Selected
+          </button>
+          <button onClick={() => setSelectedIds([])} className="px-4 py-2 bg-dark-200 text-gray-400 hover:text-white rounded-lg transition-colors text-sm">
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Duplicate List */}
+      <div className="space-y-4">
+        {loading ? (
+          <div className="text-center py-16">
+            <div className="w-8 h-8 border-3 border-primary-500/30 border-t-primary-500 rounded-full animate-spin mx-auto mb-4" />
+            <p className="text-gray-400">Loading duplicates...</p>
+          </div>
+        ) : duplicates.length === 0 ? (
+          <div className="text-center py-16 bg-dark-200 rounded-xl">
+            <div className="text-5xl mb-4">✨</div>
+            <h3 className="text-white text-lg font-semibold mb-2">No Duplicates Found</h3>
+            <p className="text-gray-400 text-sm">
+              {activeFilter !== 'all' ? `No ${activeFilter} match duplicates. Try "Total" filter.` : 'Your library is clean!'}
+            </p>
+          </div>
+        ) : (
+          <>
+            {/* Select All */}
+            <div className="flex items-center gap-3 px-2">
+              <input
+                type="checkbox"
+                checked={selectedIds.length === duplicates.length && duplicates.length > 0}
+                onChange={toggleSelectAll}
+                className="rounded"
+              />
+              <span className="text-gray-400 text-sm">Select All ({duplicates.length})</span>
+            </div>
+
+            {/* Side-by-Side Comparison Cards */}
+            {duplicates.map((video) => {
+              const original = video.duplicateOf;
+              const hasOriginal = original && typeof original === 'object';
+
+              return (
+                <div
+                  key={video._id}
+                  className={`bg-dark-200 rounded-xl border overflow-hidden transition-colors ${
+                    selectedIds.includes(video._id) ? 'border-primary-500' : 'border-dark-100'
+                  }`}
+                >
+                  {/* Top Bar: Checkbox + Reasons */}
+                  <div className="flex items-center justify-between p-4 bg-dark-300 border-b border-dark-100">
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(video._id)}
+                        onChange={() => toggleSelect(video._id)}
+                        className="rounded"
+                      />
+                      <span className="text-white font-medium text-sm">Duplicate Detected</span>
+                      <div className="flex gap-2">
+                        {video.duplicateReasons?.map(reason => (
+                          <span
+                            key={reason}
+                            className={`px-2.5 py-1 rounded-full text-xs font-medium border ${reasonColors[reason] || 'bg-gray-500/20 text-gray-400'}`}
+                          >
+                            {reasonLabels[reason] || reason}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Side-by-Side Comparison */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-dark-100">
+                    
+                    {/* LEFT: Duplicate (New Video) */}
+                    <div className="p-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="px-2.5 py-1 bg-red-500/20 text-red-400 rounded-full text-xs font-semibold">
+                          🔴 DUPLICATE
+                        </span>
+                        <span className="px-2.5 py-1 bg-gray-500/20 text-gray-400 rounded-full text-xs">
+                          🔒 Private
+                        </span>
+                      </div>
+                      
+                      <div className="flex gap-3">
+                        <div className="w-40 h-24 rounded-lg overflow-hidden bg-dark-100 flex-shrink-0">
+                          {getThumbnail(video) ? (
+                            <img src={getThumbnail(video)} alt={video.title} className="w-full h-full object-cover" onError={(e) => { e.target.style.display = 'none'; }} />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-2xl">🎬</div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h4 className="text-white font-medium text-sm truncate">{video.title}</h4>
+                          <div className="mt-2 space-y-1 text-xs text-gray-400">
+                            <p>📁 {video.file_code}</p>
+                            <p>⏱️ {video.duration || formatDuration(video.duration_seconds)}</p>
+                            <p>👁️ {video.views || 0} views</p>
+                            <p>📅 {new Date(video.createdAt).toLocaleDateString()}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Actions for Duplicate */}
+                      <div className="flex gap-2 mt-4">
+                        <button
+                          onClick={() => handleAction('keep', video._id)}
+                          disabled={!!actionLoading[video._id]}
+                          className="flex-1 px-3 py-2 bg-green-600/20 text-green-400 hover:bg-green-600/30 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+                        >
+                          {actionLoading[video._id] === 'keep' ? '...' : '✅ Keep as Unique'}
+                        </button>
+                        <button
+                          onClick={() => handleAction('public', video._id)}
+                          disabled={!!actionLoading[video._id]}
+                          className="flex-1 px-3 py-2 bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+                        >
+                          {actionLoading[video._id] === 'public' ? '...' : '🌐 Make Public'}
+                        </button>
+                        <button
+                          onClick={() => handleAction('delete', video._id, video.title)}
+                          disabled={!!actionLoading[video._id]}
+                          className="flex-1 px-3 py-2 bg-red-600/20 text-red-400 hover:bg-red-600/30 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+                        >
+                          {actionLoading[video._id] === 'delete' ? '...' : '🗑️ Delete'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* RIGHT: Original Video */}
+                    <div className="p-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="px-2.5 py-1 bg-green-500/20 text-green-400 rounded-full text-xs font-semibold">
+                          🟢 ORIGINAL
+                        </span>
+                        {hasOriginal && (
+                          <span className={`px-2.5 py-1 rounded-full text-xs ${
+                            original.status === 'public' ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'
+                          }`}>
+                            {original.status === 'public' ? '🌐 Public' : '🔒 ' + (original.status || 'Unknown')}
+                          </span>
+                        )}
+                      </div>
+
+                      {hasOriginal ? (
+                        <div className="flex gap-3">
+                          <div className="w-40 h-24 rounded-lg overflow-hidden bg-dark-100 flex-shrink-0">
+                            {getThumbnail(original) ? (
+                              <img src={getThumbnail(original)} alt={original.title} className="w-full h-full object-cover" onError={(e) => { e.target.style.display = 'none'; }} />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-2xl">🎬</div>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h4 className="text-white font-medium text-sm truncate">{original.title}</h4>
+                            <div className="mt-2 space-y-1 text-xs text-gray-400">
+                              <p>📁 {original.file_code}</p>
+                              <p>⏱️ {original.duration || 'N/A'}</p>
+                              <p>👁️ {original.views || 0} views</p>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center h-24 bg-dark-100 rounded-lg">
+                          <p className="text-gray-500 text-sm">Original video data not available</p>
+                        </div>
+                      )}
+
+                      {/* Actions for Original */}
+                      {hasOriginal && (
+                        <div className="flex gap-2 mt-4">
+                          <button
+                            onClick={() => handleAction('delete', original._id, original.title)}
+                            disabled={!!actionLoading[original._id]}
+                            className="flex-1 px-3 py-2 bg-red-600/20 text-red-400 hover:bg-red-600/30 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+                          >
+                            {actionLoading[original._id] === 'delete' ? '...' : '🗑️ Delete Original'}
+                          </button>
+                          <a
+                            href={`/watch/${original._id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex-1 px-3 py-2 bg-dark-100 text-gray-400 hover:text-white hover:bg-dark-300 rounded-lg text-xs font-medium transition-colors text-center"
+                          >
+                            👁️ View Original
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Bottom: Delete Both Option */}
+                  {hasOriginal && (
+                    <div className="px-4 py-3 bg-dark-300 border-t border-dark-100 flex justify-center">
+                      <button
+                        onClick={async () => {
+                          if (!window.confirm('Delete BOTH videos? This cannot be undone.')) return;
+                          setActionLoading(prev => ({ ...prev, [video._id]: 'delete', [original._id]: 'delete' }));
+                          try {
+                            await adminAPI.bulkDeleteDuplicates([video._id, original._id]);
+                            setDuplicates(prev => prev.filter(v => v._id !== video._id));
+                            setStats(prev => ({ ...prev, total: prev.total - 1 }));
+                          } catch (e) {
+                            console.error('Delete both failed:', e);
+                          } finally {
+                            setActionLoading(prev => ({ ...prev, [video._id]: null, [original._id]: null }));
+                          }
+                        }}
+                        className="px-4 py-2 bg-red-600/10 text-red-400 hover:bg-red-600/20 rounded-lg text-xs font-medium transition-colors"
+                      >
+                        🗑️ Delete Both Videos
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* Pagination */}
+            {pagination.pages > 1 && (
+              <div className="flex items-center justify-center gap-4 pt-4">
+                <button
+                  disabled={pagination.page <= 1}
+                  onClick={() => fetchDuplicates(pagination.page - 1)}
+                  className="px-4 py-2 bg-dark-100 text-gray-400 hover:text-white rounded-lg disabled:opacity-50 transition-colors"
+                >
+                  ← Prev
+                </button>
+                <span className="text-gray-400 text-sm">
+                  Page {pagination.page} of {pagination.pages}
+                </span>
+                <button
+                  disabled={pagination.page >= pagination.pages}
+                  onClick={() => fetchDuplicates(pagination.page + 1)}
+                  className="px-4 py-2 bg-dark-100 text-gray-400 hover:text-white rounded-lg disabled:opacity-50 transition-colors"
+                >
+                  Next →
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </AdminLayout>
   );
 };
 
