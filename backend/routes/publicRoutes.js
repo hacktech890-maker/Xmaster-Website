@@ -225,7 +225,7 @@ router.get('/share/:id', async (req, res) => {
     // ==========================================
     // og:type MUST come first
     html += '<!-- OpenGraph Meta Tags -->\n';
-    html += '<meta property="og:type" content="video.other" />\n';
+    html += '<meta property="og:type" content="article" />\n';
     html += '<meta property="og:title" content="' + title + '" />\n';
     html += '<meta property="og:description" content="' + description + '" />\n';
     
