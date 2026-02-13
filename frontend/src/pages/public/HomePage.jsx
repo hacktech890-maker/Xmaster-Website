@@ -246,23 +246,23 @@ const HomePage = () => {
   return (
     <>
       <Helmet>
-        <title>Xmaster - Free ___ Videos | Watch HD ___ Online | ___ Streaming Site</title>
-        <meta name="description" content="Watch free HD ___ videos on Xmaster. Stream thousands of ___ clips in HD & 4K. Browse ___, ___, ___, ___, ___ categories. Best free ___ tube site. Alternative to ___hub, x___ster, ___videos. Updated daily with new ___ content. MMS videos, desi ___, indian ___, amateur ___, homemade ___ and more." />
-        <meta name="keywords" content="___,free ___ videos,HD ___,4K ___,___ streaming,watch ___ online,___ tube,___ site,___hub alternative,x___ster alternative,___videos alternative,desi ___,indian ___,mms videos,leaked mms,amateur ___,homemade ___,milf,teen,anal,blowjob,creampie,big ass,big tits,latina,asian,ebony,lesbian,threesome,webcam,hentai,JAV,POV,hardcore,xmaster,xmaster.guru" />
+        <title>Xmaster - Free porn Videos | Watch HD porn Online | porn Streaming Site</title>
+        <meta name="description" content="Watch free HD ___ videos on Xmaster. Stream thousands of ___ clips in HD & 4K. Browse leaked mms videos, viral mms videos, porn, mms, hardcore, anal categories. Best free porn tube site. Alternative to pornhub, xhamster, Xvideos. Updated daily with new porn content. MMS videos, desi mms, indian mms, amateur porn, homemade porn and more." />
+        <meta name="keywords" content="porn,free porn videos,HD porn,4K porn,porn streaming,watch porn online,porn tube,porn site,pornhub alternative,xhamster alternative,xvideos alternative,desi mms,indian mms,mms videos,leaked mms,amateur porn,homemade porn,milf,teen,anal,blowjob,creampie,big ass,big tits,latina,asian,ebony,lesbian,threesome,webcam,hentai,JAV,POV,hardcore,xmaster,xmaster.guru" />
         <link rel="canonical" href="https://xmaster.guru" />
 
         {/* Open Graph */}
         <meta property="og:type" content="website" />
-        <meta property="og:title" content="Xmaster - Free ___ Videos | HD ___ Streaming" />
-        <meta property="og:description" content="Watch free HD ___ videos online. Thousands of ___ clips updated daily. Best ___ tube alternative." />
+        <meta property="og:title" content="Xmaster - Free porn Videos | HD porn Streaming" />
+        <meta property="og:description" content="Watch free HD porn videos online. Thousands of porn clips updated daily. Best porn tube alternative." />
         <meta property="og:url" content="https://xmaster.guru" />
         <meta property="og:image" content="https://xmaster.guru/logo.jpg" />
         <meta property="og:site_name" content="Xmaster" />
 
         {/* Twitter */}
         <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content="Xmaster - Free ___ Videos | HD Streaming" />
-        <meta name="twitter:description" content="Watch free HD ___ videos online. Updated daily." />
+        <meta name="twitter:title" content="Xmaster - Free porn Videos | HD Streaming" />
+        <meta name="twitter:description" content="Watch free HD porn videos online. Updated daily." />
         <meta name="twitter:image" content="https://xmaster.guru/logo.jpg" />
       </Helmet>
 
@@ -276,7 +276,7 @@ const HomePage = () => {
 
               {/* SEO H1 - Hidden visually but readable by search engines */}
               <h1 className="sr-only">
-                Xmaster - Free ___ Videos | Watch HD ___ Online | Best ___ Tube Site | Alternative to ___hub x___ster ___videos
+                Xmaster - Free porn Videos | Watch HD porn Online | Best porn Tube Site | Alternative to pornhub xhamster Xvideos
               </h1>
 
               {/* Featured Videos */}
@@ -367,21 +367,21 @@ const HomePage = () => {
 
                 <div className="text-sm text-gray-500 dark:text-gray-400 space-y-3 leading-relaxed">
                   <p>
-                    <strong>Xmaster</strong> is your ultimate destination for free ___ videos online.
+                    <strong>Xmaster</strong> is your ultimate destination for free porn videos online.
                     We offer a massive collection of HD and 4K ___ content across hundreds of categories
-                    including ___, ___, ___, ___, and many more. Our platform is updated daily with
-                    fresh new ___ videos from top creators and amateur performers worldwide.
+                    including mms videos, porn videos,latest mms viral videos porn,latest porn, and many more. Our platform is updated daily with
+                    fresh new porn videos from top creators and amateur performers worldwide.
                   </p>
                   <p>
-                    Looking for an alternative to ___hub, x___ster, or ___videos? Xmaster provides
+                    Looking for an alternative to pornhub, xhamster, or xvideos? Xmaster provides
                     the same premium experience with faster streaming, better video quality, and a
-                    cleaner interface. Browse our trending section for the most popular ___ videos,
+                    cleaner interface. Browse our trending section for the most popular porn videos,
                     or explore our categories to find exactly what you're looking for.
                   </p>
                   <p>
-                    Whether you enjoy ___, ___, ___, ___, MMS videos, desi content, or
-                    any other category, Xmaster has thousands of free ___ videos ready to stream.
-                    No signup required. Watch ___ videos for free in HD quality on any device -
+                    Whether you enjoy anal, hardcore, sex videos, latest porn , MMS videos, desi content, or
+                    any other category, Xmaster has thousands of free porn videos ready to stream.
+                    No signup required. Watch porn videos for free in HD quality on any device -
                     desktop, mobile, or tablet.
                   </p>
                 </div>
@@ -390,14 +390,14 @@ const HomePage = () => {
                   Why Choose Xmaster?
                 </h3>
                 <ul className="text-sm text-gray-500 dark:text-gray-400 space-y-2 list-disc list-inside">
-                  <li>Free HD & 4K ___ video streaming</li>
-                  <li>Thousands of ___ videos updated daily</li>
-                  <li>Hundreds of ___ categories to explore</li>
+                  <li>Free HD & 4K porn video streaming</li>
+                  <li>Thousands of porn videos updated daily</li>
+                  <li>Hundreds of porn categories to explore</li>
                   <li>Fast loading and smooth playback</li>
                   <li>Works on all devices - mobile, desktop, tablet</li>
                   <li>No registration required</li>
-                  <li>Best alternative to ___hub, x___ster, ___videos</li>
-                  <li>MMS videos, desi content, and regional ___ categories</li>
+                  <li>Best alternative to pornhub, xhamster, xvideos</li>
+                  <li>MMS videos, desi content, and regional porn categories</li>
                   <li>Amateur, professional, and exclusive creator content</li>
                   <li>Safe and private browsing experience</li>
                 </ul>
