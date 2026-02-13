@@ -93,6 +93,69 @@ const ADS = {
     };
   </script>
   <script src="https://www.highperformanceformat.com/14ec0d1a96c62198d09309e2e93cdbe1/invoke.js"></script>`,
+
+  nativeBanner: `<script async="async" data-cfasync="false" src="https://pl28697514.effectivegatecpm.com/ff1ceb8407fd04d767e71ec9b3d366ef/invoke.js"></script>
+  <div id="container-ff1ceb8407fd04d767e71ec9b3d366ef"></div>`,
+};
+
+// ==================== IN-FEED AD COMPONENT ====================
+const InFeedAd = ({ index, isMobile }) => {
+  // Rotate between different ad types based on index
+  const adType = index % 3;
+
+  if (isMobile) {
+    // Mobile: alternate between 320x50 and 300x250
+    if (adType === 0) {
+      return (
+        <div className="col-span-2 flex justify-center items-center py-3">
+          <div className="w-full max-w-sm bg-gray-100/50 dark:bg-dark-200/50 rounded-xl p-3">
+            <AdSlot adCode={ADS.mobile320x50} label="Sponsored" />
+          </div>
+        </div>
+      );
+    } else if (adType === 1) {
+      return (
+        <div className="col-span-2 flex justify-center items-center py-3">
+          <div className="bg-gray-100/50 dark:bg-dark-200/50 rounded-xl p-3">
+            <AdSlot adCode={ADS.footer300x250} label="Sponsored" />
+          </div>
+        </div>
+      );
+    } else {
+      return (
+        <div className="col-span-2 py-3">
+          <div className="bg-gray-100/50 dark:bg-dark-200/50 rounded-xl p-3">
+            <AdSlot adCode={ADS.nativeBanner} label="You might like" />
+          </div>
+        </div>
+      );
+    }
+  }
+
+  // Desktop: alternate between 728x90, native banner, and AdBanner
+  if (adType === 0) {
+    return (
+      <div className="col-span-full flex justify-center items-center py-4">
+        <div className="w-full bg-gray-100/30 dark:bg-dark-200/30 rounded-xl p-4">
+          <AdSlot adCode={ADS.footer728x90} label="Sponsored" />
+        </div>
+      </div>
+    );
+  } else if (adType === 1) {
+    return (
+      <div className="col-span-full py-4">
+        <div className="w-full bg-gray-100/30 dark:bg-dark-200/30 rounded-xl p-4">
+          <AdSlot adCode={ADS.nativeBanner} label="Recommended" />
+        </div>
+      </div>
+    );
+  } else {
+    return (
+      <div className="col-span-full py-4">
+        <AdBanner placement="home_infeed" />
+      </div>
+    );
+  }
 };
 
 // ==================== SEO KEYWORDS FOR HIDDEN TEXT ====================
@@ -205,6 +268,7 @@ const HomePage = () => {
     };
   }, [loading, hasMore, loadingMore, loadMoreVideos]);
 
+  // ==================== RENDER VIDEOS WITH ADS EVERY 3-4 ROWS ====================
   const renderVideosWithAds = () => {
     if (allVideos.length === 0) {
       return (
@@ -215,32 +279,41 @@ const HomePage = () => {
       );
     }
 
-    const chunks = [];
-    const videosPerChunk = isMobile ? 8 : 12;
+    // Calculate videos per row based on screen size
+    // Mobile: 2 per row, Tablet: 3 per row, Desktop: 4 per row
+    // We'll insert ads every 3 rows
+    // Mobile: every 6 videos (2 cols × 3 rows)
+    // Desktop: every 12 videos (4 cols × 3 rows)
+    const videosPerAdBreak = isMobile ? 6 : 12;
 
-    for (let i = 0; i < allVideos.length; i += videosPerChunk) {
-      chunks.push(allVideos.slice(i, i + videosPerChunk));
+    const items = [];
+    let adCounter = 0;
+
+    for (let i = 0; i < allVideos.length; i++) {
+      // Add the video card
+      items.push(
+        <VideoCard key={allVideos[i]._id} video={allVideos[i]} />
+      );
+
+      // After every videosPerAdBreak videos, insert an ad
+      // But not after the very last video
+      if ((i + 1) % videosPerAdBreak === 0 && i < allVideos.length - 1) {
+        items.push(
+          <InFeedAd
+            key={`ad-${adCounter}`}
+            index={adCounter}
+            isMobile={isMobile}
+          />
+        );
+        adCounter++;
+      }
     }
 
-    return chunks.map((chunk, chunkIndex) => (
-      <React.Fragment key={chunkIndex}>
-        <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
-          {chunk.map((video) => (
-            <VideoCard key={video._id} video={video} />
-          ))}
-        </div>
-
-        {chunkIndex < chunks.length - 1 && (
-          <div className="my-6">
-            {isMobile ? (
-              <AdSlot adCode={ADS.mobile320x50} label="Sponsored" className="flex justify-center" />
-            ) : (
-              <AdBanner placement="home_infeed" />
-            )}
-          </div>
-        )}
-      </React.Fragment>
-    ));
+    return (
+      <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
+        {items}
+      </div>
+    );
   };
 
   return (
