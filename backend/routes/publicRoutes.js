@@ -230,7 +230,7 @@ router.get('/share/:id', async (req, res) => {
     html += '<meta property="og:description" content="' + description + '" />\n';
     
     // og:url should point to the canonical URL where user lands
-    html += '<meta property="og:url" content="' + videoPageUrl + '" />\n';
+    html += '<meta property="og:url" content="' + sharePageUrl + '" />\n';
     html += '<meta property="og:site_name" content="' + SITE_NAME + '" />\n';
     html += '<meta property="og:locale" content="en_US" />\n';
 
@@ -269,7 +269,7 @@ router.get('/share/:id', async (req, res) => {
     // ==========================================
     html += '\n<!-- Additional Meta -->\n';
     html += '<meta name="description" content="' + description + '" />\n';
-    html += '<link rel="canonical" href="' + videoPageUrl + '" />\n';
+    html += '<link rel="canonical" href="' + sharePageUrl + '" />\n';
     if (thumbnail) {
       html += '<link rel="image_src" href="' + thumbnail + '" />\n';
     }
