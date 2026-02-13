@@ -247,7 +247,7 @@ const HomePage = () => {
     <>
       <Helmet>
         <title>Xmaster - Free porn Videos | Watch HD porn Online | porn Streaming Site</title>
-        <meta name="description" content="Watch free HD ___ videos on Xmaster. Stream thousands of ___ clips in HD & 4K. Browse leaked mms videos, viral mms videos, porn, mms, hardcore, anal categories. Best free porn tube site. Alternative to pornhub, xhamster, Xvideos. Updated daily with new porn content. MMS videos, desi mms, indian mms, amateur porn, homemade porn and more." />
+        <meta name="description" content="Watch free HD porn videos on Xmaster. Stream thousands of porn clips in HD & 4K. Browse leaked mms videos, viral mms videos, porn, mms, hardcore, anal categories. Best free porn tube site. Alternative to pornhub, xhamster, Xvideos. Updated daily with new porn content. MMS videos, desi mms, indian mms, amateur porn, homemade porn and more." />
         <meta name="keywords" content="porn,free porn videos,HD porn,4K porn,porn streaming,watch porn online,porn tube,porn site,pornhub alternative,xhamster alternative,xvideos alternative,desi mms,indian mms,mms videos,leaked mms,amateur porn,homemade porn,milf,teen,anal,blowjob,creampie,big ass,big tits,latina,asian,ebony,lesbian,threesome,webcam,hentai,JAV,POV,hardcore,xmaster,xmaster.guru" />
         <link rel="canonical" href="https://xmaster.guru" />
 
@@ -351,7 +351,7 @@ const HomePage = () => {
               {/* ==================== SEO CONTENT SECTION ==================== */}
               <section className="mb-10 bg-white dark:bg-dark-200 rounded-xl p-6">
                 <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">
-                  Popular ___ Categories on Xmaster
+                  Popular Porn Categories on Xmaster
                 </h2>
                 <div className="flex flex-wrap gap-2 mb-6">
                   {SEO_CATEGORIES.map((cat, i) => (
@@ -368,7 +368,7 @@ const HomePage = () => {
                 <div className="text-sm text-gray-500 dark:text-gray-400 space-y-3 leading-relaxed">
                   <p>
                     <strong>Xmaster</strong> is your ultimate destination for free porn videos online.
-                    We offer a massive collection of HD and 4K ___ content across hundreds of categories
+                    We offer a massive collection of HD and 4K Porn content across hundreds of categories
                     including mms videos, porn videos,latest mms viral videos porn,latest porn, and many more. Our platform is updated daily with
                     fresh new porn videos from top creators and amateur performers worldwide.
                   </p>
@@ -440,7 +440,7 @@ const HomePage = () => {
                 <div className="card p-4">
                   <h3 className="font-semibold text-gray-900 dark:text-white mb-3 text-sm">Popular Searches</h3>
                   <div className="flex flex-wrap gap-1.5">
-                    {["HD ___", "Amateur", "MILF", "Teen", "Desi", "MMS", "Anal", "POV", "Lesbian", "Homemade", "Indian", "Webcam"].map((tag, i) => (
+                    {["HD Porn", "Amateur", "MILF", "Teen", "Desi", "MMS", "Anal", "POV", "Lesbian", "Homemade", "Indian", "Webcam"].map((tag, i) => (
                       <Link
                         key={i}
                         to={`/search?q=${encodeURIComponent(tag)}`}

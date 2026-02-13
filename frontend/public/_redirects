@@ -1,1 +1,9 @@
+# Proxy sitemap.xml to backend API
+/sitemap.xml  https://api.xmaster.guru/api/public/sitemap.xml  200
+
+# Proxy robots.txt (serve static version from public folder)
+# robots.txt is already a static file in /public, so it will be served automatically
+
+# Let all static files be served normally (Cloudflare Pages does this by default)
+# SPA fallback - MUST be last
 /*    /index.html   200

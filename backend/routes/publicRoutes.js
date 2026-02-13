@@ -596,23 +596,70 @@ router.get('/stats', async (req, res) => {
 // ==========================================
 // DYNAMIC SITEMAP
 // ==========================================
+// ==========================================
+// DYNAMIC SITEMAP - ENHANCED WITH VIDEO MARKUP
+// ==========================================
 router.get('/sitemap.xml', async (req, res) => {
   try {
     var frontendUrl = getFrontendUrl();
-    var videos = await Video.find({ status: 'public', isDuplicate: { $ne: true } })
+    var today = new Date().toISOString().split('T')[0];
+
+    // Get total video count
+    var totalVideos = await Video.countDocuments({
+      status: 'public',
+      isDuplicate: { $ne: true }
+    });
+
+    // If more than 5000 videos, serve a sitemap index
+    if (totalVideos > 5000) {
+      var totalSitemaps = Math.ceil(totalVideos / 5000);
+      var sitemapIndex = '<?xml version="1.0" encoding="UTF-8"?>\n';
+      sitemapIndex += '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
+
+      // Static pages sitemap
+      sitemapIndex += '  <sitemap>\n';
+      sitemapIndex += '    <loc>' + getBackendUrl() + '/api/public/sitemap-static.xml</loc>\n';
+      sitemapIndex += '    <lastmod>' + today + '</lastmod>\n';
+      sitemapIndex += '  </sitemap>\n';
+
+      // Video sitemaps (paginated)
+      for (var i = 0; i < totalSitemaps; i++) {
+        sitemapIndex += '  <sitemap>\n';
+        sitemapIndex += '    <loc>' + getBackendUrl() + '/api/public/sitemap-videos-' + (i + 1) + '.xml</loc>\n';
+        sitemapIndex += '    <lastmod>' + today + '</lastmod>\n';
+        sitemapIndex += '  </sitemap>\n';
+      }
+
+      sitemapIndex += '</sitemapindex>';
+
+      res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      return res.status(200).send(sitemapIndex);
+    }
+
+    // If 5000 or fewer videos, serve single sitemap
+    var videos = await Video.find({
+      status: 'public',
+      isDuplicate: { $ne: true }
+    })
       .sort({ uploadDate: -1 })
       .limit(5000)
-      .select('_id slug uploadDate')
+      .select('_id slug title description thumbnail thumbnailUrl cloudinary_public_id uploadDate duration views tags')
       .lean();
 
-    var categories = await Category.find({ isActive: true }).select('slug').lean();
+    var categories = await Category.find({ isActive: true })
+      .select('slug name updatedAt')
+      .lean();
 
     var xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
-    xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
+    xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"\n';
+    xml += '        xmlns:video="http://www.google.com/schemas/sitemap-video/1.1"\n';
+    xml += '        xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n';
 
     // Homepage
     xml += '  <url>\n';
     xml += '    <loc>' + frontendUrl + '</loc>\n';
+    xml += '    <lastmod>' + today + '</lastmod>\n';
     xml += '    <changefreq>daily</changefreq>\n';
     xml += '    <priority>1.0</priority>\n';
     xml += '  </url>\n';
@@ -620,33 +667,73 @@ router.get('/sitemap.xml', async (req, res) => {
     // Trending
     xml += '  <url>\n';
     xml += '    <loc>' + frontendUrl + '/trending</loc>\n';
+    xml += '    <lastmod>' + today + '</lastmod>\n';
     xml += '    <changefreq>daily</changefreq>\n';
     xml += '    <priority>0.8</priority>\n';
     xml += '  </url>\n';
 
-    // Search/Browse
+    // Search
     xml += '  <url>\n';
     xml += '    <loc>' + frontendUrl + '/search</loc>\n';
+    xml += '    <lastmod>' + today + '</lastmod>\n';
     xml += '    <changefreq>daily</changefreq>\n';
     xml += '    <priority>0.7</priority>\n';
     xml += '  </url>\n';
 
     // Categories
     for (var c = 0; c < categories.length; c++) {
+      var catLastmod = categories[c].updatedAt
+        ? new Date(categories[c].updatedAt).toISOString().split('T')[0]
+        : today;
       xml += '  <url>\n';
-      xml += '    <loc>' + frontendUrl + '/category/' + categories[c].slug + '</loc>\n';
+      xml += '    <loc>' + frontendUrl + '/category/' + encodeURIComponent(categories[c].slug) + '</loc>\n';
+      xml += '    <lastmod>' + catLastmod + '</lastmod>\n';
       xml += '    <changefreq>weekly</changefreq>\n';
       xml += '    <priority>0.7</priority>\n';
       xml += '  </url>\n';
     }
 
-    // Videos
+    // Videos with video sitemap markup
     for (var v = 0; v < videos.length; v++) {
-      var videoUrl = frontendUrl + '/watch/' + videos[v]._id;
-      if (videos[v].slug) {
-        videoUrl += '/' + videos[v].slug;
+      var video = videos[v];
+      var videoUrl = frontendUrl + '/watch/' + video._id;
+      if (video.slug) {
+        videoUrl += '/' + encodeURIComponent(video.slug);
       }
-      var lastmod = videos[v].uploadDate ? new Date(videos[v].uploadDate).toISOString().split('T')[0] : '';
+      var lastmod = video.uploadDate
+        ? new Date(video.uploadDate).toISOString().split('T')[0]
+        : '';
+
+      // Get thumbnail URL
+      var thumbUrl = '';
+      if (video.cloudinary_public_id) {
+        thumbUrl = 'https://res.cloudinary.com/' + CLOUDINARY_CLOUD_NAME +
+          '/image/upload/w_1280,h_720,c_fill,q_80,f_jpg/' +
+          video.cloudinary_public_id + '.jpg';
+      } else if (video.thumbnailUrl && video.thumbnailUrl.startsWith('http')) {
+        thumbUrl = video.thumbnailUrl;
+      } else if (video.thumbnail && video.thumbnail.startsWith('http')) {
+        thumbUrl = video.thumbnail;
+      }
+
+      // Escape XML special characters
+      var safeTitle = (video.title || 'Video')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+
+      var safeDesc = (video.description || video.title || 'Watch this video on Xmaster')
+        .replace(/<[^>]*>/g, '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+      if (safeDesc.length > 2048) {
+        safeDesc = safeDesc.substring(0, 2045) + '...';
+      }
 
       xml += '  <url>\n';
       xml += '    <loc>' + videoUrl + '</loc>\n';
@@ -655,6 +742,54 @@ router.get('/sitemap.xml', async (req, res) => {
       }
       xml += '    <changefreq>monthly</changefreq>\n';
       xml += '    <priority>0.6</priority>\n';
+
+      // Video sitemap extension
+      if (thumbUrl) {
+        xml += '    <video:video>\n';
+        xml += '      <video:thumbnail_loc>' + thumbUrl + '</video:thumbnail_loc>\n';
+        xml += '      <video:title>' + safeTitle + '</video:title>\n';
+        xml += '      <video:description>' + safeDesc + '</video:description>\n';
+        xml += '      <video:player_loc allow_embed="yes">https://short.icu/' + (video.file_code || '') + '</video:player_loc>\n';
+        if (video.duration && video.duration !== '00:00') {
+          var dParts = video.duration.split(':').map(Number);
+          var durationSec = 0;
+          if (dParts.length === 3) durationSec = dParts[0] * 3600 + dParts[1] * 60 + dParts[2];
+          else if (dParts.length === 2) durationSec = dParts[0] * 60 + dParts[1];
+          if (durationSec > 0) {
+            xml += '      <video:duration>' + durationSec + '</video:duration>\n';
+          }
+        }
+        if (lastmod) {
+          xml += '      <video:publication_date>' + lastmod + '</video:publication_date>\n';
+        }
+        if (video.views) {
+          xml += '      <video:view_count>' + video.views + '</video:view_count>\n';
+        }
+        xml += '      <video:family_friendly>no</video:family_friendly>\n';
+        xml += '      <video:live>no</video:live>\n';
+
+        // Add tags (max 32 per Google spec)
+        if (video.tags && video.tags.length > 0) {
+          var maxTags = Math.min(video.tags.length, 32);
+          for (var t = 0; t < maxTags; t++) {
+            var safeTag = video.tags[t]
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;');
+            xml += '      <video:tag>' + safeTag + '</video:tag>\n';
+          }
+        }
+        xml += '    </video:video>\n';
+      }
+
+      // Image sitemap extension
+      if (thumbUrl) {
+        xml += '    <image:image>\n';
+        xml += '      <image:loc>' + thumbUrl + '</image:loc>\n';
+        xml += '      <image:title>' + safeTitle + '</image:title>\n';
+        xml += '    </image:image>\n';
+      }
+
       xml += '  </url>\n';
     }
 
@@ -665,9 +800,189 @@ router.get('/sitemap.xml', async (req, res) => {
     res.status(200).send(xml);
   } catch (error) {
     console.error('Sitemap error:', error);
-    res.status(500).send('Sitemap generation failed');
+    res.status(500).send('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>');
   }
 });
 
+
+// ==========================================
+// STATIC PAGES SITEMAP (for sitemap index)
+// ==========================================
+router.get('/sitemap-static.xml', async (req, res) => {
+  try {
+    var frontendUrl = getFrontendUrl();
+    var today = new Date().toISOString().split('T')[0];
+    var categories = await Category.find({ isActive: true }).select('slug updatedAt').lean();
+
+    var xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+    xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
+
+    xml += '  <url>\n';
+    xml += '    <loc>' + frontendUrl + '</loc>\n';
+    xml += '    <lastmod>' + today + '</lastmod>\n';
+    xml += '    <changefreq>daily</changefreq>\n';
+    xml += '    <priority>1.0</priority>\n';
+    xml += '  </url>\n';
+
+    xml += '  <url>\n';
+    xml += '    <loc>' + frontendUrl + '/trending</loc>\n';
+    xml += '    <lastmod>' + today + '</lastmod>\n';
+    xml += '    <changefreq>daily</changefreq>\n';
+    xml += '    <priority>0.8</priority>\n';
+    xml += '  </url>\n';
+
+    xml += '  <url>\n';
+    xml += '    <loc>' + frontendUrl + '/search</loc>\n';
+    xml += '    <lastmod>' + today + '</lastmod>\n';
+    xml += '    <changefreq>daily</changefreq>\n';
+    xml += '    <priority>0.7</priority>\n';
+    xml += '  </url>\n';
+
+    for (var c = 0; c < categories.length; c++) {
+      var catLastmod = categories[c].updatedAt
+        ? new Date(categories[c].updatedAt).toISOString().split('T')[0]
+        : today;
+      xml += '  <url>\n';
+      xml += '    <loc>' + frontendUrl + '/category/' + encodeURIComponent(categories[c].slug) + '</loc>\n';
+      xml += '    <lastmod>' + catLastmod + '</lastmod>\n';
+      xml += '    <changefreq>weekly</changefreq>\n';
+      xml += '    <priority>0.7</priority>\n';
+      xml += '  </url>\n';
+    }
+
+    xml += '</urlset>';
+
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.status(200).send(xml);
+  } catch (error) {
+    console.error('Static sitemap error:', error);
+    res.status(500).send('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>');
+  }
+});
+
+
+// ==========================================
+// PAGINATED VIDEO SITEMAPS (for sitemap index)
+// ==========================================
+router.get('/sitemap-videos-:page.xml', async (req, res) => {
+  try {
+    var page = parseInt(req.params.page) || 1;
+    var perPage = 5000;
+    var skip = (page - 1) * perPage;
+    var frontendUrl = getFrontendUrl();
+
+    var videos = await Video.find({
+      status: 'public',
+      isDuplicate: { $ne: true }
+    })
+      .sort({ uploadDate: -1 })
+      .skip(skip)
+      .limit(perPage)
+      .select('_id slug title description thumbnail thumbnailUrl cloudinary_public_id uploadDate duration views tags file_code')
+      .lean();
+
+    var xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+    xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"\n';
+    xml += '        xmlns:video="http://www.google.com/schemas/sitemap-video/1.1">\n';
+
+    for (var v = 0; v < videos.length; v++) {
+      var video = videos[v];
+      var videoUrl = frontendUrl + '/watch/' + video._id;
+      if (video.slug) {
+        videoUrl += '/' + encodeURIComponent(video.slug);
+      }
+      var lastmod = video.uploadDate
+        ? new Date(video.uploadDate).toISOString().split('T')[0]
+        : '';
+
+      var thumbUrl = '';
+      if (video.cloudinary_public_id) {
+        thumbUrl = 'https://res.cloudinary.com/' + CLOUDINARY_CLOUD_NAME +
+          '/image/upload/w_1280,h_720,c_fill,q_80,f_jpg/' +
+          video.cloudinary_public_id + '.jpg';
+      } else if (video.thumbnailUrl && video.thumbnailUrl.startsWith('http')) {
+        thumbUrl = video.thumbnailUrl;
+      } else if (video.thumbnail && video.thumbnail.startsWith('http')) {
+        thumbUrl = video.thumbnail;
+      }
+
+      var safeTitle = (video.title || 'Video')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+      var safeDesc = (video.description || video.title || '')
+        .replace(/<[^>]*>/g, '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      if (safeDesc.length > 2048) safeDesc = safeDesc.substring(0, 2045) + '...';
+
+      xml += '  <url>\n';
+      xml += '    <loc>' + videoUrl + '</loc>\n';
+      if (lastmod) xml += '    <lastmod>' + lastmod + '</lastmod>\n';
+      xml += '    <changefreq>monthly</changefreq>\n';
+      xml += '    <priority>0.6</priority>\n';
+
+      if (thumbUrl) {
+        xml += '    <video:video>\n';
+        xml += '      <video:thumbnail_loc>' + thumbUrl + '</video:thumbnail_loc>\n';
+        xml += '      <video:title>' + safeTitle + '</video:title>\n';
+        xml += '      <video:description>' + (safeDesc || safeTitle) + '</video:description>\n';
+        xml += '      <video:player_loc allow_embed="yes">https://short.icu/' + (video.file_code || '') + '</video:player_loc>\n';
+        if (video.duration && video.duration !== '00:00') {
+          var dParts = video.duration.split(':').map(Number);
+          var dSec = 0;
+          if (dParts.length === 3) dSec = dParts[0] * 3600 + dParts[1] * 60 + dParts[2];
+          else if (dParts.length === 2) dSec = dParts[0] * 60 + dParts[1];
+          if (dSec > 0) xml += '      <video:duration>' + dSec + '</video:duration>\n';
+        }
+        if (lastmod) xml += '      <video:publication_date>' + lastmod + '</video:publication_date>\n';
+        if (video.views) xml += '      <video:view_count>' + video.views + '</video:view_count>\n';
+        xml += '      <video:family_friendly>no</video:family_friendly>\n';
+        xml += '      <video:live>no</video:live>\n';
+        if (video.tags && video.tags.length > 0) {
+          var maxTags = Math.min(video.tags.length, 32);
+          for (var t = 0; t < maxTags; t++) {
+            xml += '      <video:tag>' + video.tags[t].replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</video:tag>\n';
+          }
+        }
+        xml += '    </video:video>\n';
+      }
+
+      xml += '  </url>\n';
+    }
+
+    xml += '</urlset>';
+
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.status(200).send(xml);
+  } catch (error) {
+    console.error('Video sitemap error:', error);
+    res.status(500).send('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>');
+  }
+});
+
+
+// ==========================================
+// ROBOTS.TXT (served from backend for API domain)
+// ==========================================
+router.get('/robots.txt', (req, res) => {
+  var frontendUrl = getFrontendUrl();
+  var backendUrl = getBackendUrl();
+
+  var robots = '# Xmaster Robots.txt\n';
+  robots += '# https://xmaster.guru\n\n';
+  robots += 'User-agent: *\n';
+  robots += 'Allow: /api/public/share/\n';
+  robots += 'Allow: /api/public/sitemap.xml\n';
+  robots += 'Disallow: /api/\n\n';
+  robots += 'Sitemap: ' + frontendUrl + '/sitemap.xml\n';
+  robots += 'Sitemap: ' + backendUrl + '/api/public/sitemap.xml\n';
+
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.status(200).send(robots);
+});
 
 module.exports = router;

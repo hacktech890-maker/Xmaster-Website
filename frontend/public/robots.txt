@@ -27,7 +27,8 @@ Allow: /
 User-agent: WhatsApp
 Allow: /
 
-# Sitemap
+# Sitemaps - primary (proxied through frontend domain) and backup (direct backend)
+Sitemap: https://xmaster.guru/sitemap.xml
 Sitemap: https://api.xmaster.guru/api/public/sitemap.xml
 
 # Crawl delay
