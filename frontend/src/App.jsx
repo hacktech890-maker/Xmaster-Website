@@ -4,6 +4,7 @@ import { useAuth } from './context/AuthContext';
 import LoadingSpinner from './components/common/LoadingSpinner';
 import Navbar from './components/common/Navbar';
 import Footer from './components/common/Footer';
+import ScrollToTop from './components/common/ScrollToTop'; // ← ADD THIS
 
 const HomePage = lazy(() => import('./pages/public/HomePage'));
 const WatchPage = lazy(() => import('./pages/public/WatchPage'));
@@ -37,29 +38,32 @@ const PublicLayout = ({ children }) => (
 
 function App() {
   return (
-    <Suspense fallback={<LoadingSpinner fullScreen />}>
-      <Routes>
-        <Route path="/" element={<PublicLayout><HomePage /></PublicLayout>} />
-        <Route path="/watch/:id" element={<PublicLayout><WatchPage /></PublicLayout>} />
-        <Route path="/watch/:id/:slug" element={<PublicLayout><WatchPage /></PublicLayout>} />
-        <Route path="/search" element={<PublicLayout><SearchPage /></PublicLayout>} />
-        <Route path="/category/:slug" element={<PublicLayout><CategoryPage /></PublicLayout>} />
-        <Route path="/trending" element={<PublicLayout><TrendingPage /></PublicLayout>} />
-        <Route path="/tag/:tag" element={<PublicLayout><SearchPage /></PublicLayout>} />
+    <>
+      <ScrollToTop /> {/* ← ADD THIS LINE */}
+      <Suspense fallback={<LoadingSpinner fullScreen />}>
+        <Routes>
+          <Route path="/" element={<PublicLayout><HomePage /></PublicLayout>} />
+          <Route path="/watch/:id" element={<PublicLayout><WatchPage /></PublicLayout>} />
+          <Route path="/watch/:id/:slug" element={<PublicLayout><WatchPage /></PublicLayout>} />
+          <Route path="/search" element={<PublicLayout><SearchPage /></PublicLayout>} />
+          <Route path="/category/:slug" element={<PublicLayout><CategoryPage /></PublicLayout>} />
+          <Route path="/trending" element={<PublicLayout><TrendingPage /></PublicLayout>} />
+          <Route path="/tag/:tag" element={<PublicLayout><SearchPage /></PublicLayout>} />
 
-        <Route path="/xmaster-admin" element={<AdminLogin />} />
-        <Route path="/admin/dashboard" element={<AdminLayout><Dashboard /></AdminLayout>} />
-        <Route path="/admin/videos" element={<AdminLayout><VideosManager /></AdminLayout>} />
-        <Route path="/admin/upload" element={<AdminLayout><UploadPage /></AdminLayout>} />
-        <Route path="/admin/categories" element={<AdminLayout><CategoriesManager /></AdminLayout>} />
-        <Route path="/admin/comments" element={<AdminLayout><CommentsManager /></AdminLayout>} />
-        <Route path="/admin/ads" element={<AdminLayout><AdsManager /></AdminLayout>} />
-        <Route path="/admin/reports" element={<AdminLayout><ReportsPage /></AdminLayout>} />
-        <Route path="/admin/duplicates" element={<AdminLayout><DuplicateManager /></AdminLayout>} />
+          <Route path="/xmaster-admin" element={<AdminLogin />} />
+          <Route path="/admin/dashboard" element={<AdminLayout><Dashboard /></AdminLayout>} />
+          <Route path="/admin/videos" element={<AdminLayout><VideosManager /></AdminLayout>} />
+          <Route path="/admin/upload" element={<AdminLayout><UploadPage /></AdminLayout>} />
+          <Route path="/admin/categories" element={<AdminLayout><CategoriesManager /></AdminLayout>} />
+          <Route path="/admin/comments" element={<AdminLayout><CommentsManager /></AdminLayout>} />
+          <Route path="/admin/ads" element={<AdminLayout><AdsManager /></AdminLayout>} />
+          <Route path="/admin/reports" element={<AdminLayout><ReportsPage /></AdminLayout>} />
+          <Route path="/admin/duplicates" element={<AdminLayout><DuplicateManager /></AdminLayout>} />
 
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Suspense>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
+    </>
   );
 }
 
