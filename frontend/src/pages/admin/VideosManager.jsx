@@ -765,7 +765,7 @@ const VideosManager = () => {
   const fetchVideos = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await adminAPI.getVideos({ page, limit: 20, search, status, featured, sort });
+      const response = await adminAPI.getVideos({ page, limit: 50, search, status, featured, sort });
       if (response.data.success) {
         setVideos(response.data.videos);
         setPagination(response.data.pagination);
