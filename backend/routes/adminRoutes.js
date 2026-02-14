@@ -160,6 +160,52 @@ router.get('/videos', simpleAdminAuth, async (req, res) => {
   }
 });
 
+// ==========================================
+// BULK UPDATE STATUS (Publish/Unpublish)
+// MUST be BEFORE /videos/:id routes
+// ==========================================
+router.post('/videos/bulk-update-status', simpleAdminAuth, async (req, res) => {
+  try {
+    const { ids, status, mode } = req.body;
+
+    if (!['public', 'private', 'unlisted'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status. Use: public, private, unlisted' });
+    }
+
+    let result;
+
+    if (mode === 'all-private') {
+      result = await Video.updateMany(
+        { status: 'private', isDuplicate: { $ne: true } },
+        { $set: { status: status } }
+      );
+    } else if (mode === 'all-public') {
+      result = await Video.updateMany(
+        { status: 'public' },
+        { $set: { status: status } }
+      );
+    } else {
+      if (!ids || !Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ error: 'No video IDs provided' });
+      }
+      result = await Video.updateMany(
+        { _id: { $in: ids } },
+        { $set: { status: status } }
+      );
+    }
+
+    res.json({
+      success: true,
+      modifiedCount: result.modifiedCount,
+      message: result.modifiedCount + ' videos updated to ' + status,
+    });
+  } catch (error) {
+    console.error('Bulk Update Status Error:', error);
+    res.status(500).json({ error: 'Failed to update video status' });
+  }
+});
+
+
 // PUT /api/admin/videos/:id
 router.put('/videos/:id', simpleAdminAuth, async (req, res) => {
   try {
@@ -486,55 +532,6 @@ router.get('/videos/export', simpleAdminAuth, async (req, res) => {
   } catch (error) {
     console.error('Export Error:', error);
     res.status(500).json({ error: 'Failed to export video metadata' });
-  }
-});
-
-
-// ==========================================
-// BULK UPDATE STATUS (Publish/Unpublish)
-// ==========================================
-router.post('/videos/bulk-update-status', simpleAdminAuth, async (req, res) => {
-  try {
-    const { ids, status, mode } = req.body;
-    // mode: 'selected' (use ids) or 'all-private' (make all private videos public)
-
-    if (!['public', 'private', 'unlisted'].includes(status)) {
-      return res.status(400).json({ error: 'Invalid status. Use: public, private, unlisted' });
-    }
-
-    let result;
-
-    if (mode === 'all-private') {
-      // Make ALL private videos public
-      result = await Video.updateMany(
-        { status: 'private', isDuplicate: { $ne: true } },
-        { $set: { status: status } }
-      );
-    } else if (mode === 'all-public') {
-      // Make ALL public videos private
-      result = await Video.updateMany(
-        { status: 'public' },
-        { $set: { status: status } }
-      );
-    } else {
-      // Update specific videos by IDs
-      if (!ids || !Array.isArray(ids) || ids.length === 0) {
-        return res.status(400).json({ error: 'No video IDs provided' });
-      }
-      result = await Video.updateMany(
-        { _id: { $in: ids } },
-        { $set: { status: status } }
-      );
-    }
-
-    res.json({
-      success: true,
-      modifiedCount: result.modifiedCount,
-      message: result.modifiedCount + ' videos updated to ' + status,
-    });
-  } catch (error) {
-    console.error('Bulk Update Status Error:', error);
-    res.status(500).json({ error: 'Failed to update video status' });
   }
 });
 
