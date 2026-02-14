@@ -31,8 +31,11 @@ const simpleAdminAuth = (req, res, next) => {
   }
 };
 
-function getBackendUrl() {
-  var raw = process.env.BACKEND_URL || 'https://api.xmaster.guru';
+function getFrontendUrl() {
+  var raw = process.env.FRONTEND_URL || 'https://xmaster.guru';
+  if (raw.indexOf(',') !== -1) {
+    raw = raw.split(',')[0].trim();
+  }
   return raw.replace(/\/+$/, '');
 }
 
@@ -40,7 +43,7 @@ function getBackendUrl() {
 router.post('/login', (req, res) => {
   try {
     const { password, username } = req.body;
-    
+
     if (password === process.env.ADMIN_PASSWORD) {
       const token = jwt.sign(
         { isAdmin: true, username: username || 'admin', loginTime: Date.now() },
@@ -73,7 +76,7 @@ router.get('/dashboard', simpleAdminAuth, async (req, res) => {
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-    const [totalVideos, publicVideos, totalViewsResult, totalCategories, totalAds, pendingReports, todayVideos, weekVideos, sharedOnTGCount] = await Promise.all([
+    const [totalVideos, publicVideos, totalViewsResult, totalCategories, totalAds, pendingReports, todayVideos, weekVideos] = await Promise.all([
       Video.countDocuments(),
       Video.countDocuments({ status: 'public' }),
       Video.aggregate([{ $group: { _id: null, total: { $sum: '$views' } } }]),
@@ -82,7 +85,6 @@ router.get('/dashboard', simpleAdminAuth, async (req, res) => {
       Report.countDocuments({ status: 'pending' }),
       Video.countDocuments({ uploadDate: { $gte: today } }),
       Video.countDocuments({ uploadDate: { $gte: weekAgo } }),
-      Video.countDocuments({ sharedOnTG: true })
     ]);
 
     const topVideos = await Video.find({ status: 'public' })
@@ -106,7 +108,6 @@ router.get('/dashboard', simpleAdminAuth, async (req, res) => {
         pendingReports,
         todayVideos,
         weekVideos,
-        sharedOnTGCount
       },
       topVideos,
       recentUploads,
@@ -121,7 +122,7 @@ router.get('/dashboard', simpleAdminAuth, async (req, res) => {
 // GET /api/admin/videos
 router.get('/videos', simpleAdminAuth, async (req, res) => {
   try {
-    const { page = 1, limit = 20, search = '', status = '', featured = '', sort = 'newest', sharedOnTG = '' } = req.query;
+    const { page = 1, limit = 20, search = '', status = '', featured = '', sort = 'newest' } = req.query;
     const query = {};
 
     if (search) {
@@ -133,8 +134,6 @@ router.get('/videos', simpleAdminAuth, async (req, res) => {
     if (status) query.status = status;
     if (featured === 'true') query.featured = true;
     if (featured === 'false') query.featured = false;
-    if (sharedOnTG === 'true') query.sharedOnTG = true;
-    if (sharedOnTG === 'false') { query.sharedOnTG = { $ne: true }; }
 
     let sortOption = {};
     switch (sort) {
@@ -158,145 +157,6 @@ router.get('/videos', simpleAdminAuth, async (req, res) => {
   } catch (error) {
     console.error('Get Videos Error:', error);
     res.status(500).json({ error: 'Failed to get videos' });
-  }
-});
-
-// ==========================================
-// BULK SHARE TO TELEGRAM
-// ==========================================
-
-// GET /api/admin/videos/tg-share-stats
-// Returns count of eligible videos for sharing
-router.get('/videos/tg-share-stats', simpleAdminAuth, async (req, res) => {
-  try {
-    const eligible = await Video.countDocuments({
-      status: 'public',
-      isDuplicate: { $ne: true },
-      sharedOnTG: { $ne: true },
-    });
-
-    const alreadyShared = await Video.countDocuments({
-      sharedOnTG: true,
-    });
-
-    const totalPublic = await Video.countDocuments({
-      status: 'public',
-      isDuplicate: { $ne: true },
-    });
-
-    res.json({
-      success: true,
-      stats: {
-        eligible,
-        alreadyShared,
-        totalPublic,
-      },
-    });
-  } catch (error) {
-    console.error('TG Share Stats Error:', error);
-    res.status(500).json({ error: 'Failed to get share stats' });
-  }
-});
-
-// POST /api/admin/videos/tg-share-fetch
-// Fetches the next N eligible videos for sharing
-router.post('/videos/tg-share-fetch', simpleAdminAuth, async (req, res) => {
-  try {
-    const { count = 50 } = req.body;
-    const limit = Math.min(Math.max(parseInt(count) || 50, 1), 1000);
-
-    const videos = await Video.find({
-      status: 'public',
-      isDuplicate: { $ne: true },
-      sharedOnTG: { $ne: true },
-    })
-      .sort({ uploadDate: 1 })
-      .limit(limit)
-      .select('_id title slug thumbnail views duration uploadDate sharedOnTG');
-
-    var backendUrl = getBackendUrl();
-
-    const videosWithLinks = videos.map(function(v) {
-      return {
-        _id: v._id,
-        title: v.title,
-        slug: v.slug,
-        thumbnail: v.thumbnail,
-        views: v.views,
-        duration: v.duration,
-        uploadDate: v.uploadDate,
-        shareUrl: backendUrl + '/api/public/share/' + v._id,
-      };
-    });
-
-    res.json({
-      success: true,
-      videos: videosWithLinks,
-      count: videosWithLinks.length,
-    });
-  } catch (error) {
-    console.error('TG Share Fetch Error:', error);
-    res.status(500).json({ error: 'Failed to fetch videos for sharing' });
-  }
-});
-
-// POST /api/admin/videos/tg-share-mark
-// Marks videos as shared on Telegram
-router.post('/videos/tg-share-mark', simpleAdminAuth, async (req, res) => {
-  try {
-    const { ids } = req.body;
-    if (!ids || !Array.isArray(ids) || ids.length === 0) {
-      return res.status(400).json({ error: 'No video IDs provided' });
-    }
-
-    const result = await Video.updateMany(
-      { _id: { $in: ids } },
-      {
-        $set: {
-          sharedOnTG: true,
-          sharedOnTGDate: new Date(),
-        },
-      }
-    );
-
-    res.json({
-      success: true,
-      markedCount: result.modifiedCount,
-      message: result.modifiedCount + ' videos marked as shared on Telegram',
-    });
-  } catch (error) {
-    console.error('TG Share Mark Error:', error);
-    res.status(500).json({ error: 'Failed to mark videos as shared' });
-  }
-});
-
-// POST /api/admin/videos/tg-share-unmark
-// Unmarks videos (reset shared status)
-router.post('/videos/tg-share-unmark', simpleAdminAuth, async (req, res) => {
-  try {
-    const { ids } = req.body;
-    if (!ids || !Array.isArray(ids) || ids.length === 0) {
-      return res.status(400).json({ error: 'No video IDs provided' });
-    }
-
-    const result = await Video.updateMany(
-      { _id: { $in: ids } },
-      {
-        $set: {
-          sharedOnTG: false,
-          sharedOnTGDate: null,
-        },
-      }
-    );
-
-    res.json({
-      success: true,
-      unmarkedCount: result.modifiedCount,
-      message: result.modifiedCount + ' videos unmarked',
-    });
-  } catch (error) {
-    console.error('TG Share Unmark Error:', error);
-    res.status(500).json({ error: 'Failed to unmark videos' });
   }
 });
 
@@ -378,6 +238,254 @@ router.put('/videos/:id/status', simpleAdminAuth, async (req, res) => {
   } catch (error) {
     console.error('Update Status Error:', error);
     res.status(500).json({ error: 'Failed to update status' });
+  }
+});
+
+// ==========================================
+// BULK EDIT TITLES (Excel Paste Feature)
+// ==========================================
+router.post('/videos/bulk-update-titles', simpleAdminAuth, async (req, res) => {
+  try {
+    const { updates } = req.body;
+    // updates = [{ id: "...", title: "..." }, ...]
+    if (!updates || !Array.isArray(updates) || updates.length === 0) {
+      return res.status(400).json({ error: 'No updates provided' });
+    }
+
+    const results = { success: 0, failed: 0, errors: [] };
+
+    for (const update of updates) {
+      try {
+        if (!update.id || !update.title || !update.title.trim()) {
+          results.failed++;
+          results.errors.push({ id: update.id, error: 'Missing ID or title' });
+          continue;
+        }
+
+        const video = await Video.findById(update.id);
+        if (!video) {
+          results.failed++;
+          results.errors.push({ id: update.id, error: 'Video not found' });
+          continue;
+        }
+
+        video.title = update.title.trim();
+        // Regenerate slug from new title
+        video.slug = video.title
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, '') +
+          '-' +
+          video.file_code.substring(0, 8);
+
+        await video.save();
+        results.success++;
+      } catch (err) {
+        results.failed++;
+        results.errors.push({ id: update.id, error: err.message });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Updated ${results.success} titles, ${results.failed} failed`,
+      results,
+    });
+  } catch (error) {
+    console.error('Bulk Update Titles Error:', error);
+    res.status(500).json({ error: 'Failed to bulk update titles' });
+  }
+});
+
+// ==========================================
+// BULK ADD TAGS (Excel Paste Feature)
+// ==========================================
+router.post('/videos/bulk-update-tags', simpleAdminAuth, async (req, res) => {
+  try {
+    const { updates } = req.body;
+    // updates = [{ id: "...", tags: ["tag1", "tag2"] }, ...]
+    if (!updates || !Array.isArray(updates) || updates.length === 0) {
+      return res.status(400).json({ error: 'No updates provided' });
+    }
+
+    const results = { success: 0, failed: 0, errors: [] };
+
+    for (const update of updates) {
+      try {
+        if (!update.id) {
+          results.failed++;
+          results.errors.push({ id: update.id, error: 'Missing ID' });
+          continue;
+        }
+
+        const tags = Array.isArray(update.tags)
+          ? update.tags.map(t => t.trim().toLowerCase()).filter(Boolean)
+          : (update.tags || '').split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+
+        if (tags.length === 0) {
+          results.failed++;
+          results.errors.push({ id: update.id, error: 'No valid tags' });
+          continue;
+        }
+
+        const mode = update.mode || 'append'; // append or replace
+
+        if (mode === 'replace') {
+          await Video.findByIdAndUpdate(update.id, { $set: { tags: tags } });
+        } else {
+          await Video.findByIdAndUpdate(update.id, { $addToSet: { tags: { $each: tags } } });
+        }
+
+        results.success++;
+      } catch (err) {
+        results.failed++;
+        results.errors.push({ id: update.id, error: err.message });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Updated tags for ${results.success} videos, ${results.failed} failed`,
+      results,
+    });
+  } catch (error) {
+    console.error('Bulk Update Tags Error:', error);
+    res.status(500).json({ error: 'Failed to bulk update tags' });
+  }
+});
+
+// ==========================================
+// BULK SELECT & GET SHARE LINKS
+// ==========================================
+router.post('/videos/bulk-share-links', simpleAdminAuth, async (req, res) => {
+  try {
+    const { ids, count, mode } = req.body;
+    // mode: 'selected' (use ids array) or 'first' (use count number)
+
+    let videos;
+    var frontendUrl = getFrontendUrl();
+
+    if (mode === 'first' && count) {
+      videos = await Video.find({
+        status: 'public',
+        isDuplicate: { $ne: true },
+      })
+        .sort({ uploadDate: -1 })
+        .limit(Math.min(parseInt(count) || 50, 5000))
+        .select('_id title slug views duration uploadDate tags')
+        .lean();
+    } else if (ids && Array.isArray(ids) && ids.length > 0) {
+      videos = await Video.find({ _id: { $in: ids } })
+        .select('_id title slug views duration uploadDate tags')
+        .lean();
+    } else {
+      return res.status(400).json({ error: 'Provide ids array or count number' });
+    }
+
+    const videosWithLinks = videos.map(function (v) {
+      var videoUrl = frontendUrl + '/watch/' + v._id;
+      if (v.slug) {
+        videoUrl += '/' + encodeURIComponent(v.slug);
+      }
+      return {
+        _id: v._id,
+        title: v.title,
+        slug: v.slug,
+        shareUrl: videoUrl,
+        views: v.views,
+        duration: v.duration,
+        uploadDate: v.uploadDate,
+        tags: v.tags || [],
+      };
+    });
+
+    res.json({
+      success: true,
+      videos: videosWithLinks,
+      count: videosWithLinks.length,
+    });
+  } catch (error) {
+    console.error('Bulk Share Links Error:', error);
+    res.status(500).json({ error: 'Failed to generate share links' });
+  }
+});
+
+// ==========================================
+// EXPORT VIDEO METADATA (JSON for frontend to convert to CSV/Excel)
+// ==========================================
+router.get('/videos/export', simpleAdminAuth, async (req, res) => {
+  try {
+    const { ids, format = 'json', limit = 5000 } = req.query;
+    var frontendUrl = getFrontendUrl();
+
+    let query = { status: 'public', isDuplicate: { $ne: true } };
+
+    // If specific IDs provided
+    if (ids) {
+      const idArray = ids.split(',').map(id => id.trim()).filter(Boolean);
+      if (idArray.length > 0) {
+        query = { _id: { $in: idArray } };
+      }
+    }
+
+    const videos = await Video.find(query)
+      .sort({ uploadDate: -1 })
+      .limit(Math.min(parseInt(limit) || 5000, 10000))
+      .select('_id title slug tags views duration uploadDate file_code category')
+      .populate('category', 'name')
+      .lean();
+
+    const exportData = videos.map(function (v) {
+      var videoUrl = frontendUrl + '/watch/' + v._id;
+      if (v.slug) {
+        videoUrl += '/' + encodeURIComponent(v.slug);
+      }
+      return {
+        id: v._id,
+        title: v.title,
+        shareUrl: videoUrl,
+        tags: (v.tags || []).join(', '),
+        views: v.views || 0,
+        duration: v.duration || '00:00',
+        category: v.category?.name || 'General',
+        fileCode: v.file_code,
+        uploadDate: v.uploadDate ? new Date(v.uploadDate).toISOString().split('T')[0] : '',
+      };
+    });
+
+    if (format === 'csv') {
+      // Generate CSV
+      const headers = ['ID', 'Title', 'Share URL', 'Tags', 'Views', 'Duration', 'Category', 'File Code', 'Upload Date'];
+      let csv = headers.join(',') + '\n';
+
+      exportData.forEach(function (row) {
+        csv += [
+          row.id,
+          '"' + (row.title || '').replace(/"/g, '""') + '"',
+          row.shareUrl,
+          '"' + (row.tags || '').replace(/"/g, '""') + '"',
+          row.views,
+          row.duration,
+          '"' + (row.category || '').replace(/"/g, '""') + '"',
+          row.fileCode,
+          row.uploadDate,
+        ].join(',') + '\n';
+      });
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename=xmaster-videos-export.csv');
+      return res.status(200).send(csv);
+    }
+
+    // Default: JSON
+    res.json({
+      success: true,
+      videos: exportData,
+      total: exportData.length,
+    });
+  } catch (error) {
+    console.error('Export Error:', error);
+    res.status(500).json({ error: 'Failed to export video metadata' });
   }
 });
 
