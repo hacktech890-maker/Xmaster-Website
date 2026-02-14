@@ -39,6 +39,10 @@ function getFrontendUrl() {
   return raw.replace(/\/+$/, '');
 }
 
+// ==========================================
+// AUTH ROUTES
+// ==========================================
+
 // POST /api/admin/login
 router.post('/login', (req, res) => {
   try {
@@ -68,6 +72,10 @@ router.post('/login', (req, res) => {
 router.post('/verify', simpleAdminAuth, (req, res) => {
   res.json({ success: true, admin: req.admin, message: 'Token is valid' });
 });
+
+// ==========================================
+// DASHBOARD
+// ==========================================
 
 // GET /api/admin/dashboard
 router.get('/dashboard', simpleAdminAuth, async (req, res) => {
@@ -119,6 +127,10 @@ router.get('/dashboard', simpleAdminAuth, async (req, res) => {
   }
 });
 
+// ==========================================
+// VIDEO LIST (no :id parameter)
+// ==========================================
+
 // GET /api/admin/videos
 router.get('/videos', simpleAdminAuth, async (req, res) => {
   try {
@@ -161,9 +173,10 @@ router.get('/videos', simpleAdminAuth, async (req, res) => {
 });
 
 // ==========================================
-// BULK UPDATE STATUS (Publish/Unpublish)
-// MUST be BEFORE /videos/:id routes
+// ALL BULK ROUTES (MUST be BEFORE /videos/:id)
 // ==========================================
+
+// POST /api/admin/videos/bulk-update-status
 router.post('/videos/bulk-update-status', simpleAdminAuth, async (req, res) => {
   try {
     const { ids, status, mode } = req.body;
@@ -205,43 +218,6 @@ router.post('/videos/bulk-update-status', simpleAdminAuth, async (req, res) => {
   }
 });
 
-
-// PUT /api/admin/videos/:id
-router.put('/videos/:id', simpleAdminAuth, async (req, res) => {
-  try {
-    const { title, description, thumbnail, category, tags, status, featured, duration } = req.body;
-    const video = await Video.findById(req.params.id);
-    if (!video) return res.status(404).json({ error: 'Video not found' });
-
-    if (title) video.title = title;
-    if (description !== undefined) video.description = description;
-    if (thumbnail) video.thumbnail = thumbnail;
-    if (category !== undefined) video.category = category || null;
-    if (tags) video.tags = Array.isArray(tags) ? tags : tags.split(',').map(t => t.trim());
-    if (status) video.status = status;
-    if (featured !== undefined) video.featured = featured;
-    if (duration) video.duration = duration;
-
-    await video.save();
-    res.json({ success: true, video, message: 'Video updated successfully' });
-  } catch (error) {
-    console.error('Update Video Error:', error);
-    res.status(500).json({ error: 'Failed to update video' });
-  }
-});
-
-// DELETE /api/admin/videos/:id
-router.delete('/videos/:id', simpleAdminAuth, async (req, res) => {
-  try {
-    const video = await Video.findByIdAndDelete(req.params.id);
-    if (!video) return res.status(404).json({ error: 'Video not found' });
-    res.json({ success: true, message: 'Video deleted successfully' });
-  } catch (error) {
-    console.error('Delete Video Error:', error);
-    res.status(500).json({ error: 'Failed to delete video' });
-  }
-});
-
 // POST /api/admin/videos/bulk-delete
 router.post('/videos/bulk-delete', simpleAdminAuth, async (req, res) => {
   try {
@@ -257,43 +233,10 @@ router.post('/videos/bulk-delete', simpleAdminAuth, async (req, res) => {
   }
 });
 
-// PUT /api/admin/videos/:id/feature
-router.put('/videos/:id/feature', simpleAdminAuth, async (req, res) => {
-  try {
-    const video = await Video.findById(req.params.id);
-    if (!video) return res.status(404).json({ error: 'Video not found' });
-    video.featured = !video.featured;
-    await video.save();
-    res.json({ success: true, featured: video.featured, message: video.featured ? 'Video featured' : 'Video unfeatured' });
-  } catch (error) {
-    console.error('Toggle Feature Error:', error);
-    res.status(500).json({ error: 'Failed to toggle featured status' });
-  }
-});
-
-// PUT /api/admin/videos/:id/status
-router.put('/videos/:id/status', simpleAdminAuth, async (req, res) => {
-  try {
-    const { status } = req.body;
-    if (!['public', 'private', 'unlisted'].includes(status)) {
-      return res.status(400).json({ error: 'Invalid status' });
-    }
-    const video = await Video.findByIdAndUpdate(req.params.id, { status }, { new: true });
-    if (!video) return res.status(404).json({ error: 'Video not found' });
-    res.json({ success: true, status: video.status, message: 'Video status updated' });
-  } catch (error) {
-    console.error('Update Status Error:', error);
-    res.status(500).json({ error: 'Failed to update status' });
-  }
-});
-
-// ==========================================
-// BULK EDIT TITLES (Excel Paste Feature)
-// ==========================================
+// POST /api/admin/videos/bulk-update-titles
 router.post('/videos/bulk-update-titles', simpleAdminAuth, async (req, res) => {
   try {
     const { updates } = req.body;
-    // updates = [{ id: "...", title: "..." }, ...]
     if (!updates || !Array.isArray(updates) || updates.length === 0) {
       return res.status(400).json({ error: 'No updates provided' });
     }
@@ -316,7 +259,6 @@ router.post('/videos/bulk-update-titles', simpleAdminAuth, async (req, res) => {
         }
 
         video.title = update.title.trim();
-        // Regenerate slug from new title
         video.slug = video.title
           .toLowerCase()
           .replace(/[^a-z0-9]+/g, '-')
@@ -343,13 +285,10 @@ router.post('/videos/bulk-update-titles', simpleAdminAuth, async (req, res) => {
   }
 });
 
-// ==========================================
-// BULK ADD TAGS (Excel Paste Feature)
-// ==========================================
+// POST /api/admin/videos/bulk-update-tags
 router.post('/videos/bulk-update-tags', simpleAdminAuth, async (req, res) => {
   try {
     const { updates } = req.body;
-    // updates = [{ id: "...", tags: ["tag1", "tag2"] }, ...]
     if (!updates || !Array.isArray(updates) || updates.length === 0) {
       return res.status(400).json({ error: 'No updates provided' });
     }
@@ -374,7 +313,7 @@ router.post('/videos/bulk-update-tags', simpleAdminAuth, async (req, res) => {
           continue;
         }
 
-        const mode = update.mode || 'append'; // append or replace
+        const mode = update.mode || 'append';
 
         if (mode === 'replace') {
           await Video.findByIdAndUpdate(update.id, { $set: { tags: tags } });
@@ -400,13 +339,10 @@ router.post('/videos/bulk-update-tags', simpleAdminAuth, async (req, res) => {
   }
 });
 
-// ==========================================
-// BULK SELECT & GET SHARE LINKS
-// ==========================================
+// POST /api/admin/videos/bulk-share-links
 router.post('/videos/bulk-share-links', simpleAdminAuth, async (req, res) => {
   try {
     const { ids, count, mode } = req.body;
-    // mode: 'selected' (use ids array) or 'first' (use count number)
 
     let videos;
     var frontendUrl = getFrontendUrl();
@@ -456,9 +392,7 @@ router.post('/videos/bulk-share-links', simpleAdminAuth, async (req, res) => {
   }
 });
 
-// ==========================================
-// EXPORT VIDEO METADATA (JSON for frontend to convert to CSV/Excel)
-// ==========================================
+// GET /api/admin/videos/export
 router.get('/videos/export', simpleAdminAuth, async (req, res) => {
   try {
     const { ids, format = 'json', limit = 5000 } = req.query;
@@ -466,7 +400,6 @@ router.get('/videos/export', simpleAdminAuth, async (req, res) => {
 
     let query = { status: 'public', isDuplicate: { $ne: true } };
 
-    // If specific IDs provided
     if (ids) {
       const idArray = ids.split(',').map(id => id.trim()).filter(Boolean);
       if (idArray.length > 0) {
@@ -500,7 +433,6 @@ router.get('/videos/export', simpleAdminAuth, async (req, res) => {
     });
 
     if (format === 'csv') {
-      // Generate CSV
       const headers = ['ID', 'Title', 'Share URL', 'Tags', 'Views', 'Duration', 'Category', 'File Code', 'Upload Date'];
       let csv = headers.join(',') + '\n';
 
@@ -523,7 +455,6 @@ router.get('/videos/export', simpleAdminAuth, async (req, res) => {
       return res.status(200).send(csv);
     }
 
-    // Default: JSON
     res.json({
       success: true,
       videos: exportData,
@@ -532,6 +463,77 @@ router.get('/videos/export', simpleAdminAuth, async (req, res) => {
   } catch (error) {
     console.error('Export Error:', error);
     res.status(500).json({ error: 'Failed to export video metadata' });
+  }
+});
+
+// ==========================================
+// SINGLE VIDEO ROUTES (with :id parameter)
+// MUST be AFTER all bulk routes above
+// ==========================================
+
+// PUT /api/admin/videos/:id
+router.put('/videos/:id', simpleAdminAuth, async (req, res) => {
+  try {
+    const { title, description, thumbnail, category, tags, status, featured, duration } = req.body;
+    const video = await Video.findById(req.params.id);
+    if (!video) return res.status(404).json({ error: 'Video not found' });
+
+    if (title) video.title = title;
+    if (description !== undefined) video.description = description;
+    if (thumbnail) video.thumbnail = thumbnail;
+    if (category !== undefined) video.category = category || null;
+    if (tags) video.tags = Array.isArray(tags) ? tags : tags.split(',').map(t => t.trim());
+    if (status) video.status = status;
+    if (featured !== undefined) video.featured = featured;
+    if (duration) video.duration = duration;
+
+    await video.save();
+    res.json({ success: true, video, message: 'Video updated successfully' });
+  } catch (error) {
+    console.error('Update Video Error:', error);
+    res.status(500).json({ error: 'Failed to update video' });
+  }
+});
+
+// DELETE /api/admin/videos/:id
+router.delete('/videos/:id', simpleAdminAuth, async (req, res) => {
+  try {
+    const video = await Video.findByIdAndDelete(req.params.id);
+    if (!video) return res.status(404).json({ error: 'Video not found' });
+    res.json({ success: true, message: 'Video deleted successfully' });
+  } catch (error) {
+    console.error('Delete Video Error:', error);
+    res.status(500).json({ error: 'Failed to delete video' });
+  }
+});
+
+// PUT /api/admin/videos/:id/feature
+router.put('/videos/:id/feature', simpleAdminAuth, async (req, res) => {
+  try {
+    const video = await Video.findById(req.params.id);
+    if (!video) return res.status(404).json({ error: 'Video not found' });
+    video.featured = !video.featured;
+    await video.save();
+    res.json({ success: true, featured: video.featured, message: video.featured ? 'Video featured' : 'Video unfeatured' });
+  } catch (error) {
+    console.error('Toggle Feature Error:', error);
+    res.status(500).json({ error: 'Failed to toggle featured status' });
+  }
+});
+
+// PUT /api/admin/videos/:id/status
+router.put('/videos/:id/status', simpleAdminAuth, async (req, res) => {
+  try {
+    const { status } = req.body;
+    if (!['public', 'private', 'unlisted'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status' });
+    }
+    const video = await Video.findByIdAndUpdate(req.params.id, { status }, { new: true });
+    if (!video) return res.status(404).json({ error: 'Video not found' });
+    res.json({ success: true, status: video.status, message: 'Video status updated' });
+  } catch (error) {
+    console.error('Update Status Error:', error);
+    res.status(500).json({ error: 'Failed to update status' });
   }
 });
 
