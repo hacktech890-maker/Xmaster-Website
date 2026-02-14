@@ -9,11 +9,12 @@ import {
   FiChevronUp, FiRefreshCw, FiAlertCircle,FiLock, FiGlobe,
 } from 'react-icons/fi';
 import toast from 'react-hot-toast';
-import { adminAPI } from '../../services/api';
+
 import AdminLayout from '../../components/admin/AdminLayout';
 import Pagination from '../../components/common/Pagination';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { formatViews, formatDate, debounce } from '../../utils/helpers';
+import { adminAPI, publicAPI } from '../../services/api';
 
 // ==========================================
 // BULK EDIT TITLES MODAL
@@ -1169,6 +1170,9 @@ const VideosManager = () => {
 // ==========================================
 // EDIT VIDEO MODAL
 // ==========================================
+// ==========================================
+// EDIT VIDEO MODAL (UPDATED with Categories)
+// ==========================================
 const EditVideoModal = ({ video, onClose, onSave }) => {
   const [formData, setFormData] = useState({
     title: video.title || '',
@@ -1176,16 +1180,63 @@ const EditVideoModal = ({ video, onClose, onSave }) => {
     tags: video.tags?.join(', ') || '',
     status: video.status || 'public',
     featured: video.featured || false,
+    category: video.category?._id || video.category || '',
+    categories: (video.categories || []).map(c => c._id || c),
   });
   const [loading, setLoading] = useState(false);
+  const [categories, setCategories] = useState([]);
+  const [categorySearch, setCategorySearch] = useState('');
+
+  // Fetch categories
+  useEffect(() => {
+    publicAPI.getCategories()
+      .then(res => {
+        if (res.data.success) {
+          setCategories(res.data.categories || []);
+        }
+      })
+      .catch(console.error);
+  }, []);
+
+  const filteredCategories = categories.filter(c =>
+    c.name.toLowerCase().includes(categorySearch.toLowerCase())
+  );
+
+  const toggleCategory = (catId) => {
+    setFormData(prev => {
+      const current = prev.categories || [];
+      const isSelected = current.includes(catId);
+
+      let newCategories;
+      if (isSelected) {
+        newCategories = current.filter(id => id !== catId);
+      } else {
+        newCategories = [...current, catId];
+      }
+
+      // Primary category = first in list
+      const newPrimary = newCategories.length > 0 ? newCategories[0] : '';
+
+      return {
+        ...prev,
+        categories: newCategories,
+        category: newPrimary,
+      };
+    });
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     try {
       const response = await adminAPI.updateVideo(video._id, {
-        ...formData,
+        title: formData.title,
+        description: formData.description,
         tags: formData.tags.split(',').map(t => t.trim()).filter(Boolean),
+        status: formData.status,
+        featured: formData.featured,
+        category: formData.category || null,
+        categories: formData.categories || [],
       });
       if (response.data.success) {
         onSave(response.data.video);
@@ -1196,6 +1247,10 @@ const EditVideoModal = ({ video, onClose, onSave }) => {
       setLoading(false);
     }
   };
+
+  const selectedCategoryNames = formData.categories
+    .map(id => categories.find(c => c._id === id))
+    .filter(Boolean);
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -1214,18 +1269,94 @@ const EditVideoModal = ({ video, onClose, onSave }) => {
               <p className="text-white font-mono">{video.file_code}</p>
             </div>
           </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">Title</label>
             <input type="text" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} className="input-field" required />
           </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">Description</label>
-            <textarea value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} rows={4} className="input-field resize-none" />
+            <textarea value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} rows={3} className="input-field resize-none" />
           </div>
+
+          {/* ★ NEW: Categories Section */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Categories
+              <span className="text-gray-500 font-normal ml-2">
+                ({formData.categories.length} selected)
+              </span>
+            </label>
+
+            {/* Selected categories */}
+            {selectedCategoryNames.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-3">
+                {selectedCategoryNames.map((cat, i) => (
+                  <span
+                    key={cat._id}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-primary-500/20 text-primary-400 text-sm rounded-full border border-primary-500/30"
+                  >
+                    {cat.icon || '📁'} {cat.name}
+                    {i === 0 && <span className="text-[10px] text-primary-300 ml-1">(Primary)</span>}
+                    <button
+                      type="button"
+                      onClick={() => toggleCategory(cat._id)}
+                      className="ml-1 hover:text-red-400 transition-colors"
+                    >
+                      <FiX className="w-3.5 h-3.5" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Search categories */}
+            <div className="relative mb-2">
+              <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 w-4 h-4" />
+              <input
+                type="text"
+                value={categorySearch}
+                onChange={(e) => setCategorySearch(e.target.value)}
+                placeholder="Search categories..."
+                className="w-full pl-10 pr-4 py-2 bg-dark-100 border border-dark-100 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              />
+            </div>
+
+            {/* Category list */}
+            <div className="max-h-40 overflow-y-auto bg-dark-100 rounded-lg p-2 space-y-1">
+              {filteredCategories.length === 0 ? (
+                <p className="text-gray-500 text-sm text-center py-2">No categories found</p>
+              ) : (
+                filteredCategories.map(cat => {
+                  const isSelected = formData.categories.includes(cat._id);
+                  return (
+                    <button
+                      key={cat._id}
+                      type="button"
+                      onClick={() => toggleCategory(cat._id)}
+                      className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-left transition-all ${
+                        isSelected
+                          ? 'bg-primary-500/20 text-primary-400 border border-primary-500/30'
+                          : 'text-gray-300 hover:bg-dark-200 hover:text-white'
+                      }`}
+                    >
+                      <span className="text-base">{cat.icon || '📁'}</span>
+                      <span className="flex-1">{cat.name}</span>
+                      {isSelected && <FiCheck className="w-4 h-4 text-primary-400" />}
+                      <span className="text-xs text-gray-500">{cat.videoCount || 0}</span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">Tags (comma separated)</label>
             <input type="text" value={formData.tags} onChange={(e) => setFormData({ ...formData, tags: e.target.value })} className="input-field" placeholder="tag1, tag2, tag3" />
           </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">Status</label>
@@ -1243,6 +1374,7 @@ const EditVideoModal = ({ video, onClose, onSave }) => {
               </label>
             </div>
           </div>
+
           <div className="flex gap-3 pt-4">
             <button type="button" onClick={onClose} className="flex-1 btn-secondary">Cancel</button>
             <button type="submit" disabled={loading} className="flex-1 btn-primary">{loading ? 'Saving...' : 'Save Changes'}</button>

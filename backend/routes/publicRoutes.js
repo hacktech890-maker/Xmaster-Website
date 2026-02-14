@@ -542,21 +542,61 @@ router.get('/share/:id/debug', async (req, res) => {
 
 
 // ==========================================
-// HOME DATA
+// HOME DATA - RANDOMIZED
 // ==========================================
 router.get('/home', async (req, res) => {
   try {
     var query = { status: 'public', isDuplicate: { $ne: true } };
 
-    const [featuredVideos, latestVideos, trendingVideos, categories] = await Promise.all([
-      Video.find(Object.assign({}, query, { featured: true }))
-        .sort({ uploadDate: -1 }).limit(6).populate('category', 'name slug'),
-      Video.find(query)
-        .sort({ uploadDate: -1 }).limit(12).populate('category', 'name slug'),
-      Video.find(query)
-        .sort({ views: -1 }).limit(12).populate('category', 'name slug'),
-      Category.find({ isActive: true }).sort({ order: 1 }).limit(10),
+    // Featured: random selection from featured videos
+    const featuredVideos = await Video.aggregate([
+      { $match: { ...query, featured: true } },
+      { $sample: { size: 6 } },
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'category',
+          foreignField: '_id',
+          as: 'categoryData'
+        }
+      },
+      {
+        $addFields: {
+          category: { $arrayElemAt: ['$categoryData', 0] }
+        }
+      },
+      { $project: { categoryData: 0 } }
     ]);
+
+    // Latest: still sorted by date (these should be newest)
+    const latestVideos = await Video.find(query)
+      .sort({ uploadDate: -1 })
+      .limit(12)
+      .populate('category', 'name slug');
+
+    // Trending: mix of top viewed + random for variety
+    const trendingVideos = await Video.aggregate([
+      { $match: query },
+      { $sort: { views: -1 } },
+      { $limit: 50 },
+      { $sample: { size: 12 } },
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'category',
+          foreignField: '_id',
+          as: 'categoryData'
+        }
+      },
+      {
+        $addFields: {
+          category: { $arrayElemAt: ['$categoryData', 0] }
+        }
+      },
+      { $project: { categoryData: 0 } }
+    ]);
+
+    const categories = await Category.find({ isActive: true }).sort({ order: 1 }).limit(10);
 
     res.json({ success: true, data: { featuredVideos, latestVideos, trendingVideos, categories } });
   } catch (error) {

@@ -1,124 +1,141 @@
-// backend/routes/shareRoutes.js
-
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 const Video = require('../models/Video');
-const { optimizeThumbnailForTelegram } = require('../middleware/ogRenderer');
 
-// GET /api/share/:videoId - Get share-ready data for a video
-router.get('/:videoId', async (req, res) => {
+// GET /api/search
+router.get('/', async (req, res) => {
   try {
-    const video = await Video.findById(req.params.videoId)
-      .select('title description thumbnailUrl thumbnail views duration')
-      .lean();
-    
-    if (!video) {
-      return res.status(404).json({ error: 'Video not found' });
+    const { q = '', page = 1, limit = 20, sort = 'relevance', category = '' } = req.query;
+
+    if (!q.trim()) {
+      return res.json({ success: true, videos: [], pagination: { page: 1, limit: 20, total: 0, pages: 0 } });
     }
-    
-    const siteUrl = process.env.SITE_URL || 'https://yourdomain.com';
-    const siteName = process.env.SITE_NAME || 'XMaster';
-    
-    const shareData = {
-      title: video.title || 'Untitled Video',
-      description: video.description || `Watch this video on ${siteName}`,
-      url: `${siteUrl}/watch/${video._id}`,
-      thumbnailUrl: optimizeThumbnailForTelegram(
-        video.thumbnailUrl || video.thumbnail || ''
-      ),
-      siteName,
+
+    const query = {
+      status: 'public',
+      isDuplicate: { $ne: true },
+      $or: [
+        { title: { $regex: q, $options: 'i' } },
+        { description: { $regex: q, $options: 'i' } },
+        { tags: { $in: [new RegExp(q, 'i')] } }
+      ]
     };
-    
-    res.json(shareData);
-  } catch (error) {
-    console.error('Share data error:', error);
-    res.status(500).json({ error: 'Failed to get share data' });
-  }
-});
 
-// POST /api/share/:videoId/track - Track share events (analytics)
-router.post('/:videoId/track', async (req, res) => {
-  try {
-    const { platform } = req.body; // 'telegram', 'whatsapp', 'facebook', 'copy', 'native'
-    
-    await Video.findByIdAndUpdate(req.params.videoId, {
-      $inc: { 
-        shares: 1,
-        [`sharePlatforms.${platform || 'unknown'}`]: 1
-      }
-    });
-    
-    res.json({ success: true });
-  } catch (error) {
-    console.error('Share tracking error:', error);
-    res.status(500).json({ error: 'Failed to track share' });
-  }
-});
-
-// GET /api/share/:videoId/debug-og - Debug endpoint to test OG tags
-router.get('/:videoId/debug-og', async (req, res) => {
-  try {
-    const video = await Video.findById(req.params.videoId)
-      .select('title description thumbnailUrl thumbnail')
-      .lean();
-    
-    if (!video) {
-      return res.status(404).json({ error: 'Video not found' });
-    }
-    
-    const siteUrl = process.env.SITE_URL || 'https://yourdomain.com';
-    const thumbnailUrl = optimizeThumbnailForTelegram(
-      video.thumbnailUrl || video.thumbnail || ''
-    );
-    
-    // Test if thumbnail is accessible
-    let thumbnailStatus = 'unknown';
-    try {
-      const https = require('https');
-      const http = require('http');
-      const client = thumbnailUrl.startsWith('https') ? https : http;
-      
-      thumbnailStatus = await new Promise((resolve) => {
-        client.get(thumbnailUrl, (response) => {
-          resolve({
-            statusCode: response.statusCode,
-            contentType: response.headers['content-type'],
-            contentLength: response.headers['content-length'],
-            redirected: response.statusCode >= 300 && response.statusCode < 400,
-            redirectUrl: response.headers['location'] || null,
-          });
-        }).on('error', (err) => {
-          resolve({ error: err.message });
-        });
+    // Category filter using ObjectId
+    if (category && mongoose.Types.ObjectId.isValid(category)) {
+      query.$and = query.$and || [];
+      query.$and.push({
+        $or: [
+          { category: new mongoose.Types.ObjectId(category) },
+          { categories: new mongoose.Types.ObjectId(category) }
+        ]
       });
-    } catch (e) {
-      thumbnailStatus = { error: e.message };
     }
-    
+
+    let sortOption = {};
+    switch (sort) {
+      case 'newest': sortOption = { uploadDate: -1 }; break;
+      case 'oldest': sortOption = { uploadDate: 1 }; break;
+      case 'views': sortOption = { views: -1 }; break;
+      default: sortOption = { views: -1, uploadDate: -1 };
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const [videos, total] = await Promise.all([
+      Video.find(query)
+        .populate('category', 'name slug color icon')
+        .populate('categories', 'name slug color icon')
+        .sort(sortOption)
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      Video.countDocuments(query)
+    ]);
+
     res.json({
-      videoId: req.params.videoId,
-      ogTags: {
-        'og:title': video.title,
-        'og:description': video.description,
-        'og:url': `${siteUrl}/watch/${video._id}`,
-        'og:image': thumbnailUrl,
-        'og:image:width': '1200',
-        'og:image:height': '630',
-        'og:image:type': 'image/jpeg',
-      },
-      thumbnailAnalysis: {
-        originalUrl: video.thumbnailUrl || video.thumbnail,
-        optimizedUrl: thumbnailUrl,
-        isHttps: thumbnailUrl.startsWith('https://'),
-        isCloudinary: thumbnailUrl.includes('cloudinary.com'),
-        hasTransformations: thumbnailUrl.includes('c_fill'),
-        accessibility: thumbnailStatus,
-      },
-      telegramTestUrl: `https://t.me/iv?url=${encodeURIComponent(`${siteUrl}/watch/${video._id}`)}&rhash=none`,
-      webpageBotInstruction: `Send this to @WebpageBot on Telegram: ${siteUrl}/watch/${video._id}`,
+      success: true,
+      query: q,
+      videos,
+      pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / parseInt(limit)) }
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Search Error:', error);
+    res.status(500).json({ error: 'Search failed' });
+  }
+});
+
+// GET /api/search/suggestions
+router.get('/suggestions', async (req, res) => {
+  try {
+    const { q = '', limit = 5 } = req.query;
+    if (!q.trim() || q.length < 2) {
+      return res.json({ success: true, suggestions: [] });
+    }
+
+    const videos = await Video.find({ status: 'public', title: { $regex: q, $options: 'i' } })
+      .select('title')
+      .limit(parseInt(limit));
+
+    res.json({ success: true, suggestions: videos.map(v => v.title) });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to get suggestions' });
+  }
+});
+
+// GET /api/search/tags/:tag
+router.get('/tags/:tag', async (req, res) => {
+  try {
+    const { page = 1, limit = 20, sort = 'newest' } = req.query;
+    const tag = req.params.tag.toLowerCase();
+
+    let sortOption = {};
+    switch (sort) {
+      case 'oldest': sortOption = { uploadDate: 1 }; break;
+      case 'views': sortOption = { views: -1 }; break;
+      default: sortOption = { uploadDate: -1 };
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const query = { status: 'public', isDuplicate: { $ne: true }, tags: tag };
+
+    const [videos, total] = await Promise.all([
+      Video.find(query)
+        .populate('category', 'name slug color icon')
+        .populate('categories', 'name slug color icon')
+        .sort(sortOption)
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      Video.countDocuments(query)
+    ]);
+
+    res.json({
+      success: true,
+      tag,
+      videos,
+      pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / parseInt(limit)) }
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Tag search failed' });
+  }
+});
+
+// GET /api/search/popular-tags
+router.get('/popular-tags', async (req, res) => {
+  try {
+    const { limit = 20 } = req.query;
+    const tags = await Video.aggregate([
+      { $match: { status: 'public', isDuplicate: { $ne: true } } },
+      { $unwind: '$tags' },
+      { $group: { _id: '$tags', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: parseInt(limit) }
+    ]);
+
+    res.json({ success: true, tags: tags.map(t => ({ tag: t._id, count: t.count })) });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to get popular tags' });
   }
 });
 

@@ -17,9 +17,7 @@ api.interceptors.request.use(
     }
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
 api.interceptors.response.use(
@@ -36,7 +34,6 @@ api.interceptors.response.use(
 );
 
 // ==================== PUBLIC API ====================
-
 export const publicAPI = {
   getHomeData: () => api.get('/public/home'),
   getVideos: (params) => api.get('/videos', { params }),
@@ -45,9 +42,14 @@ export const publicAPI = {
   getTrendingVideos: (limit = 12, period = '7d') =>
     api.get('/videos/trending', { params: { limit, period } }),
   getFeaturedVideos: (limit = 6) => api.get('/videos/featured', { params: { limit } }),
-  getRelatedVideos: (id, limit = 10) => api.get(`/videos/${id}/related`, { params: { limit } }),
+
+  // UPDATED: Added seed parameter for random results on each call
+  getRelatedVideos: (id, limit = 10) =>
+    api.get(`/videos/${id}/related`, { params: { limit, seed: Date.now() } }),
+
   getRandomVideos: (limit = 10, exclude = '') =>
     api.get('/videos/random', { params: { limit, exclude } }),
+
   recordView: (id, sessionId) => api.post(`/videos/${id}/view`, { sessionId }),
   likeVideo: (id) => api.post(`/videos/${id}/like`),
   dislikeVideo: (id) => api.post(`/videos/${id}/dislike`),
@@ -70,10 +72,10 @@ export const publicAPI = {
   submitComment: (data) => api.post('/comments', data),
   trackShare: (id, platform) => api.post(`/public/share/${id}/track`, { platform }),
   getShareDebug: (id) => api.get(`/public/share/${id}/debug`),
+  bulkCreateCategories: (data) => api.post('/categories/bulk-create', data),
 };
 
 // ==================== ADMIN API ====================
-
 export const adminAPI = {
   // Auth
   login: (password, username = 'admin') =>
@@ -94,7 +96,7 @@ export const adminAPI = {
   toggleFeatured: (id) => api.put(`/admin/videos/${id}/feature`),
   updateVideoStatus: (id, status) => api.put(`/admin/videos/${id}/status`, { status }),
 
-  // Bulk Operations (NEW)
+  // Bulk Operations
   bulkUpdateTitles: (updates) => api.post('/admin/videos/bulk-update-titles', { updates }),
   bulkUpdateTags: (updates) => api.post('/admin/videos/bulk-update-tags', { updates }),
   bulkShareLinks: (data) => api.post('/admin/videos/bulk-share-links', data),
@@ -132,6 +134,7 @@ export const adminAPI = {
   createCategory: (data) => api.post('/categories', data),
   updateCategory: (id, data) => api.put(`/categories/${id}`, data),
   deleteCategory: (id) => api.delete(`/categories/${id}`),
+  bulkCreateCategories: (data) => api.post('/categories/bulk-create', data),
   reorderCategories: (order) => api.put('/categories/admin/reorder', { order }),
 
   // Ads

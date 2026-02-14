@@ -41,7 +41,6 @@ const videoSchema = new mongoose.Schema(
       default: "",
     },
 
-    // ✅ NEW (Recommended for Telegram OG tags)
     thumbnailUrl: {
       type: String,
       default: "",
@@ -62,11 +61,22 @@ const videoSchema = new mongoose.Schema(
       default: 0,
     },
 
+    // ============================
+    // CATEGORY FIELDS (UPDATED)
+    // ============================
+    // Primary category (ObjectId reference)
     category: {
-      type: String,
-      default: "General",
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Category",
+      default: null,
       index: true,
     },
+
+    // Multiple categories support
+    categories: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Category",
+    }],
 
     tags: [
       {
@@ -93,7 +103,7 @@ const videoSchema = new mongoose.Schema(
     },
 
     // ============================
-    // SHARE TRACKING (OPTIONAL)
+    // SHARE TRACKING
     // ============================
     shares: {
       type: Number,
@@ -110,7 +120,6 @@ const videoSchema = new mongoose.Schema(
       native: { type: Number, default: 0 },
       unknown: { type: Number, default: 0 },
     },
-
 
     sharedOnTG: {
       type: Boolean,
@@ -158,14 +167,12 @@ const videoSchema = new mongoose.Schema(
       },
     ],
 
-    // Normalized title for comparison (lowercase, no spaces/special chars)
     titleNormalized: {
       type: String,
       default: "",
       index: true,
     },
 
-    // File hash for content matching
     fileHash: {
       type: String,
       default: "",
@@ -180,8 +187,6 @@ const videoSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-
-    // ✅ Important: include virtual fields when sending JSON
     toJSON: { virtuals: true },
     toObject: { virtuals: true },
   }
@@ -190,14 +195,12 @@ const videoSchema = new mongoose.Schema(
 // ==========================================
 // VIRTUALS
 // ==========================================
-
-// ✅ Best thumbnail getter (useful for OG tags and API)
 videoSchema.virtual("bestThumbnail").get(function () {
   return this.thumbnailUrl || this.thumbnail || "";
 });
 
 // ==========================================
-// Pre-save: generate slug, embed_code, normalized title, duration_seconds
+// Pre-save
 // ==========================================
 videoSchema.pre("save", function (next) {
   // Generate slug
@@ -227,7 +230,6 @@ videoSchema.pre("save", function (next) {
   // Parse duration string to seconds
   if (this.duration && this.duration !== "00:00") {
     const parts = this.duration.split(":").map(Number);
-
     if (parts.length === 3) {
       this.duration_seconds = parts[0] * 3600 + parts[1] * 60 + parts[2];
     } else if (parts.length === 2) {
@@ -235,11 +237,19 @@ videoSchema.pre("save", function (next) {
     }
   }
 
+  // Sync categories array with primary category
+  if (this.category && (!this.categories || this.categories.length === 0)) {
+    this.categories = [this.category];
+  }
+  if (this.categories && this.categories.length > 0 && !this.category) {
+    this.category = this.categories[0];
+  }
+
   next();
 });
 
 // ==========================================
-// Pre-remove: clean up Cloudinary thumbnail
+// Pre-remove
 // ==========================================
 videoSchema.pre("deleteOne", { document: true, query: false }, async function () {
   if (this.cloudinary_public_id) {
@@ -255,12 +265,9 @@ videoSchema.pre("deleteOne", { document: true, query: false }, async function ()
 // ==========================================
 // Indexes
 // ==========================================
-
-// Text search index
 videoSchema.index({ title: "text", tags: "text", description: "text" });
-
-// Extra indexes for share tracking
 videoSchema.index({ shares: -1 });
 videoSchema.index({ "sharePlatforms.telegram": -1 });
+videoSchema.index({ categories: 1 });
 
 module.exports = mongoose.model("Video", videoSchema);

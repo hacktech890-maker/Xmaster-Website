@@ -41,6 +41,19 @@ const formatDuration = (duration) => {
 const PLACEHOLDER =
   "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQwIiBoZWlnaHQ9IjM2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjMWUxZTFlIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIyNCIgZmlsbD0iIzY2NiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPk5vIFRodW1ibmFpbDwvdGV4dD48L3N2Zz4=";
 
+// Helper to get category display info
+const getCategoryInfo = (category) => {
+  if (!category) return null;
+  if (typeof category === 'string') {
+    if (category === 'General' || category.length === 24) return null; // Skip ObjectIds and "General"
+    return { name: category, slug: category.toLowerCase().replace(/[^a-z0-9]+/g, '-') };
+  }
+  if (category.name) {
+    return { name: category.name, slug: category.slug || category.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') };
+  }
+  return null;
+};
+
 const VideoCard = ({ video, size = "normal" }) => {
   const [imageError, setImageError] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
@@ -52,6 +65,7 @@ const VideoCard = ({ video, size = "normal" }) => {
   const realViews = views ?? 0;
   const realDate = uploadDate || createdAt;
   const formattedDuration = formatDuration(duration);
+  const categoryInfo = getCategoryInfo(category);
 
   const sizes = {
     small: { title: "text-sm line-clamp-2", meta: "text-xs" },
@@ -90,6 +104,12 @@ const VideoCard = ({ video, size = "normal" }) => {
               {formattedDuration}
             </div>
           )}
+          {/* Category badge on thumbnail */}
+          {categoryInfo && (
+            <div className="absolute top-2 left-2 px-2 py-0.5 bg-black/70 rounded text-white text-[10px] font-medium">
+              {categoryInfo.name}
+            </div>
+          )}
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-300 flex items-center justify-center">
             <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-red-600/90 flex items-center justify-center opacity-0 group-hover:opacity-100 transform scale-75 group-hover:scale-100 transition-all duration-300">
               <svg className="w-6 h-6 sm:w-8 sm:h-8 text-white ml-1" fill="currentColor" viewBox="0 0 20 20">
@@ -112,13 +132,6 @@ const VideoCard = ({ video, size = "normal" }) => {
             <span>•</span>
             <span>{formatDate(realDate)}</span>
           </div>
-          {category && (
-            <div className="mt-1.5">
-              <span className="text-xs px-2 py-0.5 bg-gray-100 dark:bg-dark-100 text-gray-600 dark:text-gray-400 rounded-full">
-                {typeof category === "string" ? category : category?.name || "General"}
-              </span>
-            </div>
-          )}
         </div>
       </div>
     </Link>

@@ -24,6 +24,12 @@ const categorySchema = new mongoose.Schema({
     type: String,
     default: '📁'
   },
+  // Type: 'category' for main categories, 'tag' for tag-style categories
+  type: {
+    type: String,
+    enum: ['category', 'tag'],
+    default: 'category'
+  },
   videoCount: {
     type: Number,
     default: 0
@@ -45,7 +51,7 @@ const categorySchema = new mongoose.Schema({
 });
 
 categorySchema.pre('save', function(next) {
-  if (this.name && !this.slug) {
+  if (this.isModified('name') || (this.name && !this.slug)) {
     this.slug = this.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   }
   next();

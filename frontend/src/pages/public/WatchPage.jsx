@@ -9,7 +9,6 @@ import { publicAPI } from "../../services/api";
 import LoadingSpinner from "../../components/common/LoadingSpinner";
 import ShareButton from '../../components/video/ShareButton';
 
-
 // ==================== CONSTANTS ====================
 const PLACEHOLDER =
   "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIwIiBoZWlnaHQ9IjE4MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjMWUxZTFlIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNiIgZmlsbD0iIzY2NiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPk5vIFRodW1ibmFpbDwvdGV4dD48L3N2Zz4=";
@@ -93,6 +92,22 @@ const getThumbnail = (v) => {
   return PLACEHOLDER;
 };
 
+// Helper to get category name from various formats
+const getCategoryName = (cat) => {
+  if (!cat) return null;
+  if (typeof cat === 'string') return cat;
+  if (cat.name) return cat.name;
+  return null;
+};
+
+const getCategorySlug = (cat) => {
+  if (!cat) return null;
+  if (typeof cat === 'string') return cat.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  if (cat.slug) return cat.slug;
+  if (cat.name) return cat.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  return null;
+};
+
 // ==================== AD INJECTOR COMPONENT ====================
 const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
   const containerRef = useRef(null);
@@ -100,14 +115,12 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
 
   useEffect(() => {
     if (!adCode || !containerRef.current || loaded.current) return;
-
     const container = containerRef.current;
     container.innerHTML = "";
     loaded.current = true;
 
     const tempDiv = document.createElement("div");
     tempDiv.innerHTML = adCode;
-
     const scripts = tempDiv.querySelectorAll("script");
     const nonScript = adCode.replace(/<script[\s\S]*?<\/script>/gi, "");
 
@@ -121,10 +134,7 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
       const s = document.createElement("script");
       Array.from(orig.attributes).forEach((a) => s.setAttribute(a.name, a.value));
       if (orig.textContent) s.textContent = orig.textContent;
-      if (orig.src) {
-        s.src = orig.src;
-        s.async = true;
-      }
+      if (orig.src) { s.src = orig.src; s.async = true; }
       container.appendChild(s);
     });
 
@@ -143,10 +153,7 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
           {label}
         </span>
       )}
-      <div
-        ref={containerRef}
-        className="ad-content flex justify-center items-center bg-gray-50 dark:bg-dark-200 rounded-xl overflow-hidden"
-      />
+      <div ref={containerRef} className="ad-content flex justify-center items-center bg-gray-50 dark:bg-dark-200 rounded-xl overflow-hidden" />
     </div>
   );
 };
@@ -154,28 +161,20 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
 // ==================== SOCIAL BAR LOADER ====================
 const SocialBarLoader = () => {
   const loaded = useRef(false);
-
   useEffect(() => {
     if (loaded.current) return;
     loaded.current = true;
-
     const script = document.createElement("script");
-    script.src =
-      "https://pl28697422.effectivegatecpm.com/7e/56/ba/7e56ba1b0754a8958ee3f0800dac7a0d.js";
+    script.src = "https://pl28697422.effectivegatecpm.com/7e/56/ba/7e56ba1b0754a8958ee3f0800dac7a0d.js";
     script.async = true;
     document.body.appendChild(script);
-
     return () => {
-      if (document.body.contains(script)) {
-        document.body.removeChild(script);
-      }
+      if (document.body.contains(script)) document.body.removeChild(script);
       loaded.current = false;
     };
   }, []);
-
   return null;
 };
-
 
 // ==================== MAIN WATCH PAGE ====================
 function WatchPage() {
@@ -193,23 +192,17 @@ function WatchPage() {
   const [reportReason, setReportReason] = useState("");
   const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
 
-  // Detect mobile
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 1024);
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // Update document head with OG tags for this video
   useEffect(() => {
     if (!video) return;
-
     const thumbnail = getThumbnail(video);
-
-    // Update page title
     document.title = `${video.title} - Xmaster`;
 
-    // Update or create meta tags
     const updateMeta = (property, content, isName = false) => {
       const attr = isName ? "name" : "property";
       let tag = document.querySelector(`meta[${attr}="${property}"]`);
@@ -232,16 +225,15 @@ function WatchPage() {
     updateMeta("twitter:description", video.description || `Watch ${video.title} on Xmaster`, true);
     updateMeta("twitter:image", thumbnail, true);
 
-    return () => {
-      document.title = "Xmaster - Watch Videos Online";
-    };
+    return () => { document.title = "Xmaster - Watch Videos Online"; };
   }, [video]);
 
-  // Fetch data
+  // ★ UPDATED: Fetch data with random seed for recommendations
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
       setError(null);
+      setRelatedVideos([]); // Clear previous recommendations
       try {
         const response = await publicAPI.getVideo(id);
         const videoData = response.data?.video || response.data?.data || response.data;
@@ -251,14 +243,16 @@ function WatchPage() {
 
         try { await publicAPI.recordView(id); } catch (e) {}
 
+        // ★ Fetch related videos - seed is auto-added by api.js
         try {
           const relRes = await publicAPI.getRelatedVideos(id, 15);
           if (relRes.data?.success) setRelatedVideos(relRes.data.videos || []);
         } catch (e) {
+          // Fallback to random videos
           try {
-            const latRes = await publicAPI.getLatestVideos(15);
-            if (latRes.data?.success)
-              setRelatedVideos((latRes.data.videos || []).filter((v) => v._id !== id));
+            const randRes = await publicAPI.getRandomVideos(15, id);
+            if (randRes.data?.success)
+              setRelatedVideos(randRes.data.videos || []);
           } catch (e2) {}
         }
       } catch (err) {
@@ -272,7 +266,6 @@ function WatchPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [id]);
 
-  // Actions
   const handleLike = async () => {
     if (liked) return;
     try {
@@ -305,7 +298,6 @@ function WatchPage() {
     }
   };
 
-  // LOADING
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-dark-400 flex items-center justify-center">
@@ -314,7 +306,6 @@ function WatchPage() {
     );
   }
 
-  // ERROR
   if (error || !video) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-dark-400 flex flex-col items-center justify-center px-4">
@@ -329,6 +320,20 @@ function WatchPage() {
   const embedUrl = video.embed_code || video.embedUrl || "";
   const duration = video.duration && video.duration !== "00:00" ? video.duration : null;
   const filtered = relatedVideos.filter((v) => v._id !== id);
+
+  // ★ UPDATED: Get all categories for this video
+  const allCategories = [];
+  if (video.category && getCategoryName(video.category)) {
+    allCategories.push(video.category);
+  }
+  if (video.categories && Array.isArray(video.categories)) {
+    video.categories.forEach(cat => {
+      const name = getCategoryName(cat);
+      if (name && !allCategories.find(c => getCategoryName(c) === name)) {
+        allCategories.push(cat);
+      }
+    });
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-dark-400">
@@ -386,7 +391,7 @@ function WatchPage() {
                 )}
               </div>
 
-              {/* ==================== SOCIAL BAR (UPDATED) ==================== */}
+              {/* Social Bar */}
               <div className="flex flex-wrap items-center gap-2 mt-4 pb-4 border-b border-gray-200 dark:border-dark-100">
                 <button
                   onClick={handleLike}
@@ -412,7 +417,6 @@ function WatchPage() {
                   <span>{formatViews(dislikes)}</span>
                 </button>
 
-                {/* ✅ NEW: ShareButton component replaces old share button + modal */}
                 <ShareButton video={video} />
 
                 <button
@@ -427,9 +431,7 @@ function WatchPage() {
               {/* Report Form */}
               {showReport && (
                 <div className="mt-3 p-4 bg-gray-100 dark:bg-dark-200 rounded-xl animate-fade-in">
-                  <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
-                    Report Video
-                  </h4>
+                  <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Report Video</h4>
                   <select
                     value={reportReason}
                     onChange={(e) => setReportReason(e.target.value)}
@@ -443,19 +445,8 @@ function WatchPage() {
                     <option value="other">Other</option>
                   </select>
                   <div className="flex gap-2">
-                    <button
-                      onClick={handleReport}
-                      disabled={!reportReason}
-                      className="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 disabled:opacity-50"
-                    >
-                      Submit
-                    </button>
-                    <button
-                      onClick={() => setShowReport(false)}
-                      className="px-4 py-2 bg-gray-200 dark:bg-dark-100 text-gray-700 dark:text-gray-300 text-sm rounded-lg"
-                    >
-                      Cancel
-                    </button>
+                    <button onClick={handleReport} disabled={!reportReason} className="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 disabled:opacity-50">Submit</button>
+                    <button onClick={() => setShowReport(false)} className="px-4 py-2 bg-gray-200 dark:bg-dark-100 text-gray-700 dark:text-gray-300 text-sm rounded-lg">Cancel</button>
                   </div>
                 </div>
               )}
@@ -464,9 +455,7 @@ function WatchPage() {
               {video.description && (
                 <div className="mt-4">
                   <div
-                    className={`bg-gray-100 dark:bg-dark-200 rounded-xl p-4 cursor-pointer transition-all ${
-                      descExpanded ? "" : "max-h-24 overflow-hidden"
-                    }`}
+                    className={`bg-gray-100 dark:bg-dark-200 rounded-xl p-4 cursor-pointer transition-all ${descExpanded ? "" : "max-h-24 overflow-hidden"}`}
                     onClick={() => setDescExpanded(!descExpanded)}
                   >
                     <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
@@ -478,28 +467,34 @@ function WatchPage() {
                       onClick={() => setDescExpanded(!descExpanded)}
                       className="flex items-center gap-1 mt-2 text-sm text-primary-600 hover:text-primary-700 font-medium"
                     >
-                      {descExpanded ? (
-                        <>Show less <FiChevronUp className="w-4 h-4" /></>
-                      ) : (
-                        <>Show more <FiChevronDown className="w-4 h-4" /></>
-                      )}
+                      {descExpanded ? (<>Show less <FiChevronUp className="w-4 h-4" /></>) : (<>Show more <FiChevronDown className="w-4 h-4" /></>)}
                     </button>
                   )}
                 </div>
               )}
 
-              {/* Tags */}
+              {/* ★ UPDATED: Categories + Tags Section */}
               <div className="flex flex-wrap items-center gap-2 mt-4">
-                {video.category && (
-                  <span className="px-3 py-1 bg-primary-600/10 text-primary-600 text-xs font-medium rounded-full">
-                    {typeof video.category === "string"
-                      ? video.category
-                      : video.category?.name || "General"}
-                  </span>
-                )}
+                {/* Categories as clickable links */}
+                {allCategories.map((cat, i) => {
+                  const name = getCategoryName(cat);
+                  const slug = getCategorySlug(cat);
+                  if (!name) return null;
+                  return (
+                    <Link
+                      key={i}
+                      to={`/category/${slug}`}
+                      className="px-3 py-1 bg-primary-600/10 text-primary-600 text-xs font-medium rounded-full hover:bg-primary-600/20 transition-colors"
+                    >
+                      {name}
+                    </Link>
+                  );
+                })}
+
+                {/* Tags */}
                 {video.tags?.map((tag, i) => (
                   <Link
-                    key={i}
+                    key={`tag-${i}`}
                     to={`/tag/${tag}`}
                     className="px-3 py-1 bg-gray-100 dark:bg-dark-100 text-gray-600 dark:text-gray-400 text-xs rounded-full hover:bg-gray-200 dark:hover:bg-dark-200 transition-colors"
                   >
@@ -550,15 +545,9 @@ function WatchPage() {
                 {filtered.slice(0, 3).map((v) => (
                   <RelatedVideoCard key={v._id} video={v} />
                 ))}
-
                 <div className="py-2">
-                  <AdSlot
-                    adCode={ADS.sidebar300x250}
-                    label="Sponsored"
-                    className="rounded-xl overflow-hidden bg-gray-50 dark:bg-dark-200 p-3"
-                  />
+                  <AdSlot adCode={ADS.sidebar300x250} label="Sponsored" className="rounded-xl overflow-hidden bg-gray-50 dark:bg-dark-200 p-3" />
                 </div>
-
                 {filtered.slice(3, 12).map((v) => (
                   <RelatedVideoCard key={v._id} video={v} />
                 ))}
@@ -609,6 +598,12 @@ const RelatedVideoCard = ({ video }) => {
           <p className="text-xs text-gray-500 dark:text-gray-400">
             {formatRelativeDate(video.uploadDate || video.createdAt)}
           </p>
+          {/* ★ Show category on related video card */}
+          {video.category && getCategoryName(video.category) && (
+            <p className="text-xs text-primary-500">
+              {getCategoryName(video.category)}
+            </p>
+          )}
         </div>
       </div>
     </Link>
