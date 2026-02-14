@@ -98,6 +98,7 @@ export const adminAPI = {
   bulkUpdateTitles: (updates) => api.post('/admin/videos/bulk-update-titles', { updates }),
   bulkUpdateTags: (updates) => api.post('/admin/videos/bulk-update-tags', { updates }),
   bulkShareLinks: (data) => api.post('/admin/videos/bulk-share-links', data),
+  bulkUpdateStatus: (data) => api.post('/admin/videos/bulk-update-status', data),
   exportVideos: (params) => api.get('/admin/videos/export', { params }),
   exportVideosCSV: (ids) => api.get('/admin/videos/export', {
     params: { format: 'csv', ids: ids ? ids.join(',') : undefined },

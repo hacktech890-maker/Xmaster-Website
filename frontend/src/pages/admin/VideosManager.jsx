@@ -6,7 +6,7 @@ import {
   FiCopy, FiExternalLink, FiCheckCircle,
   FiDownload, FiUpload, FiHash, FiLink,
   FiClipboard, FiTag, FiFileText, FiChevronDown,
-  FiChevronUp, FiRefreshCw, FiAlertCircle,
+  FiChevronUp, FiRefreshCw, FiAlertCircle,FiLock, FiGlobe,
 } from 'react-icons/fi';
 import toast from 'react-hot-toast';
 import { adminAPI } from '../../services/api';
@@ -1026,6 +1026,40 @@ const VideosManager = () => {
                   <FiClipboard className="w-3.5 h-3.5" />
                   Copy with Titles
                 </button>
+
+              <button
+  onClick={async () => {
+    try {
+      const res = await adminAPI.bulkUpdateStatus({ ids: selectedVideos, status: 'public' });
+      if (res.data.success) {
+        toast.success(`Published ${res.data.modifiedCount} videos`);
+        fetchVideos();
+        setSelectedVideos([]);
+      }
+    } catch (e) { toast.error('Failed'); }
+  }}
+  className="px-3 py-2 bg-green-500/10 text-green-400 hover:bg-green-500/20 rounded-lg text-sm transition-colors flex items-center gap-1.5"
+>
+  <FiCheckCircle className="w-3.5 h-3.5" />
+  Publish
+</button>
+<button
+  onClick={async () => {
+    try {
+      const res = await adminAPI.bulkUpdateStatus({ ids: selectedVideos, status: 'private' });
+      if (res.data.success) {
+        toast.success(`Made ${res.data.modifiedCount} videos private`);
+        fetchVideos();
+        setSelectedVideos([]);
+      }
+    } catch (e) { toast.error('Failed'); }
+  }}
+  className="px-3 py-2 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 rounded-lg text-sm transition-colors flex items-center gap-1.5"
+>
+  <FiLock className="w-3.5 h-3.5" />
+  Make Private
+</button>
+
                 <button onClick={handleBulkDelete} className="px-3 py-2 bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded-lg text-sm transition-colors flex items-center gap-1.5">
                   <FiTrash2 className="w-3.5 h-3.5" />
                   Delete

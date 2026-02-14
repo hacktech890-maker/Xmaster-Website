@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { 
-  FiUploadCloud, FiFile, FiX, FiCheck, FiAlertCircle, 
-  FiRefreshCw, FiPlay, FiPause, FiPlus, FiLink 
+import {
+  FiUploadCloud, FiFile, FiX, FiCheck, FiAlertCircle,
+  FiRefreshCw, FiPlay, FiPause, FiPlus, FiLink,
+  FiLock, FiGlobe, FiEye, FiEyeOff, FiCheckCircle,
 } from 'react-icons/fi';
 import toast from 'react-hot-toast';
 import { adminAPI, publicAPI } from '../../services/api';
@@ -10,10 +11,9 @@ import AdminLayout from '../../components/admin/AdminLayout';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 
 const UploadPage = () => {
-  const [activeTab, setActiveTab] = useState('upload'); // upload, file-code, abyss-files
+  const [activeTab, setActiveTab] = useState('upload');
   const [categories, setCategories] = useState([]);
-  
-  // Fetch categories
+
   useEffect(() => {
     publicAPI.getCategories()
       .then(res => {
@@ -32,6 +32,15 @@ const UploadPage = () => {
 
   return (
     <AdminLayout title="Upload Videos">
+      {/* Privacy Notice */}
+      <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-4 mb-6 flex items-center gap-3">
+        <FiLock className="w-5 h-5 text-yellow-500 flex-shrink-0" />
+        <div>
+          <p className="text-yellow-400 text-sm font-medium">All uploads are Private by default</p>
+          <p className="text-yellow-400/60 text-xs">Go to Videos Manager to publish videos after uploading</p>
+        </div>
+      </div>
+
       {/* Tabs */}
       <div className="bg-dark-200 rounded-xl border border-dark-100 mb-6">
         <div className="flex border-b border-dark-100">
@@ -68,7 +77,8 @@ const BulkUploadSection = ({ categories }) => {
   const [isPaused, setIsPaused] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [defaultCategory, setDefaultCategory] = useState('');
-  const [defaultStatus, setDefaultStatus] = useState('public');
+  const [defaultStatus, setDefaultStatus] = useState('private');
+  const [publishAfterUpload, setPublishAfterUpload] = useState(false);
 
   const onDrop = useCallback((acceptedFiles) => {
     const newFiles = acceptedFiles.map(file => ({
@@ -77,11 +87,12 @@ const BulkUploadSection = ({ categories }) => {
       name: file.name,
       title: file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' '),
       size: file.size,
-      status: 'pending', // pending, uploading, success, failed
+      status: 'pending',
       progress: 0,
       error: null,
       category: defaultCategory,
       videoStatus: defaultStatus,
+      videoId: null,
     }));
     setQueue(prev => [...prev, ...newFiles]);
   }, [defaultCategory, defaultStatus]);
@@ -95,7 +106,7 @@ const BulkUploadSection = ({ categories }) => {
   });
 
   const updateQueueItem = (id, updates) => {
-    setQueue(prev => prev.map(item => 
+    setQueue(prev => prev.map(item =>
       item.id === id ? { ...item, ...updates } : item
     ));
   };
@@ -106,7 +117,7 @@ const BulkUploadSection = ({ categories }) => {
 
   const startUpload = async () => {
     if (queue.length === 0) return;
-    
+
     setIsUploading(true);
     setIsPaused(false);
 
@@ -128,23 +139,38 @@ const BulkUploadSection = ({ categories }) => {
         formData.append('status', item.videoStatus);
         if (item.category) formData.append('category', item.category);
 
-        await adminAPI.uploadVideo(formData, (progress, loaded, total) => {
+        const response = await adminAPI.uploadVideo(formData, (progress, loaded, total) => {
           updateQueueItem(item.id, { progress, uploadedBytes: loaded, totalBytes: total });
         });
 
-        updateQueueItem(item.id, { status: 'success', progress: 100 });
+        const videoId = response.data?.video?._id || null;
+        updateQueueItem(item.id, { status: 'success', progress: 100, videoId });
         toast.success(`Uploaded: ${item.title}`);
       } catch (error) {
         console.error('Upload failed:', error);
-        updateQueueItem(item.id, { 
-          status: 'failed', 
-          error: error.response?.data?.error || 'Upload failed' 
+        updateQueueItem(item.id, {
+          status: 'failed',
+          error: error.response?.data?.error || 'Upload failed'
         });
       }
     }
 
     setIsUploading(false);
     setCurrentIndex(0);
+
+    // Auto-publish if toggled on
+    if (publishAfterUpload) {
+      const successItems = queue.filter(q => q.status === 'success' && q.videoId);
+      if (successItems.length > 0) {
+        try {
+          const ids = successItems.map(q => q.videoId);
+          await adminAPI.bulkUpdateStatus({ ids, status: 'public' });
+          toast.success(`Published ${ids.length} videos!`);
+        } catch (e) {
+          toast.error('Failed to auto-publish');
+        }
+      }
+    }
   };
 
   const pauseUpload = () => {
@@ -157,7 +183,7 @@ const BulkUploadSection = ({ categories }) => {
   };
 
   const retryFailed = () => {
-    setQueue(prev => prev.map(item => 
+    setQueue(prev => prev.map(item =>
       item.status === 'failed' ? { ...item, status: 'pending', error: null } : item
     ));
   };
@@ -172,6 +198,24 @@ const BulkUploadSection = ({ categories }) => {
     }
   };
 
+  // Publish completed uploads
+  const publishCompleted = async () => {
+    const successItems = queue.filter(q => q.status === 'success' && q.videoId);
+    if (successItems.length === 0) {
+      toast('No completed uploads to publish', { icon: '📭' });
+      return;
+    }
+    try {
+      const ids = successItems.map(q => q.videoId);
+      const res = await adminAPI.bulkUpdateStatus({ ids, status: 'public' });
+      if (res.data.success) {
+        toast.success(`Published ${res.data.modifiedCount} videos!`);
+      }
+    } catch (error) {
+      toast.error('Failed to publish videos');
+    }
+  };
+
   const pendingCount = queue.filter(q => q.status === 'pending').length;
   const successCount = queue.filter(q => q.status === 'success').length;
   const failedCount = queue.filter(q => q.status === 'failed').length;
@@ -179,7 +223,7 @@ const BulkUploadSection = ({ categories }) => {
   return (
     <div className="space-y-6">
       {/* Default Settings */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-2">Default Category</label>
           <select
@@ -194,16 +238,53 @@ const BulkUploadSection = ({ categories }) => {
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-300 mb-2">Default Status</label>
-          <select
-            value={defaultStatus}
-            onChange={(e) => setDefaultStatus(e.target.value)}
-            className="input-field"
+          <label className="block text-sm font-medium text-gray-300 mb-2">Upload Status</label>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setDefaultStatus('private')}
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                defaultStatus === 'private'
+                  ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                  : 'bg-dark-100 text-gray-400 border border-dark-100 hover:text-white'
+              }`}
+            >
+              <FiLock className="w-4 h-4" />
+              Private
+            </button>
+            <button
+              onClick={() => setDefaultStatus('public')}
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                defaultStatus === 'public'
+                  ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                  : 'bg-dark-100 text-gray-400 border border-dark-100 hover:text-white'
+              }`}
+            >
+              <FiGlobe className="w-4 h-4" />
+              Public
+            </button>
+          </div>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-2">Auto-Publish</label>
+          <button
+            onClick={() => setPublishAfterUpload(!publishAfterUpload)}
+            className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all border ${
+              publishAfterUpload
+                ? 'bg-green-500/20 text-green-400 border-green-500/30'
+                : 'bg-dark-100 text-gray-400 border-dark-100 hover:text-white'
+            }`}
           >
-            <option value="public">Public</option>
-            <option value="private">Private</option>
-            <option value="unlisted">Unlisted</option>
-          </select>
+            {publishAfterUpload ? (
+              <><FiCheckCircle className="w-4 h-4" /> Auto-publish ON</>
+            ) : (
+              <><FiEyeOff className="w-4 h-4" /> Auto-publish OFF</>
+            )}
+          </button>
+          <p className="text-xs text-gray-500 mt-1">
+            {publishAfterUpload
+              ? 'Videos will be made public after upload completes'
+              : 'Videos stay private until you manually publish'}
+          </p>
         </div>
       </div>
 
@@ -225,6 +306,17 @@ const BulkUploadSection = ({ categories }) => {
         <p className="text-gray-600 text-sm mt-4">
           Supports: MP4, MKV, AVI, MOV, WebM, FLV (Max 10GB each)
         </p>
+        <div className="mt-3 flex items-center justify-center gap-2">
+          {defaultStatus === 'private' ? (
+            <span className="text-xs px-3 py-1 bg-red-500/20 text-red-400 rounded-full flex items-center gap-1">
+              <FiLock className="w-3 h-3" /> Uploads will be Private
+            </span>
+          ) : (
+            <span className="text-xs px-3 py-1 bg-green-500/20 text-green-400 rounded-full flex items-center gap-1">
+              <FiGlobe className="w-3 h-3" /> Uploads will be Public
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Queue Stats */}
@@ -242,10 +334,17 @@ const BulkUploadSection = ({ categories }) => {
             <span className="w-3 h-3 rounded-full bg-red-500"></span>
             <span className="text-gray-400">Failed: {failedCount}</span>
           </div>
-          
+
           <div className="flex-1"></div>
-          
-          <div className="flex gap-2">
+
+          <div className="flex gap-2 flex-wrap">
+            {/* PUBLISH COMPLETED BUTTON */}
+            {successCount > 0 && defaultStatus === 'private' && (
+              <button onClick={publishCompleted} className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium flex items-center gap-2 transition-colors">
+                <FiGlobe className="w-4 h-4" />
+                Publish {successCount} Videos
+              </button>
+            )}
             {failedCount > 0 && (
               <button onClick={retryFailed} className="btn-secondary text-sm">
                 <FiRefreshCw className="w-4 h-4" />
@@ -326,12 +425,10 @@ const QueueItem = ({ item, categories, onUpdate, onRemove, isUploading }) => {
   return (
     <div className={`bg-dark-100 rounded-lg p-4 ${item.status === 'failed' ? 'border border-red-500/50' : ''}`}>
       <div className="flex items-start gap-4">
-        {/* Status Icon */}
         <div className={`w-10 h-10 rounded-lg ${statusColors[item.status]} flex items-center justify-center text-white flex-shrink-0`}>
           {statusIcons[item.status] || <FiFile className="w-5 h-5" />}
         </div>
 
-        {/* Content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1">
@@ -346,22 +443,46 @@ const QueueItem = ({ item, categories, onUpdate, onRemove, isUploading }) => {
               ) : (
                 <p className="text-white font-medium truncate">{item.title}</p>
               )}
-              <p className="text-gray-500 text-sm">
-                {(item.size / (1024 * 1024)).toFixed(2)} MB
-              </p>
+              <div className="flex items-center gap-2 mt-1">
+                <p className="text-gray-500 text-sm">
+                  {(item.size / (1024 * 1024)).toFixed(2)} MB
+                </p>
+                <span className={`text-xs px-2 py-0.5 rounded-full ${
+                  item.videoStatus === 'private'
+                    ? 'bg-red-500/20 text-red-400'
+                    : 'bg-green-500/20 text-green-400'
+                }`}>
+                  {item.videoStatus === 'private' ? '🔒 Private' : '🌐 Public'}
+                </span>
+              </div>
             </div>
 
             {item.status === 'pending' && (
-              <select
-                value={item.category}
-                onChange={(e) => onUpdate({ category: e.target.value })}
-                className="px-3 py-1.5 bg-dark-200 border border-dark-100 rounded text-sm text-white"
-              >
-                <option value="">No Category</option>
-                {categories.map(cat => (
-                  <option key={cat._id} value={cat._id}>{cat.name}</option>
-                ))}
-              </select>
+              <div className="flex items-center gap-2">
+                <select
+                  value={item.category}
+                  onChange={(e) => onUpdate({ category: e.target.value })}
+                  className="px-3 py-1.5 bg-dark-200 border border-dark-100 rounded text-sm text-white"
+                >
+                  <option value="">No Category</option>
+                  {categories.map(cat => (
+                    <option key={cat._id} value={cat._id}>{cat.name}</option>
+                  ))}
+                </select>
+
+                {/* Toggle private/public per item */}
+                <button
+                  onClick={() => onUpdate({ videoStatus: item.videoStatus === 'private' ? 'public' : 'private' })}
+                  className={`p-2 rounded-lg transition-colors ${
+                    item.videoStatus === 'private'
+                      ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
+                      : 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
+                  }`}
+                  title={item.videoStatus === 'private' ? 'Click to make Public' : 'Click to make Private'}
+                >
+                  {item.videoStatus === 'private' ? <FiLock className="w-4 h-4" /> : <FiGlobe className="w-4 h-4" />}
+                </button>
+              </div>
             )}
 
             {item.status !== 'uploading' && (
@@ -374,7 +495,7 @@ const QueueItem = ({ item, categories, onUpdate, onRemove, isUploading }) => {
             )}
           </div>
 
-                    {/* Progress Bar with MB */}
+          {/* Progress Bar */}
           {item.status === 'uploading' && (
             <div className="mt-3">
               <div className="flex justify-between text-sm mb-1">
@@ -392,9 +513,18 @@ const QueueItem = ({ item, categories, onUpdate, onRemove, isUploading }) => {
             </div>
           )}
 
-          {/* Error Message */}
+          {/* Error */}
           {item.status === 'failed' && item.error && (
             <p className="text-red-500 text-sm mt-2">{item.error}</p>
+          )}
+
+          {/* Success - Show publish option */}
+          {item.status === 'success' && item.videoStatus === 'private' && (
+            <div className="mt-2 flex items-center gap-2">
+              <span className="text-xs text-yellow-400 flex items-center gap-1">
+                <FiLock className="w-3 h-3" /> Uploaded as Private
+              </span>
+            </div>
           )}
         </div>
       </div>
@@ -406,7 +536,7 @@ const QueueItem = ({ item, categories, onUpdate, onRemove, isUploading }) => {
 const FileCodeSection = ({ categories }) => {
   const [fileCodes, setFileCodes] = useState([{ file_code: '', title: '' }]);
   const [defaultCategory, setDefaultCategory] = useState('');
-  const [defaultStatus, setDefaultStatus] = useState('public');
+  const [defaultStatus, setDefaultStatus] = useState('private');
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState(null);
 
@@ -419,7 +549,7 @@ const FileCodeSection = ({ categories }) => {
   };
 
   const updateRow = (index, field, value) => {
-    setFileCodes(fileCodes.map((row, i) => 
+    setFileCodes(fileCodes.map((row, i) =>
       i === index ? { ...row, [field]: value } : row
     ));
   };
@@ -444,13 +574,12 @@ const FileCodeSection = ({ categories }) => {
 
       const response = await adminAPI.bulkAddFileCodes(videos);
       setResults(response.data.results);
-      
-      // Clear successful entries
+
       const successCodes = response.data.results.success.map(s => s.file_code);
       setFileCodes(fileCodes.filter(fc => !successCodes.includes(fc.file_code.trim())));
-      
+
       if (response.data.results.success.length > 0) {
-        toast.success(`Added ${response.data.results.success.length} videos`);
+        toast.success(`Added ${response.data.results.success.length} videos (${defaultStatus})`);
       }
       if (response.data.results.failed.length > 0) {
         toast.error(`${response.data.results.failed.length} failed`);
@@ -462,10 +591,24 @@ const FileCodeSection = ({ categories }) => {
     }
   };
 
+  // Publish successful results
+  const publishResults = async () => {
+    if (!results || results.success.length === 0) return;
+    try {
+      const ids = results.success.map(s => s.id);
+      const res = await adminAPI.bulkUpdateStatus({ ids, status: 'public' });
+      if (res.data.success) {
+        toast.success(`Published ${res.data.modifiedCount} videos!`);
+      }
+    } catch (error) {
+      toast.error('Failed to publish');
+    }
+  };
+
   const handlePaste = (e) => {
     const pastedText = e.clipboardData.getData('text');
     const lines = pastedText.split('\n').filter(line => line.trim());
-    
+
     if (lines.length > 1) {
       e.preventDefault();
       const newCodes = lines.map(line => {
@@ -481,22 +624,16 @@ const FileCodeSection = ({ categories }) => {
 
   return (
     <div className="space-y-6">
-      {/* Instructions */}
       <div className="bg-dark-100 rounded-lg p-4">
         <p className="text-gray-300 text-sm">
-          Enter Abyss.to file codes to add videos to your platform. You can paste multiple codes (one per line) or with titles (code, title format).
+          Enter Abyss.to file codes to add videos. You can paste multiple codes (one per line) or with titles (code, title format).
         </p>
       </div>
 
-      {/* Default Settings */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-2">Category</label>
-          <select
-            value={defaultCategory}
-            onChange={(e) => setDefaultCategory(e.target.value)}
-            className="input-field"
-          >
+          <select value={defaultCategory} onChange={(e) => setDefaultCategory(e.target.value)} className="input-field">
             <option value="">No Category</option>
             {categories.map(cat => (
               <option key={cat._id} value={cat._id}>{cat.name}</option>
@@ -505,19 +642,31 @@ const FileCodeSection = ({ categories }) => {
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-2">Status</label>
-          <select
-            value={defaultStatus}
-            onChange={(e) => setDefaultStatus(e.target.value)}
-            className="input-field"
-          >
-            <option value="public">Public</option>
-            <option value="private">Private</option>
-            <option value="unlisted">Unlisted</option>
-          </select>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setDefaultStatus('private')}
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all border ${
+                defaultStatus === 'private'
+                  ? 'bg-red-500/20 text-red-400 border-red-500/30'
+                  : 'bg-dark-100 text-gray-400 border-dark-100'
+              }`}
+            >
+              <FiLock className="w-4 h-4" /> Private
+            </button>
+            <button
+              onClick={() => setDefaultStatus('public')}
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all border ${
+                defaultStatus === 'public'
+                  ? 'bg-green-500/20 text-green-400 border-green-500/30'
+                  : 'bg-dark-100 text-gray-400 border-dark-100'
+              }`}
+            >
+              <FiGlobe className="w-4 h-4" /> Public
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* File Code Inputs */}
       <div className="space-y-3">
         {fileCodes.map((row, index) => (
           <div key={index} className="flex gap-3">
@@ -547,46 +696,46 @@ const FileCodeSection = ({ categories }) => {
         ))}
       </div>
 
-      {/* Add Row Button */}
       <button onClick={addRow} className="btn-secondary w-full">
         <FiPlus className="w-5 h-5" />
         Add Another
       </button>
 
-      {/* Submit Button */}
-      <button
-        onClick={handleSubmit}
-        disabled={loading}
-        className="btn-primary w-full py-3"
-      >
-        {loading ? 'Adding Videos...' : `Add ${fileCodes.filter(fc => fc.file_code.trim()).length} Videos`}
+      <button onClick={handleSubmit} disabled={loading} className="btn-primary w-full py-3">
+        {loading ? 'Adding Videos...' : `Add ${fileCodes.filter(fc => fc.file_code.trim()).length} Videos (${defaultStatus})`}
       </button>
 
-      {/* Results */}
       {results && (
         <div className="space-y-4">
           {results.success.length > 0 && (
             <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4">
-              <h4 className="text-green-500 font-medium mb-2">
-                Successfully Added ({results.success.length})
-              </h4>
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-green-500 font-medium">
+                  Successfully Added ({results.success.length})
+                </h4>
+                {defaultStatus === 'private' && (
+                  <button
+                    onClick={publishResults}
+                    className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"
+                  >
+                    <FiGlobe className="w-4 h-4" />
+                    Publish All
+                  </button>
+                )}
+              </div>
               <div className="space-y-1 text-sm text-green-400">
                 {results.success.map((s, i) => (
-                  <p key={i}>{s.file_code}</p>
+                  <p key={i}>{s.file_code} - {s.title}</p>
                 ))}
               </div>
             </div>
           )}
           {results.failed.length > 0 && (
             <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4">
-              <h4 className="text-red-500 font-medium mb-2">
-                Failed ({results.failed.length})
-              </h4>
+              <h4 className="text-red-500 font-medium mb-2">Failed ({results.failed.length})</h4>
               <div className="space-y-1 text-sm">
                 {results.failed.map((f, i) => (
-                  <p key={i} className="text-red-400">
-                    {f.file_code}: {f.error}
-                  </p>
+                  <p key={i} className="text-red-400">{f.file_code}: {f.error}</p>
                 ))}
               </div>
             </div>
@@ -606,6 +755,7 @@ const AbyssFilesSection = ({ categories }) => {
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ total: 0 });
   const [defaultCategory, setDefaultCategory] = useState('');
+  const [defaultStatus, setDefaultStatus] = useState('private');
 
   useEffect(() => {
     fetchAbyssFiles();
@@ -654,19 +804,19 @@ const AbyssFilesSection = ({ categories }) => {
           file_code,
           title: file?.title || file_code,
           category: defaultCategory || null,
+          status: defaultStatus,
         };
       });
 
       const response = await adminAPI.bulkAddFileCodes(videos);
-      
-      // Update files list
+
       const successCodes = response.data.results.success.map(s => s.file_code);
-      setFiles(files.map(f => 
+      setFiles(files.map(f =>
         successCodes.includes(f.file_code) ? { ...f, alreadyAdded: true } : f
       ));
       setSelectedFiles([]);
-      
-      toast.success(`Imported ${response.data.results.success.length} videos`);
+
+      toast.success(`Imported ${response.data.results.success.length} videos (${defaultStatus})`);
     } catch (error) {
       toast.error('Failed to import videos');
     } finally {
@@ -680,45 +830,58 @@ const AbyssFilesSection = ({ categories }) => {
 
   return (
     <div className="space-y-6">
-      {/* Category Selection */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-4">
-          <select
-            value={defaultCategory}
-            onChange={(e) => setDefaultCategory(e.target.value)}
-            className="input-field w-48"
-          >
+        <div className="flex items-center gap-4 flex-wrap">
+          <select value={defaultCategory} onChange={(e) => setDefaultCategory(e.target.value)} className="input-field w-48">
             <option value="">No Category</option>
             {categories.map(cat => (
               <option key={cat._id} value={cat._id}>{cat.name}</option>
             ))}
           </select>
-          
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => setDefaultStatus('private')}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all border ${
+                defaultStatus === 'private'
+                  ? 'bg-red-500/20 text-red-400 border-red-500/30'
+                  : 'bg-dark-100 text-gray-400 border-dark-100'
+              }`}
+            >
+              <FiLock className="w-3.5 h-3.5" /> Private
+            </button>
+            <button
+              onClick={() => setDefaultStatus('public')}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all border ${
+                defaultStatus === 'public'
+                  ? 'bg-green-500/20 text-green-400 border-green-500/30'
+                  : 'bg-dark-100 text-gray-400 border-dark-100'
+              }`}
+            >
+              <FiGlobe className="w-3.5 h-3.5" /> Public
+            </button>
+          </div>
+
           <button onClick={handleSelectAll} className="btn-secondary">
             Select All Available
           </button>
         </div>
 
         {selectedFiles.length > 0 && (
-          <button
-            onClick={handleImport}
-            disabled={importing}
-            className="btn-primary"
-          >
-            {importing ? 'Importing...' : `Import ${selectedFiles.length} Videos`}
+          <button onClick={handleImport} disabled={importing} className="btn-primary">
+            {importing ? 'Importing...' : `Import ${selectedFiles.length} Videos (${defaultStatus})`}
           </button>
         )}
       </div>
 
-      {/* Files Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
         {files.map((file) => (
           <div
             key={file.file_code}
             onClick={() => !file.alreadyAdded && handleSelectFile(file.file_code)}
             className={`relative rounded-lg overflow-hidden cursor-pointer transition-all ${
-              file.alreadyAdded 
-                ? 'opacity-50 cursor-not-allowed' 
+              file.alreadyAdded
+                ? 'opacity-50 cursor-not-allowed'
                 : selectedFiles.includes(file.file_code)
                   ? 'ring-2 ring-primary-500'
                   : 'hover:ring-2 hover:ring-gray-500'
@@ -730,14 +893,11 @@ const AbyssFilesSection = ({ categories }) => {
                 alt={file.title}
                 className="w-full h-full object-cover"
                 onError={(e) => {
-  e.target.src =
-    "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIwIiBoZWlnaHQ9IjE4MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjMWUxZTFlIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNiIgZmlsbD0iIzY2NiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPk5vIFRodW1ibmFpbDwvdGV4dD48L3N2Zz4=";
-}}
-
+                  e.target.src = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIwIiBoZWlnaHQ9IjE4MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjMWUxZTFlIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNiIgZmlsbD0iIzY2NiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPk5vIFRodW1ibmFpbDwvdGV4dD48L3N2Zz4=";
+                }}
               />
             </div>
-            
-            {/* Selection Overlay */}
+
             {selectedFiles.includes(file.file_code) && (
               <div className="absolute inset-0 bg-primary-500/30 flex items-center justify-center">
                 <div className="w-8 h-8 bg-primary-500 rounded-full flex items-center justify-center">
@@ -746,7 +906,6 @@ const AbyssFilesSection = ({ categories }) => {
               </div>
             )}
 
-            {/* Already Added Badge */}
             {file.alreadyAdded && (
               <div className="absolute top-2 right-2 bg-green-500 text-white text-xs px-2 py-1 rounded">
                 Added
@@ -761,25 +920,10 @@ const AbyssFilesSection = ({ categories }) => {
         ))}
       </div>
 
-      {/* Pagination */}
       <div className="flex justify-center gap-2">
-        <button
-          onClick={() => setPage(p => Math.max(1, p - 1))}
-          disabled={page === 1}
-          className="btn-secondary"
-        >
-          Previous
-        </button>
-        <span className="px-4 py-2 text-gray-400">
-          Page {page}
-        </span>
-        <button
-          onClick={() => setPage(p => p + 1)}
-          disabled={files.length < 50}
-          className="btn-secondary"
-        >
-          Next
-        </button>
+        <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="btn-secondary">Previous</button>
+        <span className="px-4 py-2 text-gray-400">Page {page}</span>
+        <button onClick={() => setPage(p => p + 1)} disabled={files.length < 50} className="btn-secondary">Next</button>
       </div>
     </div>
   );
