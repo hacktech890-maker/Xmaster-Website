@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import {
   FiSearch, FiEdit2, FiTrash2, FiStar,
@@ -6,15 +6,273 @@ import {
   FiCopy, FiExternalLink, FiCheckCircle,
   FiDownload, FiUpload, FiHash, FiLink,
   FiClipboard, FiTag, FiFileText, FiChevronDown,
-  FiChevronUp, FiRefreshCw, FiAlertCircle,FiLock, FiGlobe,
+  FiChevronUp, FiRefreshCw, FiAlertCircle, FiLock, FiGlobe,
+  FiGrid,
 } from 'react-icons/fi';
 import toast from 'react-hot-toast';
-
+import { adminAPI, publicAPI } from '../../services/api';
 import AdminLayout from '../../components/admin/AdminLayout';
 import Pagination from '../../components/common/Pagination';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { formatViews, formatDate, debounce } from '../../utils/helpers';
-import { adminAPI, publicAPI } from '../../services/api';
+
+// ==========================================
+// INLINE CATEGORY SELECT (for table)
+// ==========================================
+const InlineCategorySelect = ({ video, categories, onUpdate }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [saving, setSaving] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setIsOpen(false);
+        setSearch('');
+      }
+    };
+    if (isOpen) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen]);
+
+  const currentCategory = video.category;
+  const currentName = currentCategory
+    ? (typeof currentCategory === 'string' ? currentCategory : currentCategory?.name)
+    : null;
+  const currentIcon = (typeof currentCategory === 'object' && currentCategory?.icon) || '📁';
+
+  const filteredCategories = categories.filter(c =>
+    c.name.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const handleSelect = async (catId) => {
+    setSaving(true);
+    try {
+      const response = await adminAPI.updateVideo(video._id, {
+        category: catId || null,
+        categories: catId ? [catId] : [],
+      });
+      if (response.data.success) {
+        onUpdate(response.data.video);
+        toast.success('Category updated');
+      }
+    } catch (error) {
+      toast.error('Failed to update category');
+    } finally {
+      setSaving(false);
+      setIsOpen(false);
+      setSearch('');
+    }
+  };
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        disabled={saving}
+        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm transition-all max-w-[160px] ${
+          currentName
+            ? 'bg-primary-500/10 text-primary-400 border border-primary-500/20 hover:bg-primary-500/20'
+            : 'bg-dark-100 text-gray-500 border border-dark-100 hover:text-gray-300 hover:border-gray-600'
+        }`}
+      >
+        {saving ? (
+          <div className="w-3.5 h-3.5 border-2 border-primary-400/30 border-t-primary-400 rounded-full animate-spin" />
+        ) : (
+          <span className="text-xs">{currentName ? currentIcon : '➕'}</span>
+        )}
+        <span className="truncate text-xs font-medium">
+          {saving ? 'Saving...' : currentName || 'No Category'}
+        </span>
+        <FiChevronDown className={`w-3 h-3 flex-shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {isOpen && (
+        <div className="absolute top-full left-0 mt-1 w-56 bg-dark-200 border border-dark-100 rounded-xl shadow-2xl z-50 overflow-hidden">
+          <div className="p-2 border-b border-dark-100">
+            <div className="relative">
+              <FiSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 w-3.5 h-3.5" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search..."
+                className="w-full pl-8 pr-3 py-1.5 bg-dark-100 border border-dark-100 rounded-lg text-white text-xs focus:outline-none focus:ring-1 focus:ring-primary-500"
+                autoFocus
+              />
+            </div>
+          </div>
+
+          <div className="max-h-48 overflow-y-auto p-1">
+            <button
+              onClick={() => handleSelect(null)}
+              className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-left transition-all ${
+                !currentName
+                  ? 'bg-primary-500/20 text-primary-400'
+                  : 'text-gray-400 hover:bg-dark-100 hover:text-white'
+              }`}
+            >
+              <span>🚫</span>
+              <span>No Category</span>
+              {!currentName && <FiCheck className="w-3 h-3 ml-auto text-primary-400" />}
+            </button>
+
+            {filteredCategories.length === 0 ? (
+              <p className="text-gray-500 text-xs text-center py-3">No categories found</p>
+            ) : (
+              filteredCategories.map(cat => {
+                const isSelected = currentCategory &&
+                  ((typeof currentCategory === 'object' && currentCategory?._id === cat._id) ||
+                   (typeof currentCategory === 'string' && currentCategory === cat._id));
+                return (
+                  <button
+                    key={cat._id}
+                    onClick={() => handleSelect(cat._id)}
+                    className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-left transition-all ${
+                      isSelected
+                        ? 'bg-primary-500/20 text-primary-400'
+                        : 'text-gray-300 hover:bg-dark-100 hover:text-white'
+                    }`}
+                  >
+                    <span>{cat.icon || '📁'}</span>
+                    <span className="flex-1 truncate">{cat.name}</span>
+                    {isSelected && <FiCheck className="w-3 h-3 text-primary-400" />}
+                    <span className="text-gray-600 text-[10px]">{cat.videoCount || 0}</span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ==========================================
+// BULK CATEGORY MODAL
+// ==========================================
+const BulkCategoryModal = ({ videos, categories, onClose, onSave }) => {
+  const [selectedCategory, setSelectedCategory] = useState('');
+  const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const filteredCategories = categories.filter(c =>
+    c.name.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const handleApply = async () => {
+    if (!selectedCategory) {
+      toast.error('Select a category first');
+      return;
+    }
+
+    setLoading(true);
+    let success = 0;
+    let failed = 0;
+
+    for (const video of videos) {
+      try {
+        await adminAPI.updateVideo(video._id, {
+          category: selectedCategory,
+          categories: [selectedCategory],
+        });
+        success++;
+      } catch (err) {
+        failed++;
+      }
+    }
+
+    setLoading(false);
+    toast.success(`Updated ${success} videos${failed > 0 ? `, ${failed} failed` : ''}`);
+    onSave();
+  };
+
+  const selectedCat = categories.find(c => c._id === selectedCategory);
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-dark-200 rounded-2xl max-w-lg w-full max-h-[90vh] overflow-hidden flex flex-col border border-dark-100">
+        <div className="flex items-center justify-between p-5 border-b border-dark-100 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-purple-500 rounded-xl flex items-center justify-center">
+              <FiGrid className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-white">Bulk Set Category</h3>
+              <p className="text-sm text-gray-400">Apply category to {videos.length} selected videos</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-dark-100 rounded-lg">
+            <FiX className="w-5 h-5 text-gray-400" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {selectedCat && (
+            <div className="flex items-center gap-3 p-3 bg-primary-500/10 border border-primary-500/20 rounded-xl">
+              <span className="text-xl">{selectedCat.icon || '📁'}</span>
+              <div>
+                <p className="text-primary-400 font-medium">{selectedCat.name}</p>
+                <p className="text-primary-400/60 text-xs">{selectedCat.videoCount || 0} existing videos</p>
+              </div>
+              <FiCheck className="w-5 h-5 text-primary-400 ml-auto" />
+            </div>
+          )}
+
+          <div className="relative">
+            <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 w-4 h-4" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search categories..."
+              className="w-full pl-10 pr-4 py-2.5 bg-dark-100 border border-dark-100 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+            />
+          </div>
+
+          <div className="max-h-60 overflow-y-auto space-y-1">
+            {filteredCategories.map(cat => (
+              <button
+                key={cat._id}
+                onClick={() => setSelectedCategory(cat._id)}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-left transition-all ${
+                  selectedCategory === cat._id
+                    ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                    : 'text-gray-300 hover:bg-dark-100 hover:text-white'
+                }`}
+              >
+                <span className="text-base">{cat.icon || '📁'}</span>
+                <span className="flex-1">{cat.name}</span>
+                {selectedCategory === cat._id && <FiCheck className="w-4 h-4" />}
+                <span className="text-xs text-gray-500">{cat.videoCount || 0}</span>
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={handleApply}
+            disabled={loading || !selectedCategory}
+            className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {loading ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                Applying...
+              </>
+            ) : (
+              <>
+                <FiCheck className="w-5 h-5" />
+                Apply to {videos.length} Videos
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // ==========================================
 // BULK EDIT TITLES MODAL
@@ -23,7 +281,7 @@ const BulkEditTitlesModal = ({ videos, onClose, onSave }) => {
   const [titleData, setTitleData] = useState('');
   const [preview, setPreview] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [step, setStep] = useState('paste'); // paste, preview
+  const [step, setStep] = useState('paste');
 
   const parseTitles = () => {
     const lines = titleData.split('\n').filter(l => l.trim());
@@ -200,9 +458,9 @@ const BulkEditTitlesModal = ({ videos, onClose, onSave }) => {
 // ==========================================
 const BulkAddTagsModal = ({ videos, onClose, onSave }) => {
   const [tagData, setTagData] = useState('');
-  const [mode, setMode] = useState('append'); // append or replace
+  const [mode, setMode] = useState('append');
   const [loading, setLoading] = useState(false);
-  const [applyMode, setApplyMode] = useState('same'); // same = same tags for all, perline = different tags per video
+  const [applyMode, setApplyMode] = useState('same');
 
   const handleApply = async () => {
     if (!tagData.trim()) {
@@ -215,7 +473,6 @@ const BulkAddTagsModal = ({ videos, onClose, onSave }) => {
       let updates;
 
       if (applyMode === 'same') {
-        // Same tags for all selected videos
         const tags = tagData.split(/[,\n]/).map(t => t.trim().toLowerCase()).filter(Boolean);
         updates = videos.map(v => ({
           id: v._id,
@@ -223,7 +480,6 @@ const BulkAddTagsModal = ({ videos, onClose, onSave }) => {
           mode: mode,
         }));
       } else {
-        // Different tags per line for each video
         const lines = tagData.split('\n').filter(l => l.trim());
         updates = videos.map((v, i) => {
           const lineTags = (lines[i] || '').split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
@@ -266,7 +522,6 @@ const BulkAddTagsModal = ({ videos, onClose, onSave }) => {
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          {/* Mode Selection */}
           <div className="grid grid-cols-2 gap-3">
             <button
               onClick={() => setApplyMode('same')}
@@ -290,7 +545,6 @@ const BulkAddTagsModal = ({ videos, onClose, onSave }) => {
             </button>
           </div>
 
-          {/* Append/Replace */}
           <div className="flex gap-3">
             <button
               onClick={() => setMode('append')}
@@ -310,7 +564,6 @@ const BulkAddTagsModal = ({ videos, onClose, onSave }) => {
             </button>
           </div>
 
-          {/* Tag Input */}
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">
               {applyMode === 'same'
@@ -354,7 +607,7 @@ const BulkAddTagsModal = ({ videos, onClose, onSave }) => {
 };
 
 // ==========================================
-// BULK SHARE LINKS PANEL (No Telegram)
+// BULK SHARE LINKS PANEL
 // ==========================================
 const BulkShareLinksPanel = ({ onClose }) => {
   const [count, setCount] = useState(50);
@@ -362,7 +615,7 @@ const BulkShareLinksPanel = ({ onClose }) => {
   const [fetching, setFetching] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState(-1);
   const [allCopied, setAllCopied] = useState(false);
-  const [phase, setPhase] = useState('setup'); // setup, preview
+  const [phase, setPhase] = useState('setup');
 
   const handleFetchVideos = async () => {
     if (count < 1) {
@@ -469,9 +722,7 @@ const BulkShareLinksPanel = ({ onClose }) => {
           {phase === 'setup' && (
             <div className="space-y-6">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  How many videos?
-                </label>
+                <label className="block text-sm font-medium text-gray-300 mb-2">How many videos?</label>
                 <div className="flex gap-3">
                   <input
                     type="number"
@@ -579,7 +830,7 @@ const BulkShareLinksPanel = ({ onClose }) => {
 // ==========================================
 const ExportModal = ({ selectedIds, onClose }) => {
   const [loading, setLoading] = useState(false);
-  const [exportType, setExportType] = useState('all'); // all, selected
+  const [exportType, setExportType] = useState('all');
 
   const handleExportCSV = async () => {
     setLoading(true);
@@ -667,7 +918,6 @@ const ExportModal = ({ selectedIds, onClose }) => {
         </div>
 
         <div className="p-5 space-y-4">
-          {/* Export scope */}
           <div className="grid grid-cols-2 gap-3">
             <button
               onClick={() => setExportType('all')}
@@ -703,34 +953,215 @@ const ExportModal = ({ selectedIds, onClose }) => {
             </ul>
           </div>
 
-          {/* Export Buttons */}
           <div className="space-y-2">
-            <button
-              onClick={handleExportCSV}
-              disabled={loading}
-              className="w-full py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-            >
+            <button onClick={handleExportCSV} disabled={loading} className="w-full py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
               <FiFileText className="w-5 h-5" />
               Download CSV (Excel)
             </button>
-            <button
-              onClick={handleExportJSON}
-              disabled={loading}
-              className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-            >
+            <button onClick={handleExportJSON} disabled={loading} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
               <FiDownload className="w-5 h-5" />
               Download JSON
             </button>
-            <button
-              onClick={handleCopyToClipboard}
-              disabled={loading}
-              className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-            >
+            <button onClick={handleCopyToClipboard} disabled={loading} className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
               <FiClipboard className="w-5 h-5" />
               Copy to Clipboard (Excel Format)
             </button>
           </div>
         </div>
+      </div>
+    </div>
+  );
+};
+
+// ==========================================
+// EDIT VIDEO MODAL (with Categories)
+// ==========================================
+const EditVideoModal = ({ video, onClose, onSave }) => {
+  const [formData, setFormData] = useState({
+    title: video.title || '',
+    description: video.description || '',
+    tags: video.tags?.join(', ') || '',
+    status: video.status || 'public',
+    featured: video.featured || false,
+    category: video.category?._id || video.category || '',
+    categories: (video.categories || []).map(c => c._id || c),
+  });
+  const [loading, setLoading] = useState(false);
+  const [categories, setCategories] = useState([]);
+  const [categorySearch, setCategorySearch] = useState('');
+
+  useEffect(() => {
+    publicAPI.getCategories()
+      .then(res => {
+        if (res.data.success) {
+          setCategories(res.data.categories || []);
+        }
+      })
+      .catch(console.error);
+  }, []);
+
+  const filteredCategories = categories.filter(c =>
+    c.name.toLowerCase().includes(categorySearch.toLowerCase())
+  );
+
+  const toggleCategory = (catId) => {
+    setFormData(prev => {
+      const current = prev.categories || [];
+      const isSelected = current.includes(catId);
+      let newCategories;
+      if (isSelected) {
+        newCategories = current.filter(id => id !== catId);
+      } else {
+        newCategories = [...current, catId];
+      }
+      const newPrimary = newCategories.length > 0 ? newCategories[0] : '';
+      return { ...prev, categories: newCategories, category: newPrimary };
+    });
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const response = await adminAPI.updateVideo(video._id, {
+        title: formData.title,
+        description: formData.description,
+        tags: formData.tags.split(',').map(t => t.trim()).filter(Boolean),
+        status: formData.status,
+        featured: formData.featured,
+        category: formData.category || null,
+        categories: formData.categories || [],
+      });
+      if (response.data.success) {
+        onSave(response.data.video);
+      }
+    } catch (error) {
+      toast.error('Failed to update video');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const selectedCategoryNames = formData.categories
+    .map(id => categories.find(c => c._id === id))
+    .filter(Boolean);
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-dark-200 rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-6 border-b border-dark-100">
+          <h3 className="text-lg font-semibold text-white">Edit Video</h3>
+          <button onClick={onClose} className="p-2 hover:bg-dark-100 rounded-lg">
+            <FiX className="w-5 h-5 text-gray-400" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div className="flex gap-4">
+            <img src={video.thumbnail} alt={video.title} className="w-40 h-24 object-cover rounded-lg" onError={(e) => { e.target.style.display = 'none'; }} />
+            <div className="flex-1">
+              <p className="text-gray-400 text-sm mb-1">File Code</p>
+              <p className="text-white font-mono">{video.file_code}</p>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">Title</label>
+            <input type="text" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} className="input-field" required />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">Description</label>
+            <textarea value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} rows={3} className="input-field resize-none" />
+          </div>
+
+          {/* Categories Section */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Categories
+              <span className="text-gray-500 font-normal ml-2">({formData.categories.length} selected)</span>
+            </label>
+
+            {selectedCategoryNames.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-3">
+                {selectedCategoryNames.map((cat, i) => (
+                  <span key={cat._id} className="flex items-center gap-1.5 px-3 py-1.5 bg-primary-500/20 text-primary-400 text-sm rounded-full border border-primary-500/30">
+                    {cat.icon || '📁'} {cat.name}
+                    {i === 0 && <span className="text-[10px] text-primary-300 ml-1">(Primary)</span>}
+                    <button type="button" onClick={() => toggleCategory(cat._id)} className="ml-1 hover:text-red-400 transition-colors">
+                      <FiX className="w-3.5 h-3.5" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <div className="relative mb-2">
+              <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 w-4 h-4" />
+              <input
+                type="text"
+                value={categorySearch}
+                onChange={(e) => setCategorySearch(e.target.value)}
+                placeholder="Search categories..."
+                className="w-full pl-10 pr-4 py-2 bg-dark-100 border border-dark-100 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              />
+            </div>
+
+            <div className="max-h-40 overflow-y-auto bg-dark-100 rounded-lg p-2 space-y-1">
+              {filteredCategories.length === 0 ? (
+                <p className="text-gray-500 text-sm text-center py-2">No categories found</p>
+              ) : (
+                filteredCategories.map(cat => {
+                  const isSelected = formData.categories.includes(cat._id);
+                  return (
+                    <button
+                      key={cat._id}
+                      type="button"
+                      onClick={() => toggleCategory(cat._id)}
+                      className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-left transition-all ${
+                        isSelected
+                          ? 'bg-primary-500/20 text-primary-400 border border-primary-500/30'
+                          : 'text-gray-300 hover:bg-dark-200 hover:text-white'
+                      }`}
+                    >
+                      <span className="text-base">{cat.icon || '📁'}</span>
+                      <span className="flex-1">{cat.name}</span>
+                      {isSelected && <FiCheck className="w-4 h-4 text-primary-400" />}
+                      <span className="text-xs text-gray-500">{cat.videoCount || 0}</span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">Tags (comma separated)</label>
+            <input type="text" value={formData.tags} onChange={(e) => setFormData({ ...formData, tags: e.target.value })} className="input-field" placeholder="tag1, tag2, tag3" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Status</label>
+              <select value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value })} className="input-field">
+                <option value="public">Public</option>
+                <option value="private">Private</option>
+                <option value="unlisted">Unlisted</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Featured</label>
+              <label className="flex items-center gap-3 p-3 bg-dark-100 rounded-lg cursor-pointer">
+                <input type="checkbox" checked={formData.featured} onChange={(e) => setFormData({ ...formData, featured: e.target.checked })} className="rounded" />
+                <span className="text-gray-300">Featured on homepage</span>
+              </label>
+            </div>
+          </div>
+
+          <div className="flex gap-3 pt-4">
+            <button type="button" onClick={onClose} className="flex-1 btn-secondary">Cancel</button>
+            <button type="submit" disabled={loading} className="flex-1 btn-primary">{loading ? 'Saving...' : 'Save Changes'}</button>
+          </div>
+        </form>
       </div>
     </div>
   );
@@ -745,11 +1176,15 @@ const VideosManager = () => {
   const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0 });
   const [selectedVideos, setSelectedVideos] = useState([]);
 
+  // Categories for inline selector
+  const [allCategories, setAllCategories] = useState([]);
+
   // Modals
   const [editingVideo, setEditingVideo] = useState(null);
   const [showShareLinks, setShowShareLinks] = useState(false);
   const [showBulkTitles, setShowBulkTitles] = useState(false);
   const [showBulkTags, setShowBulkTags] = useState(false);
+  const [showBulkCategory, setShowBulkCategory] = useState(false);
   const [showExport, setShowExport] = useState(false);
 
   // Bulk select by number
@@ -762,6 +1197,17 @@ const VideosManager = () => {
   const [featured, setFeatured] = useState('');
   const [sort, setSort] = useState('newest');
   const [page, setPage] = useState(1);
+
+  // Fetch categories
+  useEffect(() => {
+    publicAPI.getCategories()
+      .then(res => {
+        if (res.data.success) {
+          setAllCategories(res.data.categories || []);
+        }
+      })
+      .catch(console.error);
+  }, []);
 
   const fetchVideos = useCallback(async () => {
     setLoading(true);
@@ -907,6 +1353,14 @@ const VideosManager = () => {
           onSave={() => { setShowBulkTags(false); fetchVideos(); }}
         />
       )}
+      {showBulkCategory && selectedVideoObjects.length > 0 && (
+        <BulkCategoryModal
+          videos={selectedVideoObjects}
+          categories={allCategories}
+          onClose={() => setShowBulkCategory(false)}
+          onSave={() => { setShowBulkCategory(false); fetchVideos(); }}
+        />
+      )}
       {showExport && (
         <ExportModal selectedIds={selectedVideos} onClose={() => setShowExport(false)} />
       )}
@@ -1019,6 +1473,10 @@ const VideosManager = () => {
                   <FiTag className="w-3.5 h-3.5" />
                   Bulk Tags
                 </button>
+                <button onClick={() => setShowBulkCategory(true)} className="px-3 py-2 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 rounded-lg text-sm transition-colors flex items-center gap-1.5">
+                  <FiGrid className="w-3.5 h-3.5" />
+                  Bulk Category
+                </button>
                 <button onClick={copySelectedLinks} className="px-3 py-2 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 rounded-lg text-sm transition-colors flex items-center gap-1.5">
                   <FiCopy className="w-3.5 h-3.5" />
                   Copy Links
@@ -1028,38 +1486,38 @@ const VideosManager = () => {
                   Copy with Titles
                 </button>
 
-              <button
-  onClick={async () => {
-    try {
-      const res = await adminAPI.bulkUpdateStatus({ ids: selectedVideos, status: 'public' });
-      if (res.data.success) {
-        toast.success(`Published ${res.data.modifiedCount} videos`);
-        fetchVideos();
-        setSelectedVideos([]);
-      }
-    } catch (e) { toast.error('Failed'); }
-  }}
-  className="px-3 py-2 bg-green-500/10 text-green-400 hover:bg-green-500/20 rounded-lg text-sm transition-colors flex items-center gap-1.5"
->
-  <FiCheckCircle className="w-3.5 h-3.5" />
-  Publish
-</button>
-<button
-  onClick={async () => {
-    try {
-      const res = await adminAPI.bulkUpdateStatus({ ids: selectedVideos, status: 'private' });
-      if (res.data.success) {
-        toast.success(`Made ${res.data.modifiedCount} videos private`);
-        fetchVideos();
-        setSelectedVideos([]);
-      }
-    } catch (e) { toast.error('Failed'); }
-  }}
-  className="px-3 py-2 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 rounded-lg text-sm transition-colors flex items-center gap-1.5"
->
-  <FiLock className="w-3.5 h-3.5" />
-  Make Private
-</button>
+                <button
+                  onClick={async () => {
+                    try {
+                      const res = await adminAPI.bulkUpdateStatus({ ids: selectedVideos, status: 'public' });
+                      if (res.data.success) {
+                        toast.success(`Published ${res.data.modifiedCount} videos`);
+                        fetchVideos();
+                        setSelectedVideos([]);
+                      }
+                    } catch (e) { toast.error('Failed'); }
+                  }}
+                  className="px-3 py-2 bg-green-500/10 text-green-400 hover:bg-green-500/20 rounded-lg text-sm transition-colors flex items-center gap-1.5"
+                >
+                  <FiCheckCircle className="w-3.5 h-3.5" />
+                  Publish
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      const res = await adminAPI.bulkUpdateStatus({ ids: selectedVideos, status: 'private' });
+                      if (res.data.success) {
+                        toast.success(`Made ${res.data.modifiedCount} videos private`);
+                        fetchVideos();
+                        setSelectedVideos([]);
+                      }
+                    } catch (e) { toast.error('Failed'); }
+                  }}
+                  className="px-3 py-2 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 rounded-lg text-sm transition-colors flex items-center gap-1.5"
+                >
+                  <FiLock className="w-3.5 h-3.5" />
+                  Make Private
+                </button>
 
                 <button onClick={handleBulkDelete} className="px-3 py-2 bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded-lg text-sm transition-colors flex items-center gap-1.5">
                   <FiTrash2 className="w-3.5 h-3.5" />
@@ -1091,6 +1549,7 @@ const VideosManager = () => {
                     <input type="checkbox" onChange={handleSelectAll} checked={selectedVideos.length === videos.length && videos.length > 0} className="rounded" />
                   </th>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Video</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Category</th>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Views</th>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Status</th>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Featured</th>
@@ -1122,6 +1581,16 @@ const VideosManager = () => {
                           )}
                         </div>
                       </div>
+                    </td>
+                    {/* Inline Category Selector */}
+                    <td className="px-4 py-3">
+                      <InlineCategorySelect
+                        video={video}
+                        categories={allCategories}
+                        onUpdate={(updatedVideo) => {
+                          setVideos(videos.map(v => v._id === updatedVideo._id ? updatedVideo : v));
+                        }}
+                      />
                     </td>
                     <td className="px-4 py-3">
                       <span className="flex items-center gap-1 text-gray-300">
@@ -1164,224 +1633,6 @@ const VideosManager = () => {
         </div>
       </div>
     </AdminLayout>
-  );
-};
-
-// ==========================================
-// EDIT VIDEO MODAL
-// ==========================================
-// ==========================================
-// EDIT VIDEO MODAL (UPDATED with Categories)
-// ==========================================
-const EditVideoModal = ({ video, onClose, onSave }) => {
-  const [formData, setFormData] = useState({
-    title: video.title || '',
-    description: video.description || '',
-    tags: video.tags?.join(', ') || '',
-    status: video.status || 'public',
-    featured: video.featured || false,
-    category: video.category?._id || video.category || '',
-    categories: (video.categories || []).map(c => c._id || c),
-  });
-  const [loading, setLoading] = useState(false);
-  const [categories, setCategories] = useState([]);
-  const [categorySearch, setCategorySearch] = useState('');
-
-  // Fetch categories
-  useEffect(() => {
-    publicAPI.getCategories()
-      .then(res => {
-        if (res.data.success) {
-          setCategories(res.data.categories || []);
-        }
-      })
-      .catch(console.error);
-  }, []);
-
-  const filteredCategories = categories.filter(c =>
-    c.name.toLowerCase().includes(categorySearch.toLowerCase())
-  );
-
-  const toggleCategory = (catId) => {
-    setFormData(prev => {
-      const current = prev.categories || [];
-      const isSelected = current.includes(catId);
-
-      let newCategories;
-      if (isSelected) {
-        newCategories = current.filter(id => id !== catId);
-      } else {
-        newCategories = [...current, catId];
-      }
-
-      // Primary category = first in list
-      const newPrimary = newCategories.length > 0 ? newCategories[0] : '';
-
-      return {
-        ...prev,
-        categories: newCategories,
-        category: newPrimary,
-      };
-    });
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      const response = await adminAPI.updateVideo(video._id, {
-        title: formData.title,
-        description: formData.description,
-        tags: formData.tags.split(',').map(t => t.trim()).filter(Boolean),
-        status: formData.status,
-        featured: formData.featured,
-        category: formData.category || null,
-        categories: formData.categories || [],
-      });
-      if (response.data.success) {
-        onSave(response.data.video);
-      }
-    } catch (error) {
-      toast.error('Failed to update video');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const selectedCategoryNames = formData.categories
-    .map(id => categories.find(c => c._id === id))
-    .filter(Boolean);
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-dark-200 rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-6 border-b border-dark-100">
-          <h3 className="text-lg font-semibold text-white">Edit Video</h3>
-          <button onClick={onClose} className="p-2 hover:bg-dark-100 rounded-lg">
-            <FiX className="w-5 h-5 text-gray-400" />
-          </button>
-        </div>
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div className="flex gap-4">
-            <img src={video.thumbnail} alt={video.title} className="w-40 h-24 object-cover rounded-lg" onError={(e) => { e.target.style.display = 'none'; }} />
-            <div className="flex-1">
-              <p className="text-gray-400 text-sm mb-1">File Code</p>
-              <p className="text-white font-mono">{video.file_code}</p>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Title</label>
-            <input type="text" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} className="input-field" required />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Description</label>
-            <textarea value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} rows={3} className="input-field resize-none" />
-          </div>
-
-          {/* ★ NEW: Categories Section */}
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Categories
-              <span className="text-gray-500 font-normal ml-2">
-                ({formData.categories.length} selected)
-              </span>
-            </label>
-
-            {/* Selected categories */}
-            {selectedCategoryNames.length > 0 && (
-              <div className="flex flex-wrap gap-2 mb-3">
-                {selectedCategoryNames.map((cat, i) => (
-                  <span
-                    key={cat._id}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-primary-500/20 text-primary-400 text-sm rounded-full border border-primary-500/30"
-                  >
-                    {cat.icon || '📁'} {cat.name}
-                    {i === 0 && <span className="text-[10px] text-primary-300 ml-1">(Primary)</span>}
-                    <button
-                      type="button"
-                      onClick={() => toggleCategory(cat._id)}
-                      className="ml-1 hover:text-red-400 transition-colors"
-                    >
-                      <FiX className="w-3.5 h-3.5" />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {/* Search categories */}
-            <div className="relative mb-2">
-              <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 w-4 h-4" />
-              <input
-                type="text"
-                value={categorySearch}
-                onChange={(e) => setCategorySearch(e.target.value)}
-                placeholder="Search categories..."
-                className="w-full pl-10 pr-4 py-2 bg-dark-100 border border-dark-100 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-              />
-            </div>
-
-            {/* Category list */}
-            <div className="max-h-40 overflow-y-auto bg-dark-100 rounded-lg p-2 space-y-1">
-              {filteredCategories.length === 0 ? (
-                <p className="text-gray-500 text-sm text-center py-2">No categories found</p>
-              ) : (
-                filteredCategories.map(cat => {
-                  const isSelected = formData.categories.includes(cat._id);
-                  return (
-                    <button
-                      key={cat._id}
-                      type="button"
-                      onClick={() => toggleCategory(cat._id)}
-                      className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-left transition-all ${
-                        isSelected
-                          ? 'bg-primary-500/20 text-primary-400 border border-primary-500/30'
-                          : 'text-gray-300 hover:bg-dark-200 hover:text-white'
-                      }`}
-                    >
-                      <span className="text-base">{cat.icon || '📁'}</span>
-                      <span className="flex-1">{cat.name}</span>
-                      {isSelected && <FiCheck className="w-4 h-4 text-primary-400" />}
-                      <span className="text-xs text-gray-500">{cat.videoCount || 0}</span>
-                    </button>
-                  );
-                })
-              )}
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Tags (comma separated)</label>
-            <input type="text" value={formData.tags} onChange={(e) => setFormData({ ...formData, tags: e.target.value })} className="input-field" placeholder="tag1, tag2, tag3" />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Status</label>
-              <select value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value })} className="input-field">
-                <option value="public">Public</option>
-                <option value="private">Private</option>
-                <option value="unlisted">Unlisted</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Featured</label>
-              <label className="flex items-center gap-3 p-3 bg-dark-100 rounded-lg cursor-pointer">
-                <input type="checkbox" checked={formData.featured} onChange={(e) => setFormData({ ...formData, featured: e.target.checked })} className="rounded" />
-                <span className="text-gray-300">Featured on homepage</span>
-              </label>
-            </div>
-          </div>
-
-          <div className="flex gap-3 pt-4">
-            <button type="button" onClick={onClose} className="flex-1 btn-secondary">Cancel</button>
-            <button type="submit" disabled={loading} className="flex-1 btn-primary">{loading ? 'Saving...' : 'Save Changes'}</button>
-          </div>
-        </form>
-      </div>
-    </div>
   );
 };
 
