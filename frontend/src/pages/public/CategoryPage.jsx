@@ -1,11 +1,102 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { publicAPI } from '../../services/api';
-import VideoGrid, { VideoGridSkeleton } from '../../components/video/VideoGrid';
+import VideoCard from '../../components/video/VideoCard';
+import { VideoGridSkeleton } from '../../components/video/VideoGrid';
 import Pagination from '../../components/common/Pagination';
 import AdBanner from '../../components/ads/AdBanner';
 
+// ==================== NATIVE BANNER AD ====================
+const NativeBannerAd = ({ className = "" }) => {
+  const containerRef = useRef(null);
+  const loaded = useRef(false);
+  const uniqueId = useRef(`native-${Math.random().toString(36).substr(2, 9)}`);
+
+  useEffect(() => {
+    if (!containerRef.current || loaded.current) return;
+    const container = containerRef.current;
+    container.innerHTML = "";
+    loaded.current = true;
+
+    const containerId = `container-3ebdaa444c50232518b3752efc451cab-${uniqueId.current}`;
+
+    const div = document.createElement("div");
+    div.id = containerId;
+    container.appendChild(div);
+
+    const invokeScript = document.createElement("script");
+    invokeScript.async = true;
+    invokeScript.setAttribute("data-cfasync", "false");
+    invokeScript.src = "https://pl28704186.effectivegatecpm.com/3ebdaa444c50232518b3752efc451cab/invoke.js";
+    container.appendChild(invokeScript);
+
+    return () => {
+      if (container) container.innerHTML = "";
+      loaded.current = false;
+    };
+  }, []);
+
+  return (
+    <div className={`col-span-full py-3 ${className}`}>
+      <div className="bg-gray-100/50 dark:bg-dark-200/50 rounded-xl p-3">
+        <span className="text-[10px] text-gray-500 dark:text-gray-600 uppercase tracking-wider mb-1 block text-center">
+          Sponsored
+        </span>
+        <div ref={containerRef} className="ad-content flex justify-center items-center" />
+      </div>
+    </div>
+  );
+};
+
+// ==================== RENDER VIDEOS WITH ADS ====================
+const VideosWithAds = ({ videos, columns = 4 }) => {
+  const isMobile = window.innerWidth < 1024;
+
+  if (!videos || videos.length === 0) {
+    return (
+      <div className="text-center py-12">
+        <div className="text-4xl mb-4">🎬</div>
+        <p className="text-gray-600 dark:text-gray-400">No videos found</p>
+      </div>
+    );
+  }
+
+  // Calculate videos per row based on screen
+  // Mobile: 2 per row, Tablet: 3, Desktop: 4
+  const videosPerRow = isMobile ? 2 : 4;
+  const adInterval = videosPerRow * 3; // Every 3 rows
+
+  const items = [];
+  let adCount = 0;
+
+  for (let i = 0; i < videos.length; i++) {
+    items.push(
+      <VideoCard key={videos[i]._id} video={videos[i]} />
+    );
+
+    // Insert native banner ad after every 3 rows
+    if ((i + 1) % adInterval === 0 && i < videos.length - 1) {
+      items.push(
+        <NativeBannerAd key={`native-ad-${adCount}`} />
+      );
+      adCount++;
+    }
+  }
+
+  const gridCols = {
+    3: 'grid-cols-2 sm:grid-cols-2 lg:grid-cols-3',
+    4: 'grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4',
+  };
+
+  return (
+    <div className={`grid ${gridCols[columns] || gridCols[4]} gap-3 sm:gap-4 md:gap-6`}>
+      {items}
+    </div>
+  );
+};
+
+// ==================== CATEGORY PAGE ====================
 const CategoryPage = () => {
   const { slug } = useParams();
   const [category, setCategory] = useState(null);
@@ -79,11 +170,7 @@ const CategoryPage = () => {
           {loading ? (
             <VideoGridSkeleton count={12} />
           ) : (
-            <VideoGrid
-              videos={videos}
-              columns={4}
-              emptyMessage={`No videos found in ${categoryName}`}
-            />
+            <VideosWithAds videos={videos} columns={4} />
           )}
 
           {pagination.pages > 1 && (

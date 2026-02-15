@@ -66,9 +66,8 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
   );
 };
 
-// ==================== NEW AD CODES ====================
+// ==================== AD CODES ====================
 const ADS = {
-  // Mobile: 320x50
   mobile320x50: `<script>
     atOptions = {
       'key' : '161b6adedd44fd65d7197bdc372ef90f',
@@ -80,7 +79,6 @@ const ADS = {
   </script>
   <script src="https://www.highperformanceformat.com/161b6adedd44fd65d7197bdc372ef90f/invoke.js"></script>`,
 
-  // Desktop: 728x90
   footer728x90: `<script>
     atOptions = {
       'key' : '8615981141c313bf4581c3cf1de1fb8f',
@@ -92,7 +90,6 @@ const ADS = {
   </script>
   <script src="https://www.highperformanceformat.com/8615981141c313bf4581c3cf1de1fb8f/invoke.js"></script>`,
 
-  // 300x250
   footer300x250: `<script>
     atOptions = {
       'key' : '3becc7318ca2e6c794f587d8f3f05d0b',
@@ -104,7 +101,6 @@ const ADS = {
   </script>
   <script src="https://www.highperformanceformat.com/3becc7318ca2e6c794f587d8f3f05d0b/invoke.js"></script>`,
 
-  // Desktop: 468x60
   medium468x60: `<script>
     atOptions = {
       'key' : 'e50c996a8b1f38f50988e7c6e6ebc19a',
@@ -116,7 +112,6 @@ const ADS = {
   </script>
   <script src="https://www.highperformanceformat.com/e50c996a8b1f38f50988e7c6e6ebc19a/invoke.js"></script>`,
 
-  // Sidebar: 160x600
   sidebar160x600: `<script>
     atOptions = {
       'key' : '5341bbc09b5293c807f871518481b16d',
@@ -128,7 +123,6 @@ const ADS = {
   </script>
   <script src="https://www.highperformanceformat.com/5341bbc09b5293c807f871518481b16d/invoke.js"></script>`,
 
-  // Sidebar: 160x300
   sidebar160x300: `<script>
     atOptions = {
       'key' : 'deffd68605ce0b0c91d11c13a0fffd06',
@@ -140,17 +134,13 @@ const ADS = {
   </script>
   <script src="https://www.highperformanceformat.com/deffd68605ce0b0c91d11c13a0fffd06/invoke.js"></script>`,
 
-  // Native Banner
   nativeBanner: `<script async="async" data-cfasync="false" src="https://pl28704186.effectivegatecpm.com/3ebdaa444c50232518b3752efc451cab/invoke.js"></script>
   <div id="container-3ebdaa444c50232518b3752efc451cab"></div>`,
 
-  // Social Bar
   socialBar: `<script src="https://pl28704151.effectivegatecpm.com/35/ee/21/35ee2192f0b1aa5ca35c1f3af9387b00.js"></script>`,
 
-  // Social Bar 2
   socialBar2: `<script src="https://pl28704173.effectivegatecpm.com/52/ef/a1/52efa111bceee1130b219af1074a5f95.js"></script>`,
 
-  // Popunder
   popunder: `<script src="https://www.effectivegatecpm.com/sbfz9bs1c?key=4b48edda8bb87faa2b8f8b8708c46b0b"></script>`,
 };
 
@@ -161,19 +151,16 @@ const GlobalAdsLoader = () => {
     if (loaded.current) return;
     loaded.current = true;
 
-    // Social Bar 1
     const s1 = document.createElement("script");
     s1.src = "https://pl28704151.effectivegatecpm.com/35/ee/21/35ee2192f0b1aa5ca35c1f3af9387b00.js";
     s1.async = true;
     document.body.appendChild(s1);
 
-    // Social Bar 2
     const s2 = document.createElement("script");
     s2.src = "https://pl28704173.effectivegatecpm.com/52/ef/a1/52efa111bceee1130b219af1074a5f95.js";
     s2.async = true;
     document.body.appendChild(s2);
 
-    // Popunder
     const s3 = document.createElement("script");
     s3.src = "https://www.effectivegatecpm.com/sbfz9bs1c?key=4b48edda8bb87faa2b8f8b8708c46b0b";
     s3.async = true;
@@ -293,25 +280,28 @@ const HomePage = () => {
           const data = response.data.data;
           setFeaturedVideos(data.featuredVideos || []);
           setCategories(data.categories || []);
+        }
 
-          const videosResponse = await publicAPI.getVideos({
-            page: 1,
-            limit: 40,
-            sort: 'newest',
-          });
+        const videosResponse = await publicAPI.getVideos({
+          page: 1,
+          limit: 40,
+          sort: 'newest',
+        });
 
-          if (videosResponse.data.success) {
-            const videos = videosResponse.data.videos || [];
-            setAllVideos(videos);
-            setPage(1);
-            setTotalVideos(videosResponse.data.pagination?.total || 0);
+        if (videosResponse.data) {
+          const vData = videosResponse.data;
+          const videos = vData.videos || [];
+          setAllVideos(videos);
+          setPage(1);
+          pageRef.current = 1;
 
-            const pagination = videosResponse.data.pagination;
-            if (pagination && 1 >= pagination.pages) {
-              setHasMore(false);
-            } else if (videos.length === 0) {
-              setHasMore(false);
-            }
+          const total = vData.pagination?.total || vData.total || 0;
+          setTotalVideos(total);
+
+          const totalPages = vData.pagination?.pages || Math.ceil(total / 40) || 1;
+          if (1 >= totalPages || videos.length === 0) {
+            setHasMore(false);
+            hasMoreRef.current = false;
           }
         }
       } catch (error) {
@@ -324,51 +314,74 @@ const HomePage = () => {
   }, []);
 
   const loadMoreVideos = useCallback(async () => {
-    if (loadingMoreRef.current || !hasMoreRef.current) return;
+    // Double-check with refs to prevent race conditions
+    if (loadingMoreRef.current || !hasMoreRef.current) {
+      return;
+    }
 
+    // Set loading immediately via ref to block concurrent calls
     loadingMoreRef.current = true;
     setLoadingMore(true);
 
     try {
       const nextPage = pageRef.current + 1;
+      console.log(`Loading page ${nextPage}...`);
+
       const response = await publicAPI.getVideos({
         page: nextPage,
         limit: 40,
         sort: 'newest',
       });
 
-      if (response.data.success) {
-        const newVideos = response.data.videos || [];
+      const vData = response.data;
 
-        if (newVideos.length === 0) {
-          setHasMore(false);
-          hasMoreRef.current = false;
-        } else {
-          setAllVideos(prev => {
-            const existingIds = new Set(prev.map(v => v._id));
-            const unique = newVideos.filter(v => !existingIds.has(v._id));
-            return [...prev, ...unique];
-          });
+      if (!vData) {
+        console.error('No data in response');
+        setHasMore(false);
+        hasMoreRef.current = false;
+        return;
+      }
 
-          setPage(nextPage);
-          pageRef.current = nextPage;
-          setTotalVideos(response.data.pagination?.total || 0);
+      const newVideos = vData.videos || [];
+      const total = vData.pagination?.total || vData.total || totalVideos;
+      const totalPages = vData.pagination?.pages || Math.ceil(total / 40) || 1;
 
-          const pagination = response.data.pagination;
-          if (pagination && nextPage >= pagination.pages) {
-            setHasMore(false);
-            hasMoreRef.current = false;
-          }
-        }
+      console.log(`Got ${newVideos.length} videos, page ${nextPage}/${totalPages}`);
+
+      if (newVideos.length === 0) {
+        setHasMore(false);
+        hasMoreRef.current = false;
+        return;
+      }
+
+      // Update videos - deduplicate
+      setAllVideos(prev => {
+        const existingIds = new Set(prev.map(v => v._id));
+        const unique = newVideos.filter(v => !existingIds.has(v._id));
+        console.log(`Adding ${unique.length} unique videos (${newVideos.length - unique.length} duplicates skipped)`);
+        return [...prev, ...unique];
+      });
+
+      // Update page
+      setPage(nextPage);
+      pageRef.current = nextPage;
+      setTotalVideos(total);
+
+      // Check if we've reached the end
+      if (nextPage >= totalPages) {
+        setHasMore(false);
+        hasMoreRef.current = false;
       }
     } catch (error) {
       console.error('Failed to load more videos:', error);
+      // Don't set hasMore to false on error — user can retry
     } finally {
       setLoadingMore(false);
       loadingMoreRef.current = false;
     }
-  }, []);
+  }, [totalVideos]);
 
+  // IntersectionObserver for auto-loading
   useEffect(() => {
     if (loading) return;
     if (observerRef.current) observerRef.current.disconnect();
@@ -389,6 +402,7 @@ const HomePage = () => {
     return () => observer.disconnect();
   }, [loading, loadMoreVideos]);
 
+  // Scroll fallback
   useEffect(() => {
     if (loading) return;
 
@@ -524,6 +538,7 @@ const HomePage = () => {
                   <>
                     {renderVideosWithAds()}
 
+                    {/* Load More Section */}
                     <div
                       ref={loadMoreRef}
                       className="py-8 flex flex-col items-center justify-center"
@@ -542,8 +557,11 @@ const HomePage = () => {
                       )}
                       {hasMore && !loadingMore && (
                         <button
-                          onClick={loadMoreVideos}
-                          className="px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-medium transition-colors text-sm"
+                          onClick={() => {
+                            console.log('Button clicked! Loading more...');
+                            loadMoreVideos();
+                          }}
+                          className="px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-medium transition-colors text-sm active:scale-95"
                         >
                           Load More Videos ({allVideos.length} of {totalVideos} loaded)
                         </button>
@@ -627,7 +645,6 @@ const HomePage = () => {
             {/* ==================== SIDEBAR ==================== */}
             <aside className="w-full lg:w-80 flex-shrink-0 hidden lg:block">
               <div className="sticky top-20 space-y-6">
-                {/* Sidebar tall ad: 160x600 */}
                 <div className="flex justify-center">
                   <AdSlot adCode={ADS.sidebar160x600} label="Sponsored" />
                 </div>
@@ -646,7 +663,6 @@ const HomePage = () => {
                   </div>
                 </div>
 
-                {/* Sidebar ad: 160x300 */}
                 <div className="flex justify-center">
                   <AdSlot adCode={ADS.sidebar160x300} label="Sponsored" />
                 </div>
@@ -666,7 +682,6 @@ const HomePage = () => {
                   </div>
                 </div>
 
-                {/* Native banner in sidebar */}
                 <AdSlot adCode={ADS.nativeBanner} label="Recommended" />
               </div>
             </aside>
