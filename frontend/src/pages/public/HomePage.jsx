@@ -275,14 +275,62 @@ const HomePage = () => {
   useEffect(() => {
     const fetchHomeData = async () => {
       try {
-        const response = await publicAPI.getHomeData();
-        if (response.data.success) {
-          const data = response.data.data;
-          setFeaturedVideos(data.featuredVideos || []);
-          setCategories(data.categories || []);
+        // Fetch home data (featured, categories)
+        try {
+          const response = await publicAPI.getHomeData();
+          if (response.data && response.data.success) {
+            const data = response.data.data;
+            setFeaturedVideos(data.featuredVideos || []);
+            setCategories(data.categories || []);
+          }
+        } catch (homeErr) {
+          console.error('Home data error:', homeErr);
         }
 
-        const videosResponse = await publicAPI.getVideos({
+        // Fetch first page of videos separately
+        try {
+          const videosResponse = await publicAPI.getVideos({
+            page: 1,
+            limit: 40,
+            sort: 'newest',
+          });
+
+          const vData = videosResponse.data;
+          console.log('Initial videos response:', {
+            success: vData?.success,
+            videoCount: vData?.videos?.length,
+            pagination: vData?.pagination
+          });
+
+          if (vData && vData.videos) {
+            const videos = vData.videos;
+            setAllVideos(videos);
+            setPage(1);
+            pageRef.current = 1;
+
+            const pag = vData.pagination;
+            const total = pag?.total || 0;
+            const totalPages = pag?.pages || 1;
+
+            setTotalVideos(total);
+
+            if (videos.length === 0 || 1 >= totalPages) {
+              setHasMore(false);
+              hasMoreRef.current = false;
+            } else {
+              setHasMore(true);
+              hasMoreRef.current = true;
+            }
+          }
+        } catch (vidErr) {
+          console.error('Videos fetch error:', vidErr);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchHomeData();
+  }, []);
           page: 1,
           limit: 40,
           sort: 'newest',
@@ -313,20 +361,25 @@ const HomePage = () => {
     fetchHomeData();
   }, []);
 
-  const loadMoreVideos = useCallback(async () => {
-    // Double-check with refs to prevent race conditions
-    if (loadingMoreRef.current || !hasMoreRef.current) {
+    const loadMoreVideos = useCallback(async () => {
+    // Strict guard using refs
+    if (loadingMoreRef.current) {
+      console.log('Blocked: already loading');
+      return;
+    }
+    if (!hasMoreRef.current) {
+      console.log('Blocked: no more videos');
       return;
     }
 
-    // Set loading immediately via ref to block concurrent calls
+    // Lock immediately
     loadingMoreRef.current = true;
     setLoadingMore(true);
 
-    try {
-      const nextPage = pageRef.current + 1;
-      console.log(`Loading page ${nextPage}...`);
+    const nextPage = pageRef.current + 1;
+    console.log(`[LoadMore] Fetching page ${nextPage}...`);
 
+    try {
       const response = await publicAPI.getVideos({
         page: nextPage,
         limit: 40,
@@ -335,51 +388,63 @@ const HomePage = () => {
 
       const vData = response.data;
 
-      if (!vData) {
-        console.error('No data in response');
+      console.log('[LoadMore] Response:', {
+        success: vData?.success,
+        videoCount: vData?.videos?.length,
+        page: vData?.pagination?.page,
+        totalPages: vData?.pagination?.pages,
+        total: vData?.pagination?.total
+      });
+
+      if (!vData || !vData.videos) {
+        console.log('[LoadMore] No data, stopping');
         setHasMore(false);
         hasMoreRef.current = false;
         return;
       }
 
-      const newVideos = vData.videos || [];
-      const total = vData.pagination?.total || vData.total || totalVideos;
-      const totalPages = vData.pagination?.pages || Math.ceil(total / 40) || 1;
-
-      console.log(`Got ${newVideos.length} videos, page ${nextPage}/${totalPages}`);
+      const newVideos = vData.videos;
 
       if (newVideos.length === 0) {
+        console.log('[LoadMore] Empty page, stopping');
         setHasMore(false);
         hasMoreRef.current = false;
         return;
       }
 
-      // Update videos - deduplicate
+      // Deduplicate and append
       setAllVideos(prev => {
         const existingIds = new Set(prev.map(v => v._id));
         const unique = newVideos.filter(v => !existingIds.has(v._id));
-        console.log(`Adding ${unique.length} unique videos (${newVideos.length - unique.length} duplicates skipped)`);
+        console.log(`[LoadMore] Adding ${unique.length} new videos (${newVideos.length - unique.length} dupes skipped)`);
         return [...prev, ...unique];
       });
 
-      // Update page
+      // Update page counter
       setPage(nextPage);
       pageRef.current = nextPage;
-      setTotalVideos(total);
 
-      // Check if we've reached the end
-      if (nextPage >= totalPages) {
-        setHasMore(false);
-        hasMoreRef.current = false;
+      // Update total
+      const pag = vData.pagination;
+      if (pag) {
+        setTotalVideos(pag.total || 0);
+
+        if (nextPage >= pag.pages) {
+          console.log(`[LoadMore] Reached last page (${nextPage}/${pag.pages})`);
+          setHasMore(false);
+          hasMoreRef.current = false;
+        }
       }
     } catch (error) {
-      console.error('Failed to load more videos:', error);
-      // Don't set hasMore to false on error — user can retry
+      console.error('[LoadMore] Error:', error.message);
+      // Don't disable hasMore on network error — user can retry
     } finally {
-      setLoadingMore(false);
+      // ALWAYS unlock
       loadingMoreRef.current = false;
+      setLoadingMore(false);
+      console.log('[LoadMore] Done, unlocked');
     }
-  }, [totalVideos]);
+  }, []);
 
   // IntersectionObserver for auto-loading
   useEffect(() => {
@@ -557,8 +622,14 @@ const HomePage = () => {
                       )}
                       {hasMore && !loadingMore && (
                         <button
-                          onClick={() => {
-                            console.log('Button clicked! Loading more...');
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            console.log('[Button] Clicked! refs:', {
+                              loading: loadingMoreRef.current,
+                              hasMore: hasMoreRef.current,
+                              page: pageRef.current
+                            });
                             loadMoreVideos();
                           }}
                           className="px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-medium transition-colors text-sm active:scale-95"
