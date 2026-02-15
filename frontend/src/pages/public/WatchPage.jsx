@@ -13,45 +13,53 @@ import ShareButton from '../../components/video/ShareButton';
 const PLACEHOLDER =
   "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIwIiBoZWlnaHQ9IjE4MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjMWUxZTFlIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNiIgZmlsbD0iIzY2NiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPk5vIFRodW1ibmFpbDwvdGV4dD48L3N2Zz4=";
 
-// ==================== AD CODES ====================
+// ==================== NEW AD CODES ====================
 const ADS = {
+  // Desktop: 300x250 - Sidebar
   sidebar300x250: `<script>
     atOptions = {
-      'key' : '14ec0d1a96c62198d09309e2e93cdbe1',
+      'key' : '3becc7318ca2e6c794f587d8f3f05d0b',
       'format' : 'iframe',
       'height' : 250,
       'width' : 300,
       'params' : {}
     };
   </script>
-  <script src="https://www.highperformanceformat.com/14ec0d1a96c62198d09309e2e93cdbe1/invoke.js"></script>`,
+  <script src="https://www.highperformanceformat.com/3becc7318ca2e6c794f587d8f3f05d0b/invoke.js"></script>`,
 
+  // Desktop: 728x90 - Bottom banner
   bottom728x90: `<script>
     atOptions = {
-      'key' : '63bdafcb22010cae5f0bf88ebb77480d',
+      'key' : '8615981141c313bf4581c3cf1de1fb8f',
       'format' : 'iframe',
       'height' : 90,
       'width' : 728,
       'params' : {}
     };
   </script>
-  <script src="https://www.highperformanceformat.com/63bdafcb22010cae5f0bf88ebb77480d/invoke.js"></script>`,
+  <script src="https://www.highperformanceformat.com/8615981141c313bf4581c3cf1de1fb8f/invoke.js"></script>`,
 
+  // Mobile: 320x50 - Mobile banner
   mobile320x50: `<script>
     atOptions = {
-      'key' : '6234f16279422f68f13fae0f6cd38e19',
+      'key' : '161b6adedd44fd65d7197bdc372ef90f',
       'format' : 'iframe',
       'height' : 50,
       'width' : 320,
       'params' : {}
     };
   </script>
-  <script src="https://www.highperformanceformat.com/6234f16279422f68f13fae0f6cd38e19/invoke.js"></script>`,
+  <script src="https://www.highperformanceformat.com/161b6adedd44fd65d7197bdc372ef90f/invoke.js"></script>`,
 
-  nativeBanner: `<script async="async" data-cfasync="false" src="https://pl28697514.effectivegatecpm.com/ff1ceb8407fd04d767e71ec9b3d366ef/invoke.js"></script>
-  <div id="container-ff1ceb8407fd04d767e71ec9b3d366ef"></div>`,
+  // Native banner
+  nativeBanner: `<script async="async" data-cfasync="false" src="https://pl28704186.effectivegatecpm.com/3ebdaa444c50232518b3752efc451cab/invoke.js"></script>
+  <div id="container-3ebdaa444c50232518b3752efc451cab"></div>`,
 
-  socialBar: `<script src="https://pl28697422.effectivegatecpm.com/7e/56/ba/7e56ba1b0754a8958ee3f0800dac7a0d.js"></script>`,
+  // Social Bar
+  socialBar: `<script src="https://pl28704151.effectivegatecpm.com/35/ee/21/35ee2192f0b1aa5ca35c1f3af9387b00.js"></script>`,
+
+  // Popunder
+  popunder: `<script src="https://www.effectivegatecpm.com/sbfz9bs1c?key=4b48edda8bb87faa2b8f8b8708c46b0b"></script>`,
 };
 
 // ==================== HELPERS ====================
@@ -92,7 +100,6 @@ const getThumbnail = (v) => {
   return PLACEHOLDER;
 };
 
-// Helper to get category name from various formats
 const getCategoryName = (cat) => {
   if (!cat) return null;
   if (typeof cat === 'string') return cat;
@@ -112,6 +119,7 @@ const getCategorySlug = (cat) => {
 const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
   const containerRef = useRef(null);
   const loaded = useRef(false);
+  const uniqueId = useRef(`ad-${Math.random().toString(36).substr(2, 9)}`);
 
   useEffect(() => {
     if (!adCode || !containerRef.current || loaded.current) return;
@@ -119,10 +127,18 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
     container.innerHTML = "";
     loaded.current = true;
 
+    // Replace any container IDs to make them unique per instance
+    let processedCode = adCode;
+    const containerMatch = adCode.match(/id="(container-[a-f0-9]+)"/);
+    if (containerMatch) {
+      const newContainerId = containerMatch[1] + '-' + uniqueId.current;
+      processedCode = processedCode.replace(containerMatch[1], newContainerId);
+    }
+
     const tempDiv = document.createElement("div");
-    tempDiv.innerHTML = adCode;
+    tempDiv.innerHTML = processedCode;
     const scripts = tempDiv.querySelectorAll("script");
-    const nonScript = adCode.replace(/<script[\s\S]*?<\/script>/gi, "");
+    const nonScript = processedCode.replace(/<script[\s\S]*?<\/script>/gi, "");
 
     if (nonScript.trim()) {
       const div = document.createElement("div");
@@ -158,18 +174,28 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
   );
 };
 
-// ==================== SOCIAL BAR LOADER ====================
-const SocialBarLoader = () => {
+// ==================== SOCIAL BAR + POPUNDER LOADER ====================
+const GlobalAdsLoader = () => {
   const loaded = useRef(false);
   useEffect(() => {
     if (loaded.current) return;
     loaded.current = true;
-    const script = document.createElement("script");
-    script.src = "https://pl28697422.effectivegatecpm.com/7e/56/ba/7e56ba1b0754a8958ee3f0800dac7a0d.js";
-    script.async = true;
-    document.body.appendChild(script);
+
+    // Social Bar
+    const socialScript = document.createElement("script");
+    socialScript.src = "https://pl28704151.effectivegatecpm.com/35/ee/21/35ee2192f0b1aa5ca35c1f3af9387b00.js";
+    socialScript.async = true;
+    document.body.appendChild(socialScript);
+
+    // Popunder
+    const popunderScript = document.createElement("script");
+    popunderScript.src = "https://www.effectivegatecpm.com/sbfz9bs1c?key=4b48edda8bb87faa2b8f8b8708c46b0b";
+    popunderScript.async = true;
+    document.body.appendChild(popunderScript);
+
     return () => {
-      if (document.body.contains(script)) document.body.removeChild(script);
+      if (document.body.contains(socialScript)) document.body.removeChild(socialScript);
+      if (document.body.contains(popunderScript)) document.body.removeChild(popunderScript);
       loaded.current = false;
     };
   }, []);
@@ -228,12 +254,11 @@ function WatchPage() {
     return () => { document.title = "Xmaster - Watch Videos Online"; };
   }, [video]);
 
-  // ★ UPDATED: Fetch data with random seed for recommendations
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
       setError(null);
-      setRelatedVideos([]); // Clear previous recommendations
+      setRelatedVideos([]);
       try {
         const response = await publicAPI.getVideo(id);
         const videoData = response.data?.video || response.data?.data || response.data;
@@ -243,12 +268,10 @@ function WatchPage() {
 
         try { await publicAPI.recordView(id); } catch (e) {}
 
-        // ★ Fetch related videos - seed is auto-added by api.js
         try {
           const relRes = await publicAPI.getRelatedVideos(id, 15);
           if (relRes.data?.success) setRelatedVideos(relRes.data.videos || []);
         } catch (e) {
-          // Fallback to random videos
           try {
             const randRes = await publicAPI.getRandomVideos(15, id);
             if (randRes.data?.success)
@@ -321,7 +344,6 @@ function WatchPage() {
   const duration = video.duration && video.duration !== "00:00" ? video.duration : null;
   const filtered = relatedVideos.filter((v) => v._id !== id);
 
-  // ★ UPDATED: Get all categories for this video
   const allCategories = [];
   if (video.category && getCategoryName(video.category)) {
     allCategories.push(video.category);
@@ -337,7 +359,7 @@ function WatchPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-dark-400">
-      <SocialBarLoader />
+      <GlobalAdsLoader />
 
       <div className="max-w-[1400px] mx-auto px-0 sm:px-4 lg:px-6 py-0 sm:py-4">
         <div className="flex flex-col lg:flex-row gap-0 sm:gap-6">
@@ -473,9 +495,8 @@ function WatchPage() {
                 </div>
               )}
 
-              {/* ★ UPDATED: Categories + Tags Section */}
+              {/* Categories + Tags */}
               <div className="flex flex-wrap items-center gap-2 mt-4">
-                {/* Categories as clickable links */}
                 {allCategories.map((cat, i) => {
                   const name = getCategoryName(cat);
                   const slug = getCategorySlug(cat);
@@ -490,8 +511,6 @@ function WatchPage() {
                     </Link>
                   );
                 })}
-
-                {/* Tags */}
                 {video.tags?.map((tag, i) => (
                   <Link
                     key={`tag-${i}`}
@@ -503,6 +522,7 @@ function WatchPage() {
                 ))}
               </div>
 
+              {/* Desktop ads below video */}
               {!isMobile && (
                 <div className="mt-6">
                   <AdSlot adCode={ADS.nativeBanner} label="Suggested for you" className="rounded-xl overflow-hidden" />
@@ -515,9 +535,16 @@ function WatchPage() {
                 </div>
               )}
 
+              {/* Mobile ad below video */}
               {isMobile && (
                 <div className="mt-6">
                   <AdSlot adCode={ADS.mobile320x50} label="Sponsored" className="flex justify-center" />
+                </div>
+              )}
+
+              {isMobile && (
+                <div className="mt-4">
+                  <AdSlot adCode={ADS.nativeBanner} label="You might like" className="rounded-xl overflow-hidden" />
                 </div>
               )}
             </div>
@@ -528,7 +555,16 @@ function WatchPage() {
                 Recommended Videos
               </h3>
               <div className="space-y-3">
-                {filtered.slice(0, 10).map((v) => (
+                {filtered.slice(0, 4).map((v) => (
+                  <RelatedVideoCard key={v._id} video={v} />
+                ))}
+
+                {/* Mobile ad between related videos */}
+                <div className="py-2">
+                  <AdSlot adCode={ADS.sidebar300x250} label="Sponsored" className="flex justify-center" />
+                </div>
+
+                {filtered.slice(4, 10).map((v) => (
                   <RelatedVideoCard key={v._id} video={v} />
                 ))}
               </div>
@@ -548,7 +584,13 @@ function WatchPage() {
                 <div className="py-2">
                   <AdSlot adCode={ADS.sidebar300x250} label="Sponsored" className="rounded-xl overflow-hidden bg-gray-50 dark:bg-dark-200 p-3" />
                 </div>
-                {filtered.slice(3, 12).map((v) => (
+                {filtered.slice(3, 8).map((v) => (
+                  <RelatedVideoCard key={v._id} video={v} />
+                ))}
+                <div className="py-2">
+                  <AdSlot adCode={ADS.nativeBanner} label="Recommended" className="rounded-xl overflow-hidden" />
+                </div>
+                {filtered.slice(8, 12).map((v) => (
                   <RelatedVideoCard key={v._id} video={v} />
                 ))}
               </div>
@@ -598,7 +640,6 @@ const RelatedVideoCard = ({ video }) => {
           <p className="text-xs text-gray-500 dark:text-gray-400">
             {formatRelativeDate(video.uploadDate || video.createdAt)}
           </p>
-          {/* ★ Show category on related video card */}
           {video.category && getCategoryName(video.category) && (
             <p className="text-xs text-primary-500">
               {getCategoryName(video.category)}

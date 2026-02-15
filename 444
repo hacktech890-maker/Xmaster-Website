@@ -1,2574 +1,1800 @@
-backend/server.js
+frontend/src/components/ads/AdBanner.jsx
 
-const express = require("express");
-const cors = require("cors");
-const mongoose = require("mongoose");
-const rateLimit = require("express-rate-limit");
-require("dotenv").config();
+import React, { useState, useEffect, useRef } from 'react';
+import { publicAPI } from '../../services/api';
 
-const app = express();
+const AdBanner = ({ placement = 'home_top', className = '' }) => {
+  const [ad, setAd] = useState(null);
+  const adContainerRef = useRef(null);
+  const scriptsLoaded = useRef(false);
 
-// Trust proxy for deployment platforms like Render
-app.set("trust proxy", 1);
-
-// ============================================
-// CORS CONFIGURATION - VERY IMPORTANT!
-// ============================================
-const allowedOrigins = [
-  "https://xmaster.guru",
-  "https://www.xmaster.guru",
-  "https://xmaster-cj1.pages.dev",
-  "http://localhost:3000",
-  "http://localhost:3001",
-];
-
-// Add any origins from environment variable
-if (process.env.FRONTEND_URL) {
-  const envOrigins = process.env.FRONTEND_URL.split(",").map((url) => url.trim());
-
-  envOrigins.forEach((origin) => {
-    if (!allowedOrigins.includes(origin)) {
-      allowedOrigins.push(origin);
-    }
-  });
-}
-
-console.log("✅ Allowed Origins:", allowedOrigins);
-
-// ============================================
-// CORS Middleware
-// ============================================
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      // Allow requests with no origin (like mobile apps, curl, Postman)
-      if (!origin) {
-        return callback(null, true);
-      }
-
-      // Check if origin is allowed
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-
-      // Block unauthorized origins
-      console.log("⚠️ CORS blocked origin:", origin);
-      return callback(new Error("Not allowed by CORS"));
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: [
-      "Content-Type",
-      "Authorization",
-      "X-Requested-With",
-      "Accept",
-      "Origin",
-    ],
-    exposedHeaders: ["Content-Range", "X-Content-Range"],
-    maxAge: 86400, // 24 hours
-  })
-);
-
-// Handle preflight requests for all routes
-app.options(
-  "*",
-  cors({
-    origin: allowedOrigins,
-    credentials: true,
-  })
-);
-
-// ============================================
-// MIDDLEWARE
-// ============================================
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ extended: true, limit: "50mb" }));
-
-// ============================================
-// RATE LIMITING
-// ============================================
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000,
-  message: { error: "Too many requests, please try again later." },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-app.use("/api/", limiter);
-
-// ============================================
-// MONGODB CONNECTION
-// ============================================
-mongoose
-  .connect(process.env.MONGODB_URI)
-  .then(() => console.log("✅ MongoDB Connected Successfully"))
-  .catch((err) => console.error("❌ MongoDB Connection Error:", err));
-
-// ============================================
-// IMPORT ROUTES
-// ============================================
-const adminRoutes = require("./routes/adminRoutes");
-const videoRoutes = require("./routes/videoRoutes");
-const uploadRoutes = require("./routes/uploadRoutes");
-const categoryRoutes = require("./routes/categoryRoutes");
-const adRoutes = require("./routes/adRoutes");
-const searchRoutes = require("./routes/searchRoutes");
-const publicRoutes = require("./routes/publicRoutes");
-const commentRoutes = require("./routes/commentRoutes");
-const duplicateRoutes = require("./routes/duplicateRoutes");
-
-// ============================================
-// USE ROUTES
-// ============================================
-app.use("/api/admin", adminRoutes);
-app.use("/api/videos", videoRoutes);
-app.use("/api/upload", uploadRoutes);
-app.use("/api/categories", categoryRoutes);
-app.use("/api/ads", adRoutes);
-app.use("/api/search", searchRoutes);
-app.use("/api/public", publicRoutes);
-app.use("/api/comments", commentRoutes);
-app.use("/api/duplicates", duplicateRoutes);
-
-// ============================================
-// HEALTH CHECK ROUTES
-// ============================================
-app.get("/", (req, res) => {
-  res.json({
-    message: "XMASTER API is running!",
-    status: "healthy",
-    timestamp: new Date().toISOString(),
-    cors: "enabled",
-    allowedOrigins: allowedOrigins,
-  });
-});
-
-app.get("/api/health", (req, res) => {
-  res.json({
-    status: "ok",
-    mongodb: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
-    cors: "enabled",
-  });
-});
-
-// ============================================
-// 404 HANDLER
-// ============================================
-app.use((req, res) => {
-  res.status(404).json({ error: "Route not found", path: req.path });
-});
-
-// ============================================
-// ERROR HANDLER
-// ============================================
-app.use((err, req, res, next) => {
-  console.error("❌ Error:", err);
-
-  res.status(err.status || 500).json({
-    error: err.message || "Internal Server Error",
-  });
-});
-
-// ============================================
-// START SERVER
-// ============================================
-const PORT = process.env.PORT || 5000;
-
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📍 Environment: ${process.env.NODE_ENV || "development"}`);
-  console.log(`🌐 CORS enabled for: ${allowedOrigins.join(", ")}`);
-});
-
-
-backend/routes/shareRoutes.js
-
-const express = require('express');
-const router = express.Router();
-const mongoose = require('mongoose');
-const Video = require('../models/Video');
-
-// GET /api/search
-router.get('/', async (req, res) => {
-  try {
-    const { q = '', page = 1, limit = 40, sort = 'relevance', category = '' } = req.query;
-
-    if (!q.trim()) {
-      return res.json({ success: true, videos: [], pagination: { page: 1, limit: 20, total: 0, pages: 0 } });
-    }
-
-    const query = {
-      status: 'public',
-      isDuplicate: { $ne: true },
-      $or: [
-        { title: { $regex: q, $options: 'i' } },
-        { description: { $regex: q, $options: 'i' } },
-        { tags: { $in: [new RegExp(q, 'i')] } }
-      ]
-    };
-
-    // Category filter using ObjectId
-    if (category && mongoose.Types.ObjectId.isValid(category)) {
-      query.$and = query.$and || [];
-      query.$and.push({
-        $or: [
-          { category: new mongoose.Types.ObjectId(category) },
-          { categories: new mongoose.Types.ObjectId(category) }
-        ]
-      });
-    }
-
-    let sortOption = {};
-    switch (sort) {
-      case 'newest': sortOption = { uploadDate: -1 }; break;
-      case 'oldest': sortOption = { uploadDate: 1 }; break;
-      case 'views': sortOption = { views: -1 }; break;
-      default: sortOption = { views: -1, uploadDate: -1 };
-    }
-
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const [videos, total] = await Promise.all([
-      Video.find(query)
-        .populate('category', 'name slug color icon')
-        .populate('categories', 'name slug color icon')
-        .sort(sortOption)
-        .skip(skip)
-        .limit(parseInt(limit))
-        .lean(),
-      Video.countDocuments(query)
-    ]);
-
-    res.json({
-      success: true,
-      query: q,
-      videos,
-      pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / parseInt(limit)) }
-    });
-  } catch (error) {
-    console.error('Search Error:', error);
-    res.status(500).json({ error: 'Search failed' });
-  }
-});
-
-// GET /api/search/suggestions
-router.get('/suggestions', async (req, res) => {
-  try {
-    const { q = '', limit = 5 } = req.query;
-    if (!q.trim() || q.length < 2) {
-      return res.json({ success: true, suggestions: [] });
-    }
-
-    const videos = await Video.find({ status: 'public', title: { $regex: q, $options: 'i' } })
-      .select('title')
-      .limit(parseInt(limit));
-
-    res.json({ success: true, suggestions: videos.map(v => v.title) });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to get suggestions' });
-  }
-});
-
-// GET /api/search/tags/:tag
-router.get('/tags/:tag', async (req, res) => {
-  try {
-    const { page = 1, limit = 40, sort = 'newest' } = req.query;
-    const tag = req.params.tag.toLowerCase();
-
-    let sortOption = {};
-    switch (sort) {
-      case 'oldest': sortOption = { uploadDate: 1 }; break;
-      case 'views': sortOption = { views: -1 }; break;
-      default: sortOption = { uploadDate: -1 };
-    }
-
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    const query = { status: 'public', isDuplicate: { $ne: true }, tags: tag };
-
-    const [videos, total] = await Promise.all([
-      Video.find(query)
-        .populate('category', 'name slug color icon')
-        .populate('categories', 'name slug color icon')
-        .sort(sortOption)
-        .skip(skip)
-        .limit(parseInt(limit))
-        .lean(),
-      Video.countDocuments(query)
-    ]);
-
-    res.json({
-      success: true,
-      tag,
-      videos,
-      pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / parseInt(limit)) }
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Tag search failed' });
-  }
-});
-
-// GET /api/search/popular-tags
-router.get('/popular-tags', async (req, res) => {
-  try {
-    const { limit = 20 } = req.query;
-    const tags = await Video.aggregate([
-      { $match: { status: 'public', isDuplicate: { $ne: true } } },
-      { $unwind: '$tags' },
-      { $group: { _id: '$tags', count: { $sum: 1 } } },
-      { $sort: { count: -1 } },
-      { $limit: parseInt(limit) }
-    ]);
-
-    res.json({ success: true, tags: tags.map(t => ({ tag: t._id, count: t.count })) });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to get popular tags' });
-  }
-});
-
-module.exports = router;
-
-backend/routes/publicRoutes.js
-
-// backend/routes/publicRoutes.js
-const express = require('express');
-const router = express.Router();
-const axios = require('axios');
-const Video = require('../models/Video');
-const Category = require('../models/Category');
-
-// ==========================================
-// CONFIGURATION
-// ==========================================
-const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME || 'dzjw6z7fy';
-const SITE_NAME = 'Xmaster';
-const DEFAULT_DESCRIPTION = 'Watch Videos Online on Xmaster';
-
-// ==========================================
-// HELPERS
-// ==========================================
-
-function getFrontendUrl() {
-  var raw = process.env.FRONTEND_URL || 'https://xmaster.guru';
-  if (raw.indexOf(',') !== -1) {
-    raw = raw.split(',')[0].trim();
-  }
-  return raw.replace(/\/+$/, '');
-}
-
-function getBackendUrl() {
-  var raw = process.env.BACKEND_URL || 'https://api.xmaster.guru';
-  return raw.replace(/\/+$/, '');
-}
-
-/**
- * Build the BEST possible thumbnail URL for Telegram
- * 
- * ALWAYS use the proxy endpoint because:
- * 1. Guarantees correct Content-Type header (image/jpeg)
- * 2. No redirects (Telegram hates redirects)
- * 3. Guaranteed HTTPS
- * 4. URL ends with .jpg (Telegram likes this)
- * 5. Serves a big enough image for large preview card
- * 6. Single consistent URL format for all videos
- */
-function getTelegramOptimizedThumbnail(video) {
-  var backendUrl = getBackendUrl();
-  return backendUrl + '/api/public/thumb/' + video._id + '.jpg';
-}
-
-/**
- * Get the SOURCE thumbnail URL from Cloudinary or other sources
- * Used internally by the proxy endpoint
- */
-function getSourceThumbnailUrl(video) {
-  if (video.cloudinary_public_id) {
-    return 'https://res.cloudinary.com/' + CLOUDINARY_CLOUD_NAME +
-      '/image/upload/w_1280,h_720,c_fill,q_90,f_jpg/' +
-      video.cloudinary_public_id + '.jpg';
-  }
-  if (video.thumbnailUrl && video.thumbnailUrl.startsWith('http')) {
-    if (video.thumbnailUrl.indexOf('cloudinary') !== -1) {
-      return video.thumbnailUrl.replace(
-        '/upload/',
-        '/upload/w_1280,h_720,c_fill,q_90,f_jpg/'
-      );
-    }
-    return video.thumbnailUrl;
-  }
-  if (video.thumbnail && video.thumbnail.startsWith('http')) {
-    if (video.thumbnail.indexOf('cloudinary') !== -1) {
-      return video.thumbnail.replace(
-        '/upload/',
-        '/upload/w_1280,h_720,c_fill,q_90,f_jpg/'
-      );
-    }
-    return video.thumbnail;
-  }
-  if (video.file_code) {
-    return 'https://abyss.to/splash/' + video.file_code + '.jpg';
-  }
-  return '';
-}
-
-/**
- * Detect social media crawler bots
- */
-function isCrawlerBot(userAgent) {
-  if (!userAgent) return false;
-  var ua = userAgent.toLowerCase();
-  var bots = [
-    'telegrambot',
-    'twitterbot',
-    'facebookexternalhit',
-    'facebot',
-    'whatsapp',
-    'linkedinbot',
-    'slackbot',
-    'discordbot',
-    'skypeuripreview',
-    'viber',
-    'vkshare',
-    'pinterest',
-    'embedly',
-    'quora link preview',
-    'redditbot',
-    'applebot',
-    'bingpreview',
-    'googlebot',
-    'yandexbot',
-    'baiduspider',
-    'seznambot',
-  ];
-  for (var i = 0; i < bots.length; i++) {
-    if (ua.indexOf(bots[i]) !== -1) return true;
-  }
-  return false;
-}
-
-/**
- * Detect specifically Telegram bot
- */
-function isTelegramBot(userAgent) {
-  if (!userAgent) return false;
-  return userAgent.toLowerCase().indexOf('telegrambot') !== -1;
-}
-
-/**
- * Escape string for safe HTML attribute insertion
- */
-function escapeHtml(str) {
-  if (!str) return '';
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
-
-/**
- * Clean and truncate description
- */
-function cleanDescription(video) {
-  var desc = video.description || '';
-  if (!desc || desc.trim().length < 10) {
-    desc = 'Watch ' + (video.title || 'this video') + ' on ' + SITE_NAME;
-  }
-  desc = desc.replace(/<[^>]*>/g, '');
-  if (desc.length > 200) {
-    desc = desc.substring(0, 197) + '...';
-  }
-  return desc;
-}
-
-/**
- * Format view count
- */
-function formatViews(views) {
-  if (!views || views === 0) return '0';
-  if (views >= 1000000) return (views / 1000000).toFixed(1) + 'M';
-  if (views >= 1000) return (views / 1000).toFixed(1) + 'K';
-  return views.toString();
-}
-
-// ==========================================
-// SHARE PAGE - THE CRITICAL ENDPOINT
-// ==========================================
-
-router.get('/share/:id', async (req, res) => {
-  try {
-    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
-      return res.redirect(getFrontendUrl());
-    }
-
-    var video = await Video.findById(req.params.id);
-    if (!video) {
-      return res.redirect(getFrontendUrl());
-    }
-
-    var frontendUrl = getFrontendUrl();
-    var videoPageUrl = frontendUrl + '/watch/' + video._id;
-    if (video.slug) {
-      videoPageUrl += '/' + encodeURIComponent(video.slug);
-    }
-
-    var thumbnail = getTelegramOptimizedThumbnail(video);
-    var title = escapeHtml(video.title || 'Video');
-    var description = escapeHtml(cleanDescription(video));
-    var views = video.views || 0;
-    var duration = video.duration || '';
-    var userAgent = req.headers['user-agent'] || '';
-    var botRequest = isCrawlerBot(userAgent);
-
-    // Share page URL (self-referencing for og:url)
-    var sharePageUrl = getBackendUrl() + '/api/public/share/' + video._id;
-
-    // ==========================================
-    // BUILD HTML RESPONSE
-    // ==========================================
-    var html = '<!DOCTYPE html>\n';
-    html += '<html lang="en" prefix="og: http://ogp.me/ns#">\n';
-    html += '<head>\n';
-    html += '<meta charset="utf-8" />\n';
-    html += '<meta name="viewport" content="width=device-width, initial-scale=1" />\n';
-    html += '<title>' + title + ' - ' + SITE_NAME + '</title>\n\n';
-
-    // ==========================================
-    // OPEN GRAPH TAGS (Critical for Telegram)
-    // ==========================================
-    html += '<!-- OpenGraph Meta Tags -->\n';
-    html += '<meta property="og:type" content="article" />\n';
-    html += '<meta property="og:title" content="' + title + '" />\n';
-    html += '<meta property="og:description" content="' + description + '" />\n';
-
-    // og:url MUST point to THIS share page (not the React SPA)
-    html += '<meta property="og:url" content="' + sharePageUrl + '" />\n';
-    html += '<meta property="og:site_name" content="' + SITE_NAME + '" />\n';
-    html += '<meta property="og:locale" content="en_US" />\n';
-
-    // ==========================================
-    // IMAGE TAGS (Telegram thumbnail)
-    // Uses proxy URL → guaranteed big image, correct headers
-    // ==========================================
-    if (thumbnail) {
-      html += '\n<!-- Image Tags (Telegram-optimized via proxy) -->\n';
-      html += '<meta property="og:image" content="' + thumbnail + '" />\n';
-      html += '<meta property="og:image:secure_url" content="' + thumbnail + '" />\n';
-      html += '<meta property="og:image:type" content="image/jpeg" />\n';
-      html += '<meta property="og:image:width" content="1280" />\n';
-      html += '<meta property="og:image:height" content="720" />\n';
-      html += '<meta property="og:image:alt" content="' + title + '" />\n';
-    }
-
-    // ==========================================
-    // TWITTER CARD TAGS
-    // ==========================================
-    html += '\n<!-- Twitter Card Tags -->\n';
-    html += '<meta name="twitter:card" content="summary_large_image" />\n';
-    html += '<meta name="twitter:title" content="' + title + '" />\n';
-    html += '<meta name="twitter:description" content="' + description + '" />\n';
-    if (thumbnail) {
-      html += '<meta name="twitter:image" content="' + thumbnail + '" />\n';
-      html += '<meta name="twitter:image:src" content="' + thumbnail + '" />\n';
-    }
-
-    // ==========================================
-    // ADDITIONAL SEO META TAGS
-    // ==========================================
-    html += '\n<!-- Additional Meta -->\n';
-    html += '<meta name="description" content="' + description + '" />\n';
-    html += '<link rel="canonical" href="' + sharePageUrl + '" />\n';
-    if (thumbnail) {
-      html += '<link rel="image_src" href="' + thumbnail + '" />\n';
-    }
-
-    html += '<meta name="robots" content="index, follow" />\n';
-
-    // ==========================================
-    // RESPONSE BASED ON REQUESTER TYPE
-    // ==========================================
-    if (botRequest) {
-      html += '</head>\n';
-      html += '<body>\n';
-      html += '<h1>' + title + '</h1>\n';
-      if (thumbnail) {
-        html += '<img src="' + thumbnail + '" alt="' + title + '" width="1280" height="720" />\n';
-      }
-      html += '<p>' + description + '</p>\n';
-      if (duration) {
-        html += '<p>Duration: ' + duration + '</p>\n';
-      }
-      html += '<p>Views: ' + formatViews(views) + '</p>\n';
-      html += '<a href="' + videoPageUrl + '">Watch on ' + SITE_NAME + '</a>\n';
-      html += '</body>\n';
-      html += '</html>';
-    } else {
-      html += '<meta http-equiv="refresh" content="0;url=' + videoPageUrl + '" />\n';
-      html += '<style>\n';
-      html += '* { margin: 0; padding: 0; box-sizing: border-box; }\n';
-      html += 'body { background: #0f0f0f; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }\n';
-      html += '.card { text-align: center; max-width: 400px; width: 100%; }\n';
-      html += '.thumb { width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: 12px; margin-bottom: 16px; background: #1a1a1a; }\n';
-      html += '.title { font-size: 16px; font-weight: 600; margin-bottom: 8px; line-height: 1.4; }\n';
-      html += '.meta { color: #888; font-size: 13px; margin-bottom: 16px; }\n';
-      html += '.btn { display: inline-block; padding: 12px 32px; background: #3b82f6; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px; }\n';
-      html += '.btn:hover { background: #2563eb; }\n';
-      html += '.loading { color: #666; font-size: 12px; margin-top: 12px; }\n';
-      html += '@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }\n';
-      html += '.loading { animation: pulse 1.5s ease-in-out infinite; }\n';
-      html += '</style>\n';
-      html += '</head>\n';
-      html += '<body>\n';
-      html += '<div class="card">\n';
-      if (thumbnail) {
-        html += '<img class="thumb" src="' + thumbnail + '" alt="' + title + '" onerror="this.style.display=\'none\'" />\n';
-      }
-      html += '<div class="title">' + title + '</div>\n';
-      html += '<div class="meta">';
-      if (duration) html += duration + ' &bull; ';
-      html += formatViews(views) + ' views</div>\n';
-      html += '<a class="btn" href="' + videoPageUrl + '">&#9654; Watch Video</a>\n';
-      html += '<div class="loading">Redirecting to ' + SITE_NAME + '...</div>\n';
-      html += '</div>\n';
-      html += '<script>window.location.replace("' + videoPageUrl + '");</script>\n';
-      html += '</body>\n';
-      html += '</html>';
-    }
-
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.status(200).send(html);
-
-  } catch (error) {
-    console.error('Share page error:', error);
-    res.redirect(getFrontendUrl());
-  }
-});
-
-
-// ==========================================
-// THUMBNAIL PROXY ENDPOINT
-// ==========================================
-// Serves the actual image to Telegram
-// Guarantees: correct headers, big image, no redirects
-// URL: /api/public/thumb/{videoId}.jpg
-// ==========================================
-
-router.get('/thumb/:idWithExt', async (req, res) => {
-  try {
-    var videoId = req.params.idWithExt.replace(/\.\w+$/, '');
-
-    if (!videoId.match(/^[0-9a-fA-F]{24}$/)) {
-      return res.status(404).send('Not found');
-    }
-
-    var video = await Video.findById(videoId).lean();
-    if (!video) return res.status(404).send('Not found');
-
-    var thumbnailUrl = getSourceThumbnailUrl(video);
-
-    if (!thumbnailUrl) {
-      return res.status(404).send('No thumbnail');
-    }
-
-    // Fetch the image from source
-    var imageResponse = await axios.get(thumbnailUrl, {
-      responseType: 'arraybuffer',
-      timeout: 15000,
-      maxRedirects: 5,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; XmasterBot/1.0)',
-        'Accept': 'image/*',
-      },
-    });
-
-    var imageBuffer = Buffer.from(imageResponse.data);
-
-    // Set all headers Telegram needs
-    res.setHeader('Content-Type', 'image/jpeg');
-    res.setHeader('Content-Length', imageBuffer.length);
-    res.setHeader('Cache-Control', 'public, max-age=604800');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.status(200).send(imageBuffer);
-
-  } catch (error) {
-    console.error('Thumb proxy error:', error.message);
-
-    // Try fallback: original thumbnail without transforms
-    try {
-      var fallbackId = req.params.idWithExt.replace(/\.\w+$/, '');
-      var video2 = await Video.findById(fallbackId).lean();
-      if (video2) {
-        var fallbackUrl = '';
-        if (video2.thumbnail && video2.thumbnail.startsWith('http')) {
-          fallbackUrl = video2.thumbnail;
-        } else if (video2.file_code) {
-          fallbackUrl = 'https://abyss.to/splash/' + video2.file_code + '.jpg';
-        }
-        if (fallbackUrl) {
-          var fallbackResponse = await axios.get(fallbackUrl, {
-            responseType: 'arraybuffer',
-            timeout: 10000,
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (compatible; XmasterBot/1.0)',
-            },
-          });
-          var fallbackBuffer = Buffer.from(fallbackResponse.data);
-          res.setHeader('Content-Type', 'image/jpeg');
-          res.setHeader('Content-Length', fallbackBuffer.length);
-          res.setHeader('Cache-Control', 'public, max-age=604800');
-          res.setHeader('Access-Control-Allow-Origin', '*');
-          return res.status(200).send(fallbackBuffer);
-        }
-      }
-    } catch (e2) {
-      console.error('Thumb fallback error:', e2.message);
-    }
-
-    // Last resort: 1x1 transparent GIF
-    var fallback = Buffer.from(
-      'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
-      'base64'
-    );
-    res.setHeader('Content-Type', 'image/gif');
-    res.status(200).send(fallback);
-  }
-});
-
-
-// ==========================================
-// SHARE TRACKING ENDPOINT
-// ==========================================
-
-router.post('/share/:id/track', async (req, res) => {
-  try {
-    var videoId = req.params.id;
-    if (!videoId.match(/^[0-9a-fA-F]{24}$/)) {
-      return res.status(400).json({ error: 'Invalid video ID' });
-    }
-
-    var platform = req.body.platform || 'unknown';
-    var validPlatforms = ['telegram', 'whatsapp', 'facebook', 'twitter', 'copy', 'native', 'unknown'];
-    if (validPlatforms.indexOf(platform) === -1) {
-      platform = 'unknown';
-    }
-
-    var updateQuery = {
-      $inc: {
-        shares: 1,
-      },
-    };
-    updateQuery.$inc['sharePlatforms.' + platform] = 1;
-
-    await Video.findByIdAndUpdate(videoId, updateQuery);
-
-    res.json({ success: true });
-  } catch (error) {
-    console.error('Share tracking error:', error);
-    res.status(500).json({ error: 'Failed to track share' });
-  }
-});
-
-
-// ==========================================
-// OG DEBUG ENDPOINT
-// ==========================================
-
-router.get('/share/:id/debug', async (req, res) => {
-  try {
-    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
-      return res.status(400).json({ error: 'Invalid ID' });
-    }
-
-    var video = await Video.findById(req.params.id).lean();
-    if (!video) {
-      return res.status(404).json({ error: 'Video not found' });
-    }
-
-    var frontendUrl = getFrontendUrl();
-    var videoPageUrl = frontendUrl + '/watch/' + video._id;
-    if (video.slug) {
-      videoPageUrl += '/' + video.slug;
-    }
-
-    var thumbnail = getTelegramOptimizedThumbnail(video);
-    var sourceThumbnail = getSourceThumbnailUrl(video);
-
-    // Test proxy thumbnail accessibility
-    var proxyStatus = 'unknown';
-    var proxyContentType = 'unknown';
-    var proxySize = 'unknown';
-    try {
-      var testResponse = await axios.head(thumbnail, {
-        timeout: 10000,
-        maxRedirects: 0,
-      });
-      proxyStatus = testResponse.status;
-      proxyContentType = testResponse.headers['content-type'] || 'not set';
-      proxySize = testResponse.headers['content-length'] || 'not set';
-    } catch (e) {
-      proxyStatus = 'ERROR: ' + e.message;
-    }
-
-    // Test source thumbnail accessibility
-    var sourceStatus = 'unknown';
-    var sourceSize = 'unknown';
-    try {
-      var sourceResponse = await axios.head(sourceThumbnail, {
-        timeout: 5000,
-        maxRedirects: 5,
-      });
-      sourceStatus = sourceResponse.status;
-      sourceSize = sourceResponse.headers['content-length'] || 'not set';
-    } catch (e) {
-      sourceStatus = 'ERROR: ' + e.message;
-    }
-
-    res.json({
-      success: true,
-      debug: {
-        videoId: video._id,
-        title: video.title,
-        description: cleanDescription(video),
-        slug: video.slug,
-        videoPageUrl: videoPageUrl,
-        shareUrl: getBackendUrl() + '/api/public/share/' + video._id,
-        thumbnail: {
-          proxy: thumbnail,
-          source: sourceThumbnail,
-          raw_thumbnail: video.thumbnail || null,
-          raw_thumbnailUrl: video.thumbnailUrl || null,
-          cloudinary_public_id: video.cloudinary_public_id || null,
-          file_code: video.file_code || null,
-          proxyStatus: proxyStatus,
-          proxyContentType: proxyContentType,
-          proxySize: proxySize,
-          sourceStatus: sourceStatus,
-          sourceSize: sourceSize,
-        },
-        telegramTest: {
-          shareLink: 'https://t.me/share/url?url=' + encodeURIComponent(getBackendUrl() + '/api/public/share/' + video._id),
-          webpageBotLink: 'Send this URL to @WebpageBot on Telegram: ' + getBackendUrl() + '/api/public/share/' + video._id,
-          cacheBustTest: getBackendUrl() + '/api/public/share/' + video._id + '?v=' + Date.now(),
-        },
-        checks: {
-          hasTitle: !!video.title,
-          hasThumbnail: !!thumbnail,
-          thumbnailIsHttps: thumbnail ? thumbnail.startsWith('https://') : false,
-          thumbnailEndsWithJpg: thumbnail ? thumbnail.endsWith('.jpg') : false,
-          hasCloudinaryId: !!video.cloudinary_public_id,
-          proxyWorking: proxyStatus === 200,
-        },
-      },
-    });
-  } catch (error) {
-    console.error('Debug error:', error);
-    res.status(500).json({ error: 'Debug failed', message: error.message });
-  }
-});
-
-
-// ==========================================
-// HOME DATA - RANDOMIZED
-// ==========================================
-router.get('/home', async (req, res) => {
-  try {
-    var query = { status: 'public', isDuplicate: { $ne: true } };
-
-    const featuredVideos = await Video.aggregate([
-      { $match: { ...query, featured: true } },
-      { $sample: { size: 6 } },
-      {
-        $lookup: {
-          from: 'categories',
-          localField: 'category',
-          foreignField: '_id',
-          as: 'categoryData'
-        }
-      },
-      {
-        $addFields: {
-          category: { $arrayElemAt: ['$categoryData', 0] }
-        }
-      },
-      { $project: { categoryData: 0 } }
-    ]);
-
-    // ✅ FIX: Changed from .limit(12) to .limit(40)
-    const latestVideos = await Video.find(query)
-      .sort({ uploadDate: -1 })
-      .limit(40)
-      .populate('category', 'name slug');
-
-    const trendingVideos = await Video.aggregate([
-      { $match: query },
-      { $sort: { views: -1 } },
-      { $limit: 50 },
-      { $sample: { size: 12 } },
-      {
-        $lookup: {
-          from: 'categories',
-          localField: 'category',
-          foreignField: '_id',
-          as: 'categoryData'
-        }
-      },
-      {
-        $addFields: {
-          category: { $arrayElemAt: ['$categoryData', 0] }
-        }
-      },
-      { $project: { categoryData: 0 } }
-    ]);
-
-    const categories = await Category.find({ isActive: true }).sort({ order: 1 }).limit(10);
-
-    // ✅ FIX: Also return total count so frontend knows how many exist
-    const totalVideos = await Video.countDocuments(query);
-
-    res.json({
-      success: true,
-      data: {
-        featuredVideos,
-        latestVideos,
-        trendingVideos,
-        categories,
-        totalVideos  // ✅ Added
-      }
-    });
-  } catch (error) {
-    console.error('Home Data Error:', error);
-    res.status(500).json({ error: 'Failed to get home data' });
-  }
-});
-
-
-// ==========================================
-// STATS
-// ==========================================
-router.get('/stats', async (req, res) => {
-  try {
-    var query = { status: 'public', isDuplicate: { $ne: true } };
-
-    const [videoCount, totalViews, categoryCount] = await Promise.all([
-      Video.countDocuments(query),
-      Video.aggregate([{ $match: query }, { $group: { _id: null, total: { $sum: '$views' } } }]),
-      Category.countDocuments({ isActive: true }),
-    ]);
-
-    res.json({
-      success: true,
-      stats: {
-        videos: videoCount,
-        views: totalViews[0]?.total || 0,
-        categories: categoryCount,
-      },
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to get stats' });
-  }
-});
-
-
-// ==========================================
-// DYNAMIC SITEMAP
-// ==========================================
-// ==========================================
-// DYNAMIC SITEMAP - ENHANCED WITH VIDEO MARKUP
-// ==========================================
-router.get('/sitemap.xml', async (req, res) => {
-  try {
-    var frontendUrl = getFrontendUrl();
-    var today = new Date().toISOString().split('T')[0];
-
-    // Get total video count
-    var totalVideos = await Video.countDocuments({
-      status: 'public',
-      isDuplicate: { $ne: true }
-    });
-
-    // If more than 5000 videos, serve a sitemap index
-    if (totalVideos > 5000) {
-      var totalSitemaps = Math.ceil(totalVideos / 5000);
-      var sitemapIndex = '<?xml version="1.0" encoding="UTF-8"?>\n';
-      sitemapIndex += '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
-
-      // Static pages sitemap
-      sitemapIndex += '  <sitemap>\n';
-      sitemapIndex += '    <loc>' + getBackendUrl() + '/api/public/sitemap-static.xml</loc>\n';
-      sitemapIndex += '    <lastmod>' + today + '</lastmod>\n';
-      sitemapIndex += '  </sitemap>\n';
-
-      // Video sitemaps (paginated)
-      for (var i = 0; i < totalSitemaps; i++) {
-        sitemapIndex += '  <sitemap>\n';
-        sitemapIndex += '    <loc>' + getBackendUrl() + '/api/public/sitemap-videos-' + (i + 1) + '.xml</loc>\n';
-        sitemapIndex += '    <lastmod>' + today + '</lastmod>\n';
-        sitemapIndex += '  </sitemap>\n';
-      }
-
-      sitemapIndex += '</sitemapindex>';
-
-      res.setHeader('Content-Type', 'application/xml; charset=utf-8');
-      res.setHeader('Cache-Control', 'public, max-age=3600');
-      return res.status(200).send(sitemapIndex);
-    }
-
-    // If 5000 or fewer videos, serve single sitemap
-    var videos = await Video.find({
-      status: 'public',
-      isDuplicate: { $ne: true }
-    })
-      .sort({ uploadDate: -1 })
-      .limit(5000)
-      .select('_id slug title description thumbnail thumbnailUrl cloudinary_public_id uploadDate duration views tags')
-      .lean();
-
-    var categories = await Category.find({ isActive: true })
-      .select('slug name updatedAt')
-      .lean();
-
-    var xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
-    xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"\n';
-    xml += '        xmlns:video="http://www.google.com/schemas/sitemap-video/1.1"\n';
-    xml += '        xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n';
-
-    // Homepage
-    xml += '  <url>\n';
-    xml += '    <loc>' + frontendUrl + '</loc>\n';
-    xml += '    <lastmod>' + today + '</lastmod>\n';
-    xml += '    <changefreq>daily</changefreq>\n';
-    xml += '    <priority>1.0</priority>\n';
-    xml += '  </url>\n';
-
-    // Trending
-    xml += '  <url>\n';
-    xml += '    <loc>' + frontendUrl + '/trending</loc>\n';
-    xml += '    <lastmod>' + today + '</lastmod>\n';
-    xml += '    <changefreq>daily</changefreq>\n';
-    xml += '    <priority>0.8</priority>\n';
-    xml += '  </url>\n';
-
-    // Search
-    xml += '  <url>\n';
-    xml += '    <loc>' + frontendUrl + '/search</loc>\n';
-    xml += '    <lastmod>' + today + '</lastmod>\n';
-    xml += '    <changefreq>daily</changefreq>\n';
-    xml += '    <priority>0.7</priority>\n';
-    xml += '  </url>\n';
-
-    // Categories
-    for (var c = 0; c < categories.length; c++) {
-      var catLastmod = categories[c].updatedAt
-        ? new Date(categories[c].updatedAt).toISOString().split('T')[0]
-        : today;
-      xml += '  <url>\n';
-      xml += '    <loc>' + frontendUrl + '/category/' + encodeURIComponent(categories[c].slug) + '</loc>\n';
-      xml += '    <lastmod>' + catLastmod + '</lastmod>\n';
-      xml += '    <changefreq>weekly</changefreq>\n';
-      xml += '    <priority>0.7</priority>\n';
-      xml += '  </url>\n';
-    }
-
-    // Videos with video sitemap markup
-    for (var v = 0; v < videos.length; v++) {
-      var video = videos[v];
-      var videoUrl = frontendUrl + '/watch/' + video._id;
-      if (video.slug) {
-        videoUrl += '/' + encodeURIComponent(video.slug);
-      }
-      var lastmod = video.uploadDate
-        ? new Date(video.uploadDate).toISOString().split('T')[0]
-        : '';
-
-      // Get thumbnail URL
-      var thumbUrl = '';
-      if (video.cloudinary_public_id) {
-        thumbUrl = 'https://res.cloudinary.com/' + CLOUDINARY_CLOUD_NAME +
-          '/image/upload/w_1280,h_720,c_fill,q_80,f_jpg/' +
-          video.cloudinary_public_id + '.jpg';
-      } else if (video.thumbnailUrl && video.thumbnailUrl.startsWith('http')) {
-        thumbUrl = video.thumbnailUrl;
-      } else if (video.thumbnail && video.thumbnail.startsWith('http')) {
-        thumbUrl = video.thumbnail;
-      }
-
-      // Escape XML special characters
-      var safeTitle = (video.title || 'Video')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&apos;');
-
-      var safeDesc = (video.description || video.title || 'Watch this video on Xmaster')
-        .replace(/<[^>]*>/g, '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&apos;');
-      if (safeDesc.length > 2048) {
-        safeDesc = safeDesc.substring(0, 2045) + '...';
-      }
-
-      xml += '  <url>\n';
-      xml += '    <loc>' + videoUrl + '</loc>\n';
-      if (lastmod) {
-        xml += '    <lastmod>' + lastmod + '</lastmod>\n';
-      }
-      xml += '    <changefreq>monthly</changefreq>\n';
-      xml += '    <priority>0.6</priority>\n';
-
-      // Video sitemap extension
-      if (thumbUrl) {
-        xml += '    <video:video>\n';
-        xml += '      <video:thumbnail_loc>' + thumbUrl + '</video:thumbnail_loc>\n';
-        xml += '      <video:title>' + safeTitle + '</video:title>\n';
-        xml += '      <video:description>' + safeDesc + '</video:description>\n';
-        xml += '      <video:player_loc allow_embed="yes">https://short.icu/' + (video.file_code || '') + '</video:player_loc>\n';
-        if (video.duration && video.duration !== '00:00') {
-          var dParts = video.duration.split(':').map(Number);
-          var durationSec = 0;
-          if (dParts.length === 3) durationSec = dParts[0] * 3600 + dParts[1] * 60 + dParts[2];
-          else if (dParts.length === 2) durationSec = dParts[0] * 60 + dParts[1];
-          if (durationSec > 0) {
-            xml += '      <video:duration>' + durationSec + '</video:duration>\n';
-          }
-        }
-        if (lastmod) {
-          xml += '      <video:publication_date>' + lastmod + '</video:publication_date>\n';
-        }
-        if (video.views) {
-          xml += '      <video:view_count>' + video.views + '</video:view_count>\n';
-        }
-        xml += '      <video:family_friendly>no</video:family_friendly>\n';
-        xml += '      <video:live>no</video:live>\n';
-
-        // Add tags (max 32 per Google spec)
-        if (video.tags && video.tags.length > 0) {
-          var maxTags = Math.min(video.tags.length, 32);
-          for (var t = 0; t < maxTags; t++) {
-            var safeTag = video.tags[t]
-              .replace(/&/g, '&amp;')
-              .replace(/</g, '&lt;')
-              .replace(/>/g, '&gt;');
-            xml += '      <video:tag>' + safeTag + '</video:tag>\n';
-          }
-        }
-        xml += '    </video:video>\n';
-      }
-
-      // Image sitemap extension
-      if (thumbUrl) {
-        xml += '    <image:image>\n';
-        xml += '      <image:loc>' + thumbUrl + '</image:loc>\n';
-        xml += '      <image:title>' + safeTitle + '</image:title>\n';
-        xml += '    </image:image>\n';
-      }
-
-      xml += '  </url>\n';
-    }
-
-    xml += '</urlset>';
-
-    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
-    res.setHeader('Cache-Control', 'public, max-age=3600');
-    res.status(200).send(xml);
-  } catch (error) {
-    console.error('Sitemap error:', error);
-    res.status(500).send('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>');
-  }
-});
-
-
-// ==========================================
-// STATIC PAGES SITEMAP (for sitemap index)
-// ==========================================
-router.get('/sitemap-static.xml', async (req, res) => {
-  try {
-    var frontendUrl = getFrontendUrl();
-    var today = new Date().toISOString().split('T')[0];
-    var categories = await Category.find({ isActive: true }).select('slug updatedAt').lean();
-
-    var xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
-    xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
-
-    xml += '  <url>\n';
-    xml += '    <loc>' + frontendUrl + '</loc>\n';
-    xml += '    <lastmod>' + today + '</lastmod>\n';
-    xml += '    <changefreq>daily</changefreq>\n';
-    xml += '    <priority>1.0</priority>\n';
-    xml += '  </url>\n';
-
-    xml += '  <url>\n';
-    xml += '    <loc>' + frontendUrl + '/trending</loc>\n';
-    xml += '    <lastmod>' + today + '</lastmod>\n';
-    xml += '    <changefreq>daily</changefreq>\n';
-    xml += '    <priority>0.8</priority>\n';
-    xml += '  </url>\n';
-
-    xml += '  <url>\n';
-    xml += '    <loc>' + frontendUrl + '/search</loc>\n';
-    xml += '    <lastmod>' + today + '</lastmod>\n';
-    xml += '    <changefreq>daily</changefreq>\n';
-    xml += '    <priority>0.7</priority>\n';
-    xml += '  </url>\n';
-
-    for (var c = 0; c < categories.length; c++) {
-      var catLastmod = categories[c].updatedAt
-        ? new Date(categories[c].updatedAt).toISOString().split('T')[0]
-        : today;
-      xml += '  <url>\n';
-      xml += '    <loc>' + frontendUrl + '/category/' + encodeURIComponent(categories[c].slug) + '</loc>\n';
-      xml += '    <lastmod>' + catLastmod + '</lastmod>\n';
-      xml += '    <changefreq>weekly</changefreq>\n';
-      xml += '    <priority>0.7</priority>\n';
-      xml += '  </url>\n';
-    }
-
-    xml += '</urlset>';
-
-    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
-    res.setHeader('Cache-Control', 'public, max-age=3600');
-    res.status(200).send(xml);
-  } catch (error) {
-    console.error('Static sitemap error:', error);
-    res.status(500).send('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>');
-  }
-});
-
-
-// ==========================================
-// PAGINATED VIDEO SITEMAPS (for sitemap index)
-// ==========================================
-router.get('/sitemap-videos-:page.xml', async (req, res) => {
-  try {
-    var page = parseInt(req.params.page) || 1;
-    var perPage = 5000;
-    var skip = (page - 1) * perPage;
-    var frontendUrl = getFrontendUrl();
-
-    var videos = await Video.find({
-      status: 'public',
-      isDuplicate: { $ne: true }
-    })
-      .sort({ uploadDate: -1 })
-      .skip(skip)
-      .limit(perPage)
-      .select('_id slug title description thumbnail thumbnailUrl cloudinary_public_id uploadDate duration views tags file_code')
-      .lean();
-
-    var xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
-    xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"\n';
-    xml += '        xmlns:video="http://www.google.com/schemas/sitemap-video/1.1">\n';
-
-    for (var v = 0; v < videos.length; v++) {
-      var video = videos[v];
-      var videoUrl = frontendUrl + '/watch/' + video._id;
-      if (video.slug) {
-        videoUrl += '/' + encodeURIComponent(video.slug);
-      }
-      var lastmod = video.uploadDate
-        ? new Date(video.uploadDate).toISOString().split('T')[0]
-        : '';
-
-      var thumbUrl = '';
-      if (video.cloudinary_public_id) {
-        thumbUrl = 'https://res.cloudinary.com/' + CLOUDINARY_CLOUD_NAME +
-          '/image/upload/w_1280,h_720,c_fill,q_80,f_jpg/' +
-          video.cloudinary_public_id + '.jpg';
-      } else if (video.thumbnailUrl && video.thumbnailUrl.startsWith('http')) {
-        thumbUrl = video.thumbnailUrl;
-      } else if (video.thumbnail && video.thumbnail.startsWith('http')) {
-        thumbUrl = video.thumbnail;
-      }
-
-      var safeTitle = (video.title || 'Video')
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-
-      var safeDesc = (video.description || video.title || '')
-        .replace(/<[^>]*>/g, '')
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-      if (safeDesc.length > 2048) safeDesc = safeDesc.substring(0, 2045) + '...';
-
-      xml += '  <url>\n';
-      xml += '    <loc>' + videoUrl + '</loc>\n';
-      if (lastmod) xml += '    <lastmod>' + lastmod + '</lastmod>\n';
-      xml += '    <changefreq>monthly</changefreq>\n';
-      xml += '    <priority>0.6</priority>\n';
-
-      if (thumbUrl) {
-        xml += '    <video:video>\n';
-        xml += '      <video:thumbnail_loc>' + thumbUrl + '</video:thumbnail_loc>\n';
-        xml += '      <video:title>' + safeTitle + '</video:title>\n';
-        xml += '      <video:description>' + (safeDesc || safeTitle) + '</video:description>\n';
-        xml += '      <video:player_loc allow_embed="yes">https://short.icu/' + (video.file_code || '') + '</video:player_loc>\n';
-        if (video.duration && video.duration !== '00:00') {
-          var dParts = video.duration.split(':').map(Number);
-          var dSec = 0;
-          if (dParts.length === 3) dSec = dParts[0] * 3600 + dParts[1] * 60 + dParts[2];
-          else if (dParts.length === 2) dSec = dParts[0] * 60 + dParts[1];
-          if (dSec > 0) xml += '      <video:duration>' + dSec + '</video:duration>\n';
-        }
-        if (lastmod) xml += '      <video:publication_date>' + lastmod + '</video:publication_date>\n';
-        if (video.views) xml += '      <video:view_count>' + video.views + '</video:view_count>\n';
-        xml += '      <video:family_friendly>no</video:family_friendly>\n';
-        xml += '      <video:live>no</video:live>\n';
-        if (video.tags && video.tags.length > 0) {
-          var maxTags = Math.min(video.tags.length, 32);
-          for (var t = 0; t < maxTags; t++) {
-            xml += '      <video:tag>' + video.tags[t].replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</video:tag>\n';
-          }
-        }
-        xml += '    </video:video>\n';
-      }
-
-      xml += '  </url>\n';
-    }
-
-    xml += '</urlset>';
-
-    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
-    res.setHeader('Cache-Control', 'public, max-age=3600');
-    res.status(200).send(xml);
-  } catch (error) {
-    console.error('Video sitemap error:', error);
-    res.status(500).send('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>');
-  }
-});
-
-
-// ==========================================
-// ROBOTS.TXT (served from backend for API domain)
-// ==========================================
-router.get('/robots.txt', (req, res) => {
-  var frontendUrl = getFrontendUrl();
-  var backendUrl = getBackendUrl();
-
-  var robots = '# Xmaster Robots.txt\n';
-  robots += '# https://xmaster.guru\n\n';
-  robots += 'User-agent: *\n';
-  robots += 'Allow: /api/public/share/\n';
-  robots += 'Allow: /api/public/sitemap.xml\n';
-  robots += 'Disallow: /api/\n\n';
-  robots += 'Sitemap: ' + frontendUrl + '/sitemap.xml\n';
-  robots += 'Sitemap: ' + backendUrl + '/api/public/sitemap.xml\n';
-
-  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-  res.setHeader('Cache-Control', 'public, max-age=86400');
-  res.status(200).send(robots);
-});
-
-module.exports = router;
-
-backend/middleware/ogRenderer.js
-
-// backend/middleware/ogRenderer.js
-
-const Video = require('../models/Video');
-
-// Comprehensive bot detection - covers Telegram, WhatsApp, Facebook, Twitter, Discord, etc.
-const BOT_USER_AGENTS = [
-  'TelegramBot',
-  'telegrambot',
-  'Telegram',
-  'WhatsApp',
-  'facebookexternalhit',
-  'Facebot',
-  'Twitterbot',
-  'LinkedInBot',
-  'Slackbot',
-  'Discordbot',
-  'vkShare',
-  'Viber',
-  'Googlebot',
-  'bingbot',
-  'Applebot',
-  'PinterestBot',
-  'redditbot',
-  'Embedly',
-  'Quora Link Preview',
-  'Showyoubot',
-  'outbrain',
-  'W3C_Validator',
-  'rogerbot',
-  'Yahoo! Slurp',
-  'Baiduspider',
-  'DuckDuckBot',
-  'Sogou',
-  'ia_archiver',
-  'curl',          // useful for testing
-  'wget',
-  'Postman',
-];
-
-function isBotRequest(userAgent) {
-  if (!userAgent) return false;
-  return BOT_USER_AGENTS.some(bot => 
-    userAgent.toLowerCase().includes(bot.toLowerCase())
-  );
-}
-
-// Ensure Cloudinary URL is optimized for Telegram
-function optimizeThumbnailForTelegram(cloudinaryUrl) {
-  if (!cloudinaryUrl) return '';
-  
-  // If it's a Cloudinary URL, apply transformations for Telegram compatibility
-  // Telegram requirements:
-  // - MUST be JPEG or PNG (no WebP for preview)
-  // - Recommended: 1200x630 pixels (1.91:1 ratio)
-  // - MUST be under 5MB
-  // - MUST be served over HTTPS
-  // - MUST NOT redirect (direct URL)
-  // - MUST return proper Content-Type header
-  
-  if (cloudinaryUrl.includes('cloudinary.com')) {
-    // Insert Cloudinary transformations for optimal Telegram preview
-    // c_fill = crop to fill, w_1200, h_630 = dimensions, f_jpg = force JPEG, q_85 = quality
-    const transformed = cloudinaryUrl.replace(
-      '/upload/',
-      '/upload/c_fill,w_1200,h_630,f_jpg,q_85/'
-    );
-    return transformed;
-  }
-  
-  return cloudinaryUrl;
-}
-
-function escapeHtml(str) {
-  if (!str) return '';
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
-
-function truncateDescription(text, maxLength = 200) {
-  if (!text) return '';
-  if (text.length <= maxLength) return text;
-  return text.substring(0, maxLength).trim() + '...';
-}
-
-async function ogRenderer(req, res, next) {
-  const userAgent = req.headers['user-agent'] || '';
-  
-  // Only intercept for bot requests to video watch pages
-  // Match patterns like /watch/:id or /video/:id
-  const watchMatch = req.path.match(/^\/(watch|video)\/([a-zA-Z0-9_-]+)/);
-  
-  if (!watchMatch || !isBotRequest(userAgent)) {
-    return next(); // Not a bot or not a video page, continue normally
-  }
-  
-  const videoId = watchMatch[2];
-  
-  try {
-    const video = await Video.findById(videoId).lean();
-    
-    if (!video) {
-      return next(); // Video not found, serve normal page
-    }
-    
-    const siteUrl = process.env.SITE_URL || 'https://yourdomain.com';
-    const siteName = process.env.SITE_NAME || 'XMaster';
-    
-    const title = escapeHtml(video.title || 'Untitled Video');
-    const description = escapeHtml(
-      truncateDescription(video.description || `Watch ${video.title} on ${siteName}`)
-    );
-    const videoUrl = `${siteUrl}/watch/${video._id}`;
-    const thumbnailUrl = optimizeThumbnailForTelegram(
-      video.thumbnailUrl || video.thumbnail || ''
-    );
-    
-    // Duration formatting for video meta
-    const duration = video.duration || 0;
-    const durationISO = `PT${Math.floor(duration / 60)}M${duration % 60}S`;
-    
-    // Build the complete HTML response for bots
-    const html = `<!DOCTYPE html>
-<html lang="en" prefix="og: http://ogp.me/ns#">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    
-    <!-- Primary Meta Tags -->
-    <title>${title} - ${siteName}</title>
-    <meta name="title" content="${title} - ${siteName}">
-    <meta name="description" content="${description}">
-    
-    <!-- Open Graph / Facebook / Telegram -->
-    <meta property="og:type" content="video.other">
-    <meta property="og:site_name" content="${siteName}">
-    <meta property="og:url" content="${videoUrl}">
-    <meta property="og:title" content="${title}">
-    <meta property="og:description" content="${description}">
-    <meta property="og:image" content="${thumbnailUrl}">
-    <meta property="og:image:secure_url" content="${thumbnailUrl}">
-    <meta property="og:image:type" content="image/jpeg">
-    <meta property="og:image:width" content="1200">
-    <meta property="og:image:height" content="630">
-    <meta property="og:image:alt" content="${title}">
-    <meta property="og:locale" content="en_US">
-    
-    <!-- Video specific OG tags -->
-    <meta property="og:video:duration" content="${duration}">
-    <meta property="video:duration" content="${durationISO}">
-    
-    <!-- Twitter Card -->
-    <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:url" content="${videoUrl}">
-    <meta name="twitter:title" content="${title}">
-    <meta name="twitter:description" content="${description}">
-    <meta name="twitter:image" content="${thumbnailUrl}">
-    <meta name="twitter:image:alt" content="${title}">
-    
-    <!-- Telegram Specific -->
-    <meta name="telegram:channel" content="@yourchannel">
-    
-    <!-- Additional SEO -->
-    <link rel="canonical" href="${videoUrl}">
-    <meta name="robots" content="index, follow">
-    
-    <!-- Schema.org JSON-LD for rich results -->
-    <script type="application/ld+json">
-    {
-        "@context": "https://schema.org",
-        "@type": "VideoObject",
-        "name": "${title}",
-        "description": "${description}",
-        "thumbnailUrl": "${thumbnailUrl}",
-        "uploadDate": "${video.createdAt || new Date().toISOString()}",
-        "duration": "${durationISO}",
-        "contentUrl": "${videoUrl}",
-        "embedUrl": "${videoUrl}",
-        "interactionStatistic": {
-            "@type": "InteractionCounter",
-            "interactionType": { "@type": "WatchAction" },
-            "userInteractionCount": ${video.views || 0}
-        }
-    }
-    </script>
-    
-    <!-- Redirect real users (non-bots) to the SPA -->
-    <noscript>
-        <meta http-equiv="refresh" content="0;url=${videoUrl}">
-    </noscript>
-</head>
-<body>
-    <!-- Minimal content for crawlers -->
-    <article>
-        <h1>${title}</h1>
-        <p>${description}</p>
-        <img src="${thumbnailUrl}" alt="${title}" width="1200" height="630">
-        <a href="${videoUrl}">Watch Video</a>
-    </article>
-</body>
-</html>`;
-
-    // Set proper headers for bot responses
-    res.set({
-      'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': 'public, max-age=3600, s-maxage=3600',
-      'X-Robots-Tag': 'index, follow',
-    });
-    
-    return res.status(200).send(html);
-    
-  } catch (error) {
-    console.error('OG Renderer Error:', error.message);
-    return next(); // On error, fall through to normal serving
-  }
-}
-
-module.exports = { ogRenderer, isBotRequest, optimizeThumbnailForTelegram };
-
-
-backend/models/Video.js
-
-const mongoose = require("mongoose");
-
-const videoSchema = new mongoose.Schema(
-  {
-    file_code: {
-      type: String,
-      required: true,
-      unique: true,
-      index: true,
-    },
-
-    embed_code: {
-      type: String,
-      default: "",
-    },
-
-    title: {
-      type: String,
-      required: true,
-      trim: true,
-      maxlength: 200,
-    },
-
-    slug: {
-      type: String,
-      unique: true,
-      sparse: true,
-    },
-
-    description: {
-      type: String,
-      default: "",
-      maxlength: 5000,
-    },
-
-    // ============================
-    // THUMBNAIL FIELDS
-    // ============================
-    thumbnail: {
-      type: String,
-      default: "",
-    },
-
-    thumbnailUrl: {
-      type: String,
-      default: "",
-    },
-
-    cloudinary_public_id: {
-      type: String,
-      default: "",
-    },
-
-    duration: {
-      type: String,
-      default: "00:00",
-    },
-
-    duration_seconds: {
-      type: Number,
-      default: 0,
-    },
-
-    // ============================
-    // CATEGORY FIELDS (UPDATED)
-    // ============================
-    // Primary category (ObjectId reference)
-    category: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Category",
-      default: null,
-      index: true,
-    },
-
-    // Multiple categories support
-    categories: [{
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Category",
-    }],
-
-    tags: [
-      {
-        type: String,
-        lowercase: true,
-        trim: true,
-      },
-    ],
-
-    views: {
-      type: Number,
-      default: 0,
-      index: true,
-    },
-
-    likes: {
-      type: Number,
-      default: 0,
-    },
-
-    dislikes: {
-      type: Number,
-      default: 0,
-    },
-
-    // ============================
-    // SHARE TRACKING
-    // ============================
-    shares: {
-      type: Number,
-      default: 0,
-      index: true,
-    },
-
-    sharePlatforms: {
-      telegram: { type: Number, default: 0 },
-      whatsapp: { type: Number, default: 0 },
-      facebook: { type: Number, default: 0 },
-      twitter: { type: Number, default: 0 },
-      copy: { type: Number, default: 0 },
-      native: { type: Number, default: 0 },
-      unknown: { type: Number, default: 0 },
-    },
-
-    sharedOnTG: {
-      type: Boolean,
-      default: false,
-      index: true,
-    },
-
-    sharedOnTGDate: {
-      type: Date,
-      default: null,
-    },
-
-    status: {
-      type: String,
-      enum: ["public", "private", "unlisted", "processing", "duplicate"],
-      default: "public",
-      index: true,
-    },
-
-    featured: {
-      type: Boolean,
-      default: false,
-      index: true,
-    },
-
-    // ==========================================
-    // DUPLICATE DETECTION FIELDS
-    // ==========================================
-    isDuplicate: {
-      type: Boolean,
-      default: false,
-      index: true,
-    },
-
-    duplicateOf: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Video",
-      default: null,
-    },
-
-    duplicateReasons: [
-      {
-        type: String,
-        enum: ["title", "duration", "file", "thumbnail"],
-      },
-    ],
-
-    titleNormalized: {
-      type: String,
-      default: "",
-      index: true,
-    },
-
-    fileHash: {
-      type: String,
-      default: "",
-      index: true,
-    },
-
-    uploadDate: {
-      type: Date,
-      default: Date.now,
-      index: true,
-    },
-  },
-  {
-    timestamps: true,
-    toJSON: { virtuals: true },
-    toObject: { virtuals: true },
-  }
-);
-
-// ==========================================
-// VIRTUALS
-// ==========================================
-videoSchema.virtual("bestThumbnail").get(function () {
-  return this.thumbnailUrl || this.thumbnail || "";
-});
-
-// ==========================================
-// Pre-save
-// ==========================================
-videoSchema.pre("save", function (next) {
-  // Generate slug
-  if (this.title && !this.slug) {
-    this.slug =
-      this.title
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-|-$/g, "") +
-      "-" +
-      this.file_code.substring(0, 8);
-  }
-
-  // Generate embed URL
-  if (this.file_code && !this.embed_code) {
-    this.embed_code = `https://short.icu/${this.file_code}`;
-  }
-
-  // Normalize title for duplicate detection
-  if (this.title) {
-    this.titleNormalized = this.title
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, "")
-      .trim();
-  }
-
-  // Parse duration string to seconds
-  if (this.duration && this.duration !== "00:00") {
-    const parts = this.duration.split(":").map(Number);
-    if (parts.length === 3) {
-      this.duration_seconds = parts[0] * 3600 + parts[1] * 60 + parts[2];
-    } else if (parts.length === 2) {
-      this.duration_seconds = parts[0] * 60 + parts[1];
-    }
-  }
-
-  // Sync categories array with primary category
-  if (this.category && (!this.categories || this.categories.length === 0)) {
-    this.categories = [this.category];
-  }
-  if (this.categories && this.categories.length > 0 && !this.category) {
-    this.category = this.categories[0];
-  }
-
-  next();
-});
-
-// ==========================================
-// Pre-remove
-// ==========================================
-videoSchema.pre("deleteOne", { document: true, query: false }, async function () {
-  if (this.cloudinary_public_id) {
-    try {
-      const { deleteImage } = require("../config/cloudinary");
-      await deleteImage(this.cloudinary_public_id);
-    } catch (err) {
-      console.error("⚠️ Failed to delete Cloudinary image:", err.message);
-    }
-  }
-});
-
-// ==========================================
-// Indexes
-// ==========================================
-videoSchema.index({ title: "text", tags: "text", description: "text" });
-videoSchema.index({ shares: -1 });
-videoSchema.index({ "sharePlatforms.telegram": -1 });
-videoSchema.index({ categories: 1 });
-
-module.exports = mongoose.model("Video", videoSchema);
-
-
-frontend/src/components/video/ShareButton.jsx
-
-// frontend/src/components/video/ShareButton.jsx
-import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { FiShare2, FiX, FiCopy, FiCheck, FiExternalLink } from 'react-icons/fi';
-
-// ==========================================
-// CONSTANTS
-// ==========================================
-const API_BASE = process.env.REACT_APP_API_URL || 'https://api.xmaster.guru/api';
-
-const PLACEHOLDER =
-  "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIwIiBoZWlnaHQ9IjE4MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjMWUxZTFlIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNiIgZmlsbD0iIzY2NiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPk5vIFRodW1ibmFpbDwvdGV4dD48L3N2Zz4=";
-
-// ==========================================
-// ICONS
-// ==========================================
-const TelegramIcon = () => (
-  <svg viewBox="0 0 24 24" className="w-6 h-6" fill="currentColor">
-    <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.96 6.504-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
-  </svg>
-);
-
-const WhatsAppIcon = () => (
-  <svg viewBox="0 0 24 24" className="w-6 h-6" fill="currentColor">
-    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-  </svg>
-);
-
-const FacebookIcon = () => (
-  <svg viewBox="0 0 24 24" className="w-6 h-6" fill="currentColor">
-    <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
-  </svg>
-);
-
-const TwitterIcon = () => (
-  <svg viewBox="0 0 24 24" className="w-6 h-6" fill="currentColor">
-    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-  </svg>
-);
-
-// ==========================================
-// HELPERS
-// ==========================================
-
-const getThumbnail = (video) => {
-  if (!video) return PLACEHOLDER;
-  const thumb = video.thumbnail;
-  if (thumb && thumb.startsWith('http')) return thumb;
-  if (thumb && thumb.length > 3) return `https://abyss.to/splash/${thumb}.jpg`;
-  if (video.file_code) return `https://abyss.to/splash/${video.file_code}.jpg`;
-  return PLACEHOLDER;
-};
-
-const formatViews = (views) => {
-  if (!views) return '0';
-  if (views >= 1000000) return (views / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
-  if (views >= 1000) return (views / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
-  return views.toString();
-};
-
-/**
- * Track share event
- */
-const trackShare = async (videoId, platform) => {
-  try {
-    await fetch(`${API_BASE}/public/share/${videoId}/track`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ platform }),
-    });
-  } catch (e) {
-    // Silent fail - tracking is non-critical
-  }
-};
-
-// ==========================================
-// SHARE MODAL COMPONENT
-// ==========================================
-
-const ShareModal = ({ video, isOpen, onClose }) => {
-  const [copied, setCopied] = useState(false);
-  const [shareSuccess, setShareSuccess] = useState('');
-  const modalRef = useRef(null);
-
-  // Close on ESC
+  // Fetch ad from backend
   useEffect(() => {
-    const handleEsc = (e) => {
-      if (e.key === 'Escape') onClose();
-    };
-    if (isOpen) {
-      document.addEventListener('keydown', handleEsc);
-      document.body.style.overflow = 'hidden';
-    }
-    return () => {
-      document.removeEventListener('keydown', handleEsc);
-      document.body.style.overflow = '';
-    };
-  }, [isOpen, onClose]);
-
-  if (!isOpen || !video) return null;
-
-  const thumbnail = getThumbnail(video);
-
-  // THE KEY URL: Share URL points to backend SSR page (has OG tags)
-  const shareUrl = `${API_BASE}/public/share/${video._id}`;
-
-  // Video page URL (where user actually watches)
-  const videoPageUrl = `${window.location.origin}/watch/${video._id}${
-    video.slug ? '/' + video.slug : ''
-  }`;
-
-  const shareTitle = video.title || 'Watch this video';
-  const shareText = `${shareTitle}`;
-
-  // ==========================================
-  // SHARE HANDLERS
-  // ==========================================
-
-  const handleTelegramShare = () => {
-    trackShare(video._id, 'telegram');
-    // Use shareUrl (backend SSR page) so Telegram fetches OG tags
-    const url = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareText)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
-    setShareSuccess('Telegram');
-    setTimeout(() => setShareSuccess(''), 2000);
-  };
-
-  const handleWhatsAppShare = () => {
-    trackShare(video._id, 'whatsapp');
-    const url = `https://wa.me/?text=${encodeURIComponent(shareText + '\n\n' + shareUrl)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
-    setShareSuccess('WhatsApp');
-    setTimeout(() => setShareSuccess(''), 2000);
-  };
-
-  const handleFacebookShare = () => {
-    trackShare(video._id, 'facebook');
-    const url = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`;
-    window.open(url, '_blank', 'noopener,noreferrer,width=600,height=400');
-    setShareSuccess('Facebook');
-    setTimeout(() => setShareSuccess(''), 2000);
-  };
-
-  const handleTwitterShare = () => {
-    trackShare(video._id, 'twitter');
-    const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`;
-    window.open(url, '_blank', 'noopener,noreferrer,width=600,height=400');
-    setShareSuccess('Twitter');
-    setTimeout(() => setShareSuccess(''), 2000);
-  };
-
-  const handleNativeShare = async () => {
-    if (!navigator.share) return;
-    try {
-      trackShare(video._id, 'native');
-      await navigator.share({
-        title: shareTitle,
-        text: shareText,
-        url: shareUrl,
-      });
-      setShareSuccess('Shared!');
-      setTimeout(() => {
-        setShareSuccess('');
-        onClose();
-      }, 1500);
-    } catch (e) {
-      // User cancelled - that's fine
-      if (e.name !== 'AbortError') {
-        console.error('Share failed:', e);
+    const fetchAd = async () => {
+      try {
+        const device = window.innerWidth < 768 ? 'mobile' : 'desktop';
+        const response = await publicAPI.getAdByPlacement(placement, device);
+        if (response.data?.success && response.data?.ad) {
+          setAd(response.data.ad);
+          try {
+            await publicAPI.recordAdImpression(response.data.ad._id);
+          } catch (e) {
+            // Silent
+          }
+        }
+      } catch (error) {
+        // No ad available
       }
+    };
+
+    fetchAd();
+  }, [placement]);
+
+  // Inject and execute ad scripts
+  useEffect(() => {
+    if (!ad || !adContainerRef.current || scriptsLoaded.current) return;
+
+    const container = adContainerRef.current;
+    const adCode = ad.code || ad.content || '';
+
+    if (!adCode.trim()) return;
+
+    // Clear container
+    container.innerHTML = '';
+    scriptsLoaded.current = true;
+
+    // Parse the ad code HTML
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = adCode;
+
+    // Separate script tags from other HTML
+    const scripts = tempDiv.querySelectorAll('script');
+    const nonScriptContent = adCode.replace(/<script[\s\S]*?<\/script>/gi, '');
+
+    // Add non-script HTML first
+    if (nonScriptContent.trim()) {
+      const contentDiv = document.createElement('div');
+      contentDiv.innerHTML = nonScriptContent;
+      container.appendChild(contentDiv);
     }
-  };
 
-  const handleCopyLink = async () => {
-    try {
-      // Copy the direct video page URL (nicer for users)
-      await navigator.clipboard.writeText(videoPageUrl);
-    } catch (e) {
-      // Fallback for older browsers
-      const input = document.createElement('input');
-      input.value = videoPageUrl;
-      input.style.position = 'fixed';
-      input.style.opacity = '0';
-      document.body.appendChild(input);
-      input.select();
-      document.execCommand('copy');
-      document.body.removeChild(input);
-    }
-    trackShare(video._id, 'copy');
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
-  };
+    // Execute scripts in order
+    scripts.forEach((originalScript) => {
+      const newScript = document.createElement('script');
 
-  const handleCopyShareLink = async () => {
-    // Copy the share URL (with OG tags) - for power users
-    try {
-      await navigator.clipboard.writeText(shareUrl);
-    } catch (e) {
-      const input = document.createElement('input');
-      input.value = shareUrl;
-      input.style.position = 'fixed';
-      input.style.opacity = '0';
-      document.body.appendChild(input);
-      input.select();
-      document.execCommand('copy');
-      document.body.removeChild(input);
-    }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
-  };
+      // Copy all attributes
+      Array.from(originalScript.attributes).forEach((attr) => {
+        newScript.setAttribute(attr.name, attr.value);
+      });
 
-  // Share platform configs
-  const platforms = [
-    {
-      name: 'Telegram',
-      icon: <TelegramIcon />,
-      color: 'bg-[#0088cc] hover:bg-[#0077b5]',
-      shadow: 'shadow-[0_4px_15px_rgba(0,136,204,0.3)]',
-      onClick: handleTelegramShare,
-      priority: true,
-    },
-    {
-      name: 'WhatsApp',
-      icon: <WhatsAppIcon />,
-      color: 'bg-[#25D366] hover:bg-[#20bd5a]',
-      shadow: 'shadow-[0_4px_15px_rgba(37,211,102,0.3)]',
-      onClick: handleWhatsAppShare,
-    },
-    {
-      name: 'Facebook',
-      icon: <FacebookIcon />,
-      color: 'bg-[#1877F2] hover:bg-[#1565d8]',
-      shadow: 'shadow-[0_4px_15px_rgba(24,119,242,0.3)]',
-      onClick: handleFacebookShare,
-    },
-    {
-      name: 'Twitter / X',
-      icon: <TwitterIcon />,
-      color: 'bg-black hover:bg-gray-800',
-      shadow: 'shadow-[0_4px_15px_rgba(0,0,0,0.3)]',
-      onClick: handleTwitterShare,
-    },
-  ];
+      // If script has inline content (like atOptions)
+      if (originalScript.textContent) {
+        newScript.textContent = originalScript.textContent;
+      }
 
-  return (
-    <div
-      className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center"
-      onClick={onClose}
-    >
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm transition-opacity" />
+      // If script has src attribute
+      if (originalScript.src) {
+        newScript.src = originalScript.src;
+        newScript.async = true;
+      }
 
-      {/* Modal */}
-      <div
-        ref={modalRef}
-        className="relative w-full sm:w-[440px] max-h-[90vh] overflow-y-auto bg-white dark:bg-[#1a1a2e] rounded-t-2xl sm:rounded-2xl shadow-2xl animate-share-slide-up"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-gray-700/50">
-          <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-            <FiShare2 className="w-5 h-5 text-blue-500" />
-            Share Video
-          </h3>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
-            aria-label="Close"
-          >
-            <FiX className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-          </button>
-        </div>
+      container.appendChild(newScript);
+    });
 
-        {/* Video Preview */}
-        <div className="flex gap-3 p-4 bg-gray-50 dark:bg-white/5">
-          <div className="w-28 h-[72px] rounded-lg overflow-hidden bg-gray-200 dark:bg-gray-700 flex-shrink-0 relative">
-            <img
-              src={thumbnail}
-              alt={video.title}
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                e.target.src = PLACEHOLDER;
-              }}
-            />
-            {video.duration && video.duration !== '00:00' && (
-              <span className="absolute bottom-1 right-1 px-1 py-0.5 bg-black/80 text-white text-[9px] font-medium rounded">
-                {video.duration}
-              </span>
-            )}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-gray-900 dark:text-white line-clamp-2 leading-snug">
-              {video.title}
-            </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
-              {formatViews(video.views || 0)} views
-              {video.duration && video.duration !== '00:00' && ` • ${video.duration}`}
-            </p>
-          </div>
-        </div>
+    // Cleanup on unmount
+    return () => {
+      if (container) {
+        container.innerHTML = '';
+      }
+      scriptsLoaded.current = false;
+    };
+  }, [ad]);
 
-        {/* Success Message */}
-        {shareSuccess && (
-          <div className="mx-4 mt-3 px-4 py-2.5 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl flex items-center gap-2 animate-fade-in">
-            <FiCheck className="w-4 h-4 text-green-600 dark:text-green-400" />
-            <span className="text-sm font-medium text-green-700 dark:text-green-400">
-              {shareSuccess === 'Shared!' ? 'Shared successfully!' : `Opening ${shareSuccess}...`}
-            </span>
-          </div>
-        )}
+  // Reset when placement changes
+  useEffect(() => {
+    scriptsLoaded.current = false;
+  }, [placement]);
 
-        {/* Share Platforms */}
-        <div className="p-4">
-          <div className="grid grid-cols-4 gap-3 mb-5">
-            {platforms.map((platform) => (
-              <button
-                key={platform.name}
-                onClick={platform.onClick}
-                className="flex flex-col items-center gap-2 group focus:outline-none"
-                aria-label={`Share to ${platform.name}`}
-              >
-                <div
-                  className={`
-                    w-14 h-14 rounded-full flex items-center justify-center text-white 
-                    ${platform.color} ${platform.shadow}
-                    transform transition-all duration-200 
-                    group-hover:scale-110 group-active:scale-95
-                    ${platform.priority ? 'ring-2 ring-offset-2 ring-blue-400 dark:ring-offset-[#1a1a2e]' : ''}
-                  `}
-                >
-                  {platform.icon}
-                </div>
-                <span className="text-[11px] text-gray-600 dark:text-gray-400 font-medium leading-tight text-center">
-                  {platform.name}
-                </span>
-                {platform.priority && (
-                  <span className="text-[9px] text-blue-500 font-semibold -mt-1">
-                    ★ BEST
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
+  if (!ad) return null;
 
-          {/* Native Share Button (Mobile) */}
-          {navigator.share && (
-            <button
-              onClick={handleNativeShare}
-              className="w-full py-3 mb-4 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl font-semibold hover:from-blue-700 hover:to-blue-800 transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-500/25 active:scale-[0.98]"
-            >
-              <FiExternalLink className="w-5 h-5" />
-              More Share Options
-            </button>
-          )}
+  // For image type ads
+  if (ad.type === 'image' || ad.type === 'banner') {
+    const imageUrl = ad.imageUrl || ad.image || '';
+    const targetUrl = ad.targetUrl || ad.url || ad.link || '#';
 
-          {/* Copy Link */}
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-              Video Link
-            </label>
-            <div className="flex items-center gap-2 p-2 bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-gray-700/50 rounded-xl">
-              <input
-                type="text"
-                readOnly
-                value={videoPageUrl}
-                className="flex-1 bg-transparent text-sm text-gray-700 dark:text-gray-300 outline-none truncate px-2 font-mono"
-                onClick={(e) => e.target.select()}
-              />
-              <button
-                onClick={handleCopyLink}
-                className={`
-                  flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all whitespace-nowrap
-                  ${
-                    copied
-                      ? 'bg-green-500 text-white shadow-lg shadow-green-500/25'
-                      : 'bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-500/25'
-                  }
-                `}
-              >
-                {copied ? (
-                  <>
-                    <FiCheck className="w-4 h-4" />
-                    Copied!
-                  </>
-                ) : (
-                  <>
-                    <FiCopy className="w-4 h-4" />
-                    Copy
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
+    if (!imageUrl) return null;
 
-          {/* Tip for Telegram */}
-          <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-800/30 rounded-xl">
-            <p className="text-xs text-blue-700 dark:text-blue-400 leading-relaxed">
-              <strong>💡 Tip:</strong> For the best preview with thumbnail on Telegram, use the
-              Telegram share button above. The link will show a rich preview card with the video
-              thumbnail.
-            </p>
-          </div>
-        </div>
-
-        {/* Bottom safe area for mobile */}
-        <div className="h-2 sm:h-0" />
+    return (
+      <div className={`ad-banner flex justify-center ${className}`}>
+        <a
+          href={targetUrl}
+          target="_blank"
+          rel="noopener noreferrer nofollow"
+          onClick={async () => {
+            try {
+              await publicAPI.recordAdClick(ad._id);
+            } catch (e) {}
+          }}
+        >
+          <img
+            src={imageUrl}
+            alt={ad.name || 'Advertisement'}
+            className="rounded-lg max-w-full"
+            loading="lazy"
+          />
+        </a>
       </div>
+    );
+  }
 
-      {/* Animations */}
-      <style>{`
-        @keyframes share-slide-up {
-          from {
-            transform: translateY(100%);
-            opacity: 0;
-          }
-          to {
-            transform: translateY(0);
-            opacity: 1;
-          }
-        }
-        .animate-share-slide-up {
-          animation: share-slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        @keyframes fade-in {
-          from { opacity: 0; transform: translateY(-4px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        .animate-fade-in {
-          animation: fade-in 0.2s ease-out;
-        }
-      `}</style>
+  // For script/html type ads
+  return (
+    <div className={`ad-banner flex justify-center ${className}`}>
+      <div ref={adContainerRef} className="ad-content" />
     </div>
   );
 };
 
-// ==========================================
-// SHARE BUTTON (Exported Component)
-// ==========================================
+export default AdBanner;
 
-const ShareButton = ({ video, className = '', variant = 'default' }) => {
-  const [showModal, setShowModal] = useState(false);
+frontend/src/pages/public/WatchPage.jsx
 
-  const handleClick = useCallback(() => {
-    setShowModal(true);
+// frontend/src/pages/public/WatchPage.jsx
+import React, { useState, useEffect, useRef } from "react";
+import { useParams, Link } from "react-router-dom";
+import {
+  FiEye, FiCalendar, FiClock, FiThumbsUp, FiThumbsDown,
+  FiFlag, FiChevronDown, FiChevronUp,
+} from "react-icons/fi";
+import { publicAPI } from "../../services/api";
+import LoadingSpinner from "../../components/common/LoadingSpinner";
+import ShareButton from '../../components/video/ShareButton';
+
+// ==================== CONSTANTS ====================
+const PLACEHOLDER =
+  "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIwIiBoZWlnaHQ9IjE4MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjMWUxZTFlIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNiIgZmlsbD0iIzY2NiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPk5vIFRodW1ibmFpbDwvdGV4dD48L3N2Zz4=";
+
+// ==================== AD CODES ====================
+const ADS = {
+  sidebar300x250: `<script>
+    atOptions = {
+      'key' : '14ec0d1a96c62198d09309e2e93cdbe1',
+      'format' : 'iframe',
+      'height' : 250,
+      'width' : 300,
+      'params' : {}
+    };
+  </script>
+  <script src="https://www.highperformanceformat.com/14ec0d1a96c62198d09309e2e93cdbe1/invoke.js"></script>`,
+
+  bottom728x90: `<script>
+    atOptions = {
+      'key' : '63bdafcb22010cae5f0bf88ebb77480d',
+      'format' : 'iframe',
+      'height' : 90,
+      'width' : 728,
+      'params' : {}
+    };
+  </script>
+  <script src="https://www.highperformanceformat.com/63bdafcb22010cae5f0bf88ebb77480d/invoke.js"></script>`,
+
+  mobile320x50: `<script>
+    atOptions = {
+      'key' : '6234f16279422f68f13fae0f6cd38e19',
+      'format' : 'iframe',
+      'height' : 50,
+      'width' : 320,
+      'params' : {}
+    };
+  </script>
+  <script src="https://www.highperformanceformat.com/6234f16279422f68f13fae0f6cd38e19/invoke.js"></script>`,
+
+  nativeBanner: `<script async="async" data-cfasync="false" src="https://pl28697514.effectivegatecpm.com/ff1ceb8407fd04d767e71ec9b3d366ef/invoke.js"></script>
+  <div id="container-ff1ceb8407fd04d767e71ec9b3d366ef"></div>`,
+
+  socialBar: `<script src="https://pl28697422.effectivegatecpm.com/7e/56/ba/7e56ba1b0754a8958ee3f0800dac7a0d.js"></script>`,
+};
+
+// ==================== HELPERS ====================
+const formatViews = (views) => {
+  if (!views) return "0";
+  if (views >= 1000000) return (views / 1000000).toFixed(1).replace(/\.0$/, "") + "M";
+  if (views >= 1000) return (views / 1000).toFixed(1).replace(/\.0$/, "") + "K";
+  return views.toString();
+};
+
+const formatDate = (date) => {
+  if (!date) return "Unknown";
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return "Unknown";
+  return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+};
+
+const formatRelativeDate = (date) => {
+  if (!date) return "";
+  const now = new Date();
+  const past = new Date(date);
+  if (isNaN(past.getTime())) return "";
+  const diff = Math.floor((now - past) / 1000);
+  if (diff < 60) return "Just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+  if (diff < 2592000) return `${Math.floor(diff / 604800)}w ago`;
+  return formatDate(date);
+};
+
+const getThumbnail = (v) => {
+  if (!v) return PLACEHOLDER;
+  const thumb = v.thumbnail;
+  if (thumb && thumb.startsWith("http")) return thumb;
+  if (thumb && thumb.length > 3) return `https://abyss.to/splash/${thumb}.jpg`;
+  if (v.file_code) return `https://abyss.to/splash/${v.file_code}.jpg`;
+  return PLACEHOLDER;
+};
+
+// Helper to get category name from various formats
+const getCategoryName = (cat) => {
+  if (!cat) return null;
+  if (typeof cat === 'string') return cat;
+  if (cat.name) return cat.name;
+  return null;
+};
+
+const getCategorySlug = (cat) => {
+  if (!cat) return null;
+  if (typeof cat === 'string') return cat.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  if (cat.slug) return cat.slug;
+  if (cat.name) return cat.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  return null;
+};
+
+// ==================== AD INJECTOR COMPONENT ====================
+const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
+  const containerRef = useRef(null);
+  const loaded = useRef(false);
+
+  useEffect(() => {
+    if (!adCode || !containerRef.current || loaded.current) return;
+    const container = containerRef.current;
+    container.innerHTML = "";
+    loaded.current = true;
+
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = adCode;
+    const scripts = tempDiv.querySelectorAll("script");
+    const nonScript = adCode.replace(/<script[\s\S]*?<\/script>/gi, "");
+
+    if (nonScript.trim()) {
+      const div = document.createElement("div");
+      div.innerHTML = nonScript;
+      container.appendChild(div);
+    }
+
+    scripts.forEach((orig) => {
+      const s = document.createElement("script");
+      Array.from(orig.attributes).forEach((a) => s.setAttribute(a.name, a.value));
+      if (orig.textContent) s.textContent = orig.textContent;
+      if (orig.src) { s.src = orig.src; s.async = true; }
+      container.appendChild(s);
+    });
+
+    return () => {
+      if (container) container.innerHTML = "";
+      loaded.current = false;
+    };
+  }, [adCode]);
+
+  if (!adCode) return null;
+
+  return (
+    <div className={`ad-slot ${className}`}>
+      {label && (
+        <span className="text-[10px] text-gray-500 dark:text-gray-600 uppercase tracking-wider mb-1 block">
+          {label}
+        </span>
+      )}
+      <div ref={containerRef} className="ad-content flex justify-center items-center bg-gray-50 dark:bg-dark-200 rounded-xl overflow-hidden" />
+    </div>
+  );
+};
+
+// ==================== SOCIAL BAR LOADER ====================
+const SocialBarLoader = () => {
+  const loaded = useRef(false);
+  useEffect(() => {
+    if (loaded.current) return;
+    loaded.current = true;
+    const script = document.createElement("script");
+    script.src = "https://pl28697422.effectivegatecpm.com/7e/56/ba/7e56ba1b0754a8958ee3f0800dac7a0d.js";
+    script.async = true;
+    document.body.appendChild(script);
+    return () => {
+      if (document.body.contains(script)) document.body.removeChild(script);
+      loaded.current = false;
+    };
+  }, []);
+  return null;
+};
+
+// ==================== MAIN WATCH PAGE ====================
+function WatchPage() {
+  const { id } = useParams();
+  const [video, setVideo] = useState(null);
+  const [relatedVideos, setRelatedVideos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [descExpanded, setDescExpanded] = useState(false);
+  const [likes, setLikes] = useState(0);
+  const [dislikes, setDislikes] = useState(0);
+  const [liked, setLiked] = useState(false);
+  const [disliked, setDisliked] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [reportReason, setReportReason] = useState("");
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 1024);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  const handleClose = useCallback(() => {
-    setShowModal(false);
-  }, []);
+  useEffect(() => {
+    if (!video) return;
+    const thumbnail = getThumbnail(video);
+    document.title = `${video.title} - Xmaster`;
 
-  if (variant === 'icon-only') {
+    const updateMeta = (property, content, isName = false) => {
+      const attr = isName ? "name" : "property";
+      let tag = document.querySelector(`meta[${attr}="${property}"]`);
+      if (!tag) {
+        tag = document.createElement("meta");
+        tag.setAttribute(attr, property);
+        document.head.appendChild(tag);
+      }
+      tag.setAttribute("content", content);
+    };
+
+    updateMeta("og:title", video.title);
+    updateMeta("og:description", video.description || `Watch ${video.title} on Xmaster`);
+    updateMeta("og:image", thumbnail);
+    updateMeta("og:url", window.location.href);
+    updateMeta("og:type", "video.other");
+    updateMeta("og:site_name", "Xmaster");
+    updateMeta("twitter:card", "summary_large_image", true);
+    updateMeta("twitter:title", video.title, true);
+    updateMeta("twitter:description", video.description || `Watch ${video.title} on Xmaster`, true);
+    updateMeta("twitter:image", thumbnail, true);
+
+    return () => { document.title = "Xmaster - Watch Videos Online"; };
+  }, [video]);
+
+  // ★ UPDATED: Fetch data with random seed for recommendations
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      setError(null);
+      setRelatedVideos([]); // Clear previous recommendations
+      try {
+        const response = await publicAPI.getVideo(id);
+        const videoData = response.data?.video || response.data?.data || response.data;
+        setVideo(videoData);
+        setLikes(videoData.likes || 0);
+        setDislikes(videoData.dislikes || 0);
+
+        try { await publicAPI.recordView(id); } catch (e) {}
+
+        // ★ Fetch related videos - seed is auto-added by api.js
+        try {
+          const relRes = await publicAPI.getRelatedVideos(id, 15);
+          if (relRes.data?.success) setRelatedVideos(relRes.data.videos || []);
+        } catch (e) {
+          // Fallback to random videos
+          try {
+            const randRes = await publicAPI.getRandomVideos(15, id);
+            if (randRes.data?.success)
+              setRelatedVideos(randRes.data.videos || []);
+          } catch (e2) {}
+        }
+      } catch (err) {
+        setError("Failed to load video");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [id]);
+
+  const handleLike = async () => {
+    if (liked) return;
+    try {
+      await publicAPI.likeVideo(id);
+      setLikes((p) => p + 1);
+      setLiked(true);
+      if (disliked) { setDislikes((p) => p - 1); setDisliked(false); }
+    } catch (e) {}
+  };
+
+  const handleDislike = async () => {
+    if (disliked) return;
+    try {
+      await publicAPI.dislikeVideo(id);
+      setDislikes((p) => p + 1);
+      setDisliked(true);
+      if (liked) { setLikes((p) => p - 1); setLiked(false); }
+    } catch (e) {}
+  };
+
+  const handleReport = async () => {
+    if (!reportReason.trim()) return;
+    try {
+      await publicAPI.reportVideo(id, { reason: reportReason });
+      setShowReport(false);
+      setReportReason("");
+      alert("Report submitted!");
+    } catch (e) {
+      alert("Failed to submit report");
+    }
+  };
+
+  if (loading) {
     return (
-      <>
-        <button
-          onClick={handleClick}
-          className={`p-2 rounded-full hover:bg-gray-100 dark:hover:bg-white/10 transition-colors ${className}`}
-          aria-label="Share video"
-          title="Share"
-        >
-          <FiShare2 className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-        </button>
-        <ShareModal video={video} isOpen={showModal} onClose={handleClose} />
-      </>
+      <div className="min-h-screen bg-gray-50 dark:bg-dark-400 flex items-center justify-center">
+        <LoadingSpinner />
+      </div>
     );
   }
 
-  if (variant === 'compact') {
+  if (error || !video) {
     return (
-      <>
-        <button
-          onClick={handleClick}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-dark-100 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-dark-200 transition-all ${className}`}
-        >
-          <FiShare2 className="w-3.5 h-3.5" />
-          Share
-        </button>
-        <ShareModal video={video} isOpen={showModal} onClose={handleClose} />
-      </>
+      <div className="min-h-screen bg-gray-50 dark:bg-dark-400 flex flex-col items-center justify-center px-4">
+        <div className="text-6xl mb-4">😕</div>
+        <h2 className="text-2xl font-bold text-white mb-2">Video Not Found</h2>
+        <p className="text-gray-400 mb-6">{error || "This video may have been removed."}</p>
+        <Link to="/" className="btn-primary px-6 py-3">Go Home</Link>
+      </div>
     );
   }
 
-  // Default variant
+  const embedUrl = video.embed_code || video.embedUrl || "";
+  const duration = video.duration && video.duration !== "00:00" ? video.duration : null;
+  const filtered = relatedVideos.filter((v) => v._id !== id);
+
+  // ★ UPDATED: Get all categories for this video
+  const allCategories = [];
+  if (video.category && getCategoryName(video.category)) {
+    allCategories.push(video.category);
+  }
+  if (video.categories && Array.isArray(video.categories)) {
+    video.categories.forEach(cat => {
+      const name = getCategoryName(cat);
+      if (name && !allCategories.find(c => getCategoryName(c) === name)) {
+        allCategories.push(cat);
+      }
+    });
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 dark:bg-dark-400">
+      <SocialBarLoader />
+
+      <div className="max-w-[1400px] mx-auto px-0 sm:px-4 lg:px-6 py-0 sm:py-4">
+        <div className="flex flex-col lg:flex-row gap-0 sm:gap-6">
+          {/* ==================== LEFT COLUMN ==================== */}
+          <div className="flex-1 min-w-0">
+            {/* Video Player */}
+            <div className="relative w-full bg-black sm:rounded-xl overflow-hidden">
+              <div className="relative pt-[56.25%]">
+                {embedUrl ? (
+                  <iframe
+                    src={embedUrl}
+                    className="absolute inset-0 w-full h-full"
+                    frameBorder="0"
+                    scrolling="no"
+                    allowFullScreen
+                    title={video.title}
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  />
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center text-gray-400">
+                    <p>Video not available</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Video Info */}
+            <div className="px-4 sm:px-0 mt-3">
+              <h1 className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-900 dark:text-white leading-tight">
+                {video.title}
+              </h1>
+
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-sm text-gray-500 dark:text-gray-400">
+                <span className="flex items-center gap-1">
+                  <FiEye className="w-4 h-4" />
+                  {formatViews(video.views || 0)} views
+                </span>
+                <span>•</span>
+                <span className="flex items-center gap-1">
+                  <FiCalendar className="w-4 h-4" />
+                  {formatDate(video.uploadDate || video.createdAt)}
+                </span>
+                {duration && (
+                  <>
+                    <span>•</span>
+                    <span className="flex items-center gap-1">
+                      <FiClock className="w-4 h-4" />
+                      {duration}
+                    </span>
+                  </>
+                )}
+              </div>
+
+              {/* Social Bar */}
+              <div className="flex flex-wrap items-center gap-2 mt-4 pb-4 border-b border-gray-200 dark:border-dark-100">
+                <button
+                  onClick={handleLike}
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-all ${
+                    liked
+                      ? "bg-primary-600 text-white"
+                      : "bg-gray-100 dark:bg-dark-100 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-dark-200"
+                  }`}
+                >
+                  <FiThumbsUp className="w-4 h-4" />
+                  <span>{formatViews(likes)}</span>
+                </button>
+
+                <button
+                  onClick={handleDislike}
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-all ${
+                    disliked
+                      ? "bg-gray-600 text-white"
+                      : "bg-gray-100 dark:bg-dark-100 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-dark-200"
+                  }`}
+                >
+                  <FiThumbsDown className="w-4 h-4" />
+                  <span>{formatViews(dislikes)}</span>
+                </button>
+
+                <ShareButton video={video} />
+
+                <button
+                  onClick={() => setShowReport(!showReport)}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium bg-gray-100 dark:bg-dark-100 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-dark-200 transition-all ml-auto"
+                >
+                  <FiFlag className="w-4 h-4" />
+                  <span className="hidden sm:inline">Report</span>
+                </button>
+              </div>
+
+              {/* Report Form */}
+              {showReport && (
+                <div className="mt-3 p-4 bg-gray-100 dark:bg-dark-200 rounded-xl animate-fade-in">
+                  <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Report Video</h4>
+                  <select
+                    value={reportReason}
+                    onChange={(e) => setReportReason(e.target.value)}
+                    className="w-full px-3 py-2 bg-white dark:bg-dark-100 border border-gray-200 dark:border-dark-100 rounded-lg text-sm text-gray-900 dark:text-white mb-2"
+                  >
+                    <option value="">Select reason...</option>
+                    <option value="inappropriate">Inappropriate Content</option>
+                    <option value="copyright">Copyright Violation</option>
+                    <option value="spam">Spam / Misleading</option>
+                    <option value="broken">Video Not Working</option>
+                    <option value="other">Other</option>
+                  </select>
+                  <div className="flex gap-2">
+                    <button onClick={handleReport} disabled={!reportReason} className="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 disabled:opacity-50">Submit</button>
+                    <button onClick={() => setShowReport(false)} className="px-4 py-2 bg-gray-200 dark:bg-dark-100 text-gray-700 dark:text-gray-300 text-sm rounded-lg">Cancel</button>
+                  </div>
+                </div>
+              )}
+
+              {/* Description */}
+              {video.description && (
+                <div className="mt-4">
+                  <div
+                    className={`bg-gray-100 dark:bg-dark-200 rounded-xl p-4 cursor-pointer transition-all ${descExpanded ? "" : "max-h-24 overflow-hidden"}`}
+                    onClick={() => setDescExpanded(!descExpanded)}
+                  >
+                    <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
+                      {video.description}
+                    </p>
+                  </div>
+                  {video.description.length > 150 && (
+                    <button
+                      onClick={() => setDescExpanded(!descExpanded)}
+                      className="flex items-center gap-1 mt-2 text-sm text-primary-600 hover:text-primary-700 font-medium"
+                    >
+                      {descExpanded ? (<>Show less <FiChevronUp className="w-4 h-4" /></>) : (<>Show more <FiChevronDown className="w-4 h-4" /></>)}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* ★ UPDATED: Categories + Tags Section */}
+              <div className="flex flex-wrap items-center gap-2 mt-4">
+                {/* Categories as clickable links */}
+                {allCategories.map((cat, i) => {
+                  const name = getCategoryName(cat);
+                  const slug = getCategorySlug(cat);
+                  if (!name) return null;
+                  return (
+                    <Link
+                      key={i}
+                      to={`/category/${slug}`}
+                      className="px-3 py-1 bg-primary-600/10 text-primary-600 text-xs font-medium rounded-full hover:bg-primary-600/20 transition-colors"
+                    >
+                      {name}
+                    </Link>
+                  );
+                })}
+
+                {/* Tags */}
+                {video.tags?.map((tag, i) => (
+                  <Link
+                    key={`tag-${i}`}
+                    to={`/tag/${tag}`}
+                    className="px-3 py-1 bg-gray-100 dark:bg-dark-100 text-gray-600 dark:text-gray-400 text-xs rounded-full hover:bg-gray-200 dark:hover:bg-dark-200 transition-colors"
+                  >
+                    #{tag}
+                  </Link>
+                ))}
+              </div>
+
+              {!isMobile && (
+                <div className="mt-6">
+                  <AdSlot adCode={ADS.nativeBanner} label="Suggested for you" className="rounded-xl overflow-hidden" />
+                </div>
+              )}
+
+              {!isMobile && (
+                <div className="mt-6 mb-6">
+                  <AdSlot adCode={ADS.bottom728x90} label="Sponsored" className="flex justify-center" />
+                </div>
+              )}
+
+              {isMobile && (
+                <div className="mt-6">
+                  <AdSlot adCode={ADS.mobile320x50} label="Sponsored" className="flex justify-center" />
+                </div>
+              )}
+            </div>
+
+            {/* MOBILE: Related Videos */}
+            <div className="lg:hidden px-4 sm:px-0 mt-6 mb-8">
+              <h3 className="text-base font-bold text-gray-900 dark:text-white mb-4">
+                Recommended Videos
+              </h3>
+              <div className="space-y-3">
+                {filtered.slice(0, 10).map((v) => (
+                  <RelatedVideoCard key={v._id} video={v} />
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* ==================== RIGHT SIDEBAR ==================== */}
+          <div className="hidden lg:block w-[400px] flex-shrink-0">
+            <div className="sticky top-20">
+              <h3 className="text-base font-bold text-gray-900 dark:text-white mb-4">
+                Recommended Videos
+              </h3>
+              <div className="space-y-3">
+                {filtered.slice(0, 3).map((v) => (
+                  <RelatedVideoCard key={v._id} video={v} />
+                ))}
+                <div className="py-2">
+                  <AdSlot adCode={ADS.sidebar300x250} label="Sponsored" className="rounded-xl overflow-hidden bg-gray-50 dark:bg-dark-200 p-3" />
+                </div>
+                {filtered.slice(3, 12).map((v) => (
+                  <RelatedVideoCard key={v._id} video={v} />
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==================== RELATED VIDEO CARD ====================
+const RelatedVideoCard = ({ video }) => {
+  const [imgError, setImgError] = useState(false);
+
+  return (
+    <Link
+      to={`/watch/${video._id}${video.slug ? `/${video.slug}` : ""}`}
+      className="flex gap-3 group rounded-xl hover:bg-gray-100 dark:hover:bg-dark-200 p-2 transition-colors"
+    >
+      <div className="relative w-[168px] min-w-[168px] sm:w-[180px] sm:min-w-[180px]">
+        <div className="aspect-video rounded-lg overflow-hidden bg-gray-200 dark:bg-dark-100">
+          <img
+            src={imgError ? PLACEHOLDER : getThumbnail(video)}
+            alt={video.title}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            loading="lazy"
+            onError={() => setImgError(true)}
+          />
+        </div>
+        {video.duration && video.duration !== "00:00" && (
+          <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 bg-black/80 text-white text-[10px] font-medium rounded">
+            {video.duration}
+          </span>
+        )}
+      </div>
+
+      <div className="flex-1 min-w-0 py-0.5">
+        <h4 className="text-sm font-medium text-gray-900 dark:text-white group-hover:text-primary-600 dark:group-hover:text-primary-500 line-clamp-2 leading-snug transition-colors">
+          {video.title}
+        </h4>
+        <div className="mt-2 space-y-0.5">
+          <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+            <FiEye className="w-3 h-3" />
+            {formatViews(video.views || 0)} views
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            {formatRelativeDate(video.uploadDate || video.createdAt)}
+          </p>
+          {/* ★ Show category on related video card */}
+          {video.category && getCategoryName(video.category) && (
+            <p className="text-xs text-primary-500">
+              {getCategoryName(video.category)}
+            </p>
+          )}
+        </div>
+      </div>
+    </Link>
+  );
+};
+
+export default WatchPage;
+
+frontend/src/pages/public/HomePage.jsx
+
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Link } from 'react-router-dom';
+import { Helmet } from 'react-helmet-async';
+import { FiClock, FiStar, FiChevronRight, FiLoader } from 'react-icons/fi';
+import { publicAPI } from '../../services/api';
+import { VideoGridSkeleton } from '../../components/video/VideoGrid';
+import VideoCard from '../../components/video/VideoCard';
+import AdBanner from '../../components/ads/AdBanner';
+import CommentForm from '../../components/comments/CommentForm';
+import CommentsList from '../../components/comments/CommentsList';
+
+// ==================== AD INJECTOR ====================
+const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
+  const containerRef = useRef(null);
+  const loaded = useRef(false);
+
+  useEffect(() => {
+    if (!adCode || !containerRef.current || loaded.current) return;
+    const container = containerRef.current;
+    container.innerHTML = "";
+    loaded.current = true;
+
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = adCode;
+    const scripts = tempDiv.querySelectorAll("script");
+    const nonScript = adCode.replace(/<script[\s\S]*?<\/script>/gi, "");
+
+    if (nonScript.trim()) {
+      const div = document.createElement("div");
+      div.innerHTML = nonScript;
+      container.appendChild(div);
+    }
+
+    scripts.forEach((orig) => {
+      const s = document.createElement("script");
+      Array.from(orig.attributes).forEach((a) => s.setAttribute(a.name, a.value));
+      if (orig.textContent) s.textContent = orig.textContent;
+      if (orig.src) { s.src = orig.src; s.async = true; }
+      container.appendChild(s);
+    });
+
+    return () => {
+      if (container) container.innerHTML = "";
+      loaded.current = false;
+    };
+  }, [adCode]);
+
+  if (!adCode) return null;
+
+  return (
+    <div className={`ad-slot ${className}`}>
+      {label && (
+        <span className="text-[10px] text-gray-500 dark:text-gray-600 uppercase tracking-wider mb-1 block text-center">
+          {label}
+        </span>
+      )}
+      <div ref={containerRef} className="ad-content flex justify-center items-center" />
+    </div>
+  );
+};
+
+// ==================== AD CODES ====================
+const ADS = {
+  mobile320x50: `<script>
+    atOptions = {
+      'key' : '6234f16279422f68f13fae0f6cd38e19',
+      'format' : 'iframe',
+      'height' : 50,
+      'width' : 320,
+      'params' : {}
+    };
+  </script>
+  <script src="https://www.highperformanceformat.com/6234f16279422f68f13fae0f6cd38e19/invoke.js"></script>`,
+
+  footer728x90: `<script>
+    atOptions = {
+      'key' : '63bdafcb22010cae5f0bf88ebb77480d',
+      'format' : 'iframe',
+      'height' : 90,
+      'width' : 728,
+      'params' : {}
+    };
+  </script>
+  <script src="https://www.highperformanceformat.com/63bdafcb22010cae5f0bf88ebb77480d/invoke.js"></script>`,
+
+  footer300x250: `<script>
+    atOptions = {
+      'key' : '14ec0d1a96c62198d09309e2e93cdbe1',
+      'format' : 'iframe',
+      'height' : 250,
+      'width' : 300,
+      'params' : {}
+    };
+  </script>
+  <script src="https://www.highperformanceformat.com/14ec0d1a96c62198d09309e2e93cdbe1/invoke.js"></script>`,
+
+  nativeBanner: `<script async="async" data-cfasync="false" src="https://pl28697514.effectivegatecpm.com/ff1ceb8407fd04d767e71ec9b3d366ef/invoke.js"></script>
+  <div id="container-ff1ceb8407fd04d767e71ec9b3d366ef"></div>`,
+};
+
+// ==================== IN-FEED AD COMPONENT ====================
+const InFeedAd = React.memo(({ index, isMobile }) => {
+  const adType = index % 3;
+
+  if (isMobile) {
+    if (adType === 0) {
+      return (
+        <div className="col-span-2 flex justify-center items-center py-3">
+          <div className="w-full max-w-sm bg-gray-100/50 dark:bg-dark-200/50 rounded-xl p-3">
+            <AdSlot adCode={ADS.mobile320x50} label="Sponsored" />
+          </div>
+        </div>
+      );
+    } else if (adType === 1) {
+      return (
+        <div className="col-span-2 flex justify-center items-center py-3">
+          <div className="bg-gray-100/50 dark:bg-dark-200/50 rounded-xl p-3">
+            <AdSlot adCode={ADS.footer300x250} label="Sponsored" />
+          </div>
+        </div>
+      );
+    } else {
+      return (
+        <div className="col-span-2 py-3">
+          <div className="bg-gray-100/50 dark:bg-dark-200/50 rounded-xl p-3">
+            <AdSlot adCode={ADS.nativeBanner} label="You might like" />
+          </div>
+        </div>
+      );
+    }
+  }
+
+  if (adType === 0) {
+    return (
+      <div className="col-span-full flex justify-center items-center py-4">
+        <div className="w-full bg-gray-100/30 dark:bg-dark-200/30 rounded-xl p-4">
+          <AdSlot adCode={ADS.footer728x90} label="Sponsored" />
+        </div>
+      </div>
+    );
+  } else if (adType === 1) {
+    return (
+      <div className="col-span-full py-4">
+        <div className="w-full bg-gray-100/30 dark:bg-dark-200/30 rounded-xl p-4">
+          <AdSlot adCode={ADS.nativeBanner} label="Recommended" />
+        </div>
+      </div>
+    );
+  } else {
+    return (
+      <div className="col-span-full py-4">
+        <AdBanner placement="home_infeed" />
+      </div>
+    );
+  }
+});
+
+// ==================== SEO KEYWORDS ====================
+const SEO_CATEGORIES = [
+  "Amateur", "Anal", "Asian", "BBW", "Big Ass", "Big Tits", "Blonde", "Blowjob",
+  "Brunette", "Cosplay", "Creampie", "Cumshot", "Desi", "Ebony", "Gangbang",
+  "Hardcore", "HD Videos", "Hentai", "Homemade", "Indian", "Interracial",
+  "Japanese", "Latina", "Lesbian", "MILF", "POV", "Redhead", "Solo",
+  "Teen", "Threesome", "Webcam", "MMS Videos", "Couple", "College",
+];
+
+// ==================== MAIN HOMEPAGE ====================
+const HomePage = () => {
+  const [featuredVideos, setFeaturedVideos] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [allVideos, setAllVideos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [totalVideos, setTotalVideos] = useState(0);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
+
+  // ✅ FIX 1: Use refs that persist across renders
+  const observerRef = useRef(null);
+  const loadMoreRef = useRef(null);
+  const loadingMoreRef = useRef(false);
+  const hasMoreRef = useRef(true);
+  const pageRef = useRef(1);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 1024);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  // ✅ FIX 2: Keep refs in sync with state
+  useEffect(() => {
+    loadingMoreRef.current = loadingMore;
+  }, [loadingMore]);
+
+  useEffect(() => {
+    hasMoreRef.current = hasMore;
+  }, [hasMore]);
+
+  useEffect(() => {
+    pageRef.current = page;
+  }, [page]);
+
+  // ✅ FIX 3: Load initial data with LARGER first batch
+  useEffect(() => {
+    const fetchHomeData = async () => {
+      try {
+        // Load home data (featured, categories, latest 12)
+        const response = await publicAPI.getHomeData();
+        if (response.data.success) {
+          const data = response.data.data;
+          setFeaturedVideos(data.featuredVideos || []);
+          setCategories(data.categories || []);
+
+          // ✅ FIX: Also load first page of ALL videos immediately
+          const videosResponse = await publicAPI.getVideos({
+            page: 1,
+            limit: 40, // ✅ Load more initially
+            sort: 'newest',
+          });
+
+          if (videosResponse.data.success) {
+            const videos = videosResponse.data.videos || [];
+            setAllVideos(videos);
+            setPage(1);
+            setTotalVideos(videosResponse.data.pagination?.total || 0);
+
+            const pagination = videosResponse.data.pagination;
+            if (pagination && 1 >= pagination.pages) {
+              setHasMore(false);
+            } else if (videos.length === 0) {
+              setHasMore(false);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch home data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchHomeData();
+  }, []);
+
+  // ✅ FIX 4: Stable loadMoreVideos that uses refs instead of state
+  const loadMoreVideos = useCallback(async () => {
+    // Use refs for checks to avoid stale closures
+    if (loadingMoreRef.current || !hasMoreRef.current) return;
+
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+
+    try {
+      const nextPage = pageRef.current + 1;
+      const response = await publicAPI.getVideos({
+        page: nextPage,
+        limit: 40, // ✅ Load 40 per batch instead of 20
+        sort: 'newest',
+      });
+
+      if (response.data.success) {
+        const newVideos = response.data.videos || [];
+
+        if (newVideos.length === 0) {
+          setHasMore(false);
+          hasMoreRef.current = false;
+        } else {
+          setAllVideos(prev => {
+            const existingIds = new Set(prev.map(v => v._id));
+            const unique = newVideos.filter(v => !existingIds.has(v._id));
+            return [...prev, ...unique];
+          });
+
+          setPage(nextPage);
+          pageRef.current = nextPage;
+          setTotalVideos(response.data.pagination?.total || 0);
+
+          const pagination = response.data.pagination;
+          if (pagination && nextPage >= pagination.pages) {
+            setHasMore(false);
+            hasMoreRef.current = false;
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load more videos:', error);
+    } finally {
+      setLoadingMore(false);
+      loadingMoreRef.current = false;
+    }
+  }, []); // ✅ Empty deps - uses refs, never goes stale
+
+  // ✅ FIX 5: Create observer ONCE and never recreate it
+  useEffect(() => {
+    if (loading) return;
+
+    // Disconnect existing observer
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry.isIntersecting && hasMoreRef.current && !loadingMoreRef.current) {
+          loadMoreVideos();
+        }
+      },
+      {
+        threshold: 0.01, // ✅ Very low threshold — triggers earlier
+        rootMargin: '600px', // ✅ Start loading 600px before sentinel is visible
+      }
+    );
+
+    observerRef.current = observer;
+
+    if (loadMoreRef.current) {
+      observer.observe(loadMoreRef.current);
+    }
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [loading, loadMoreVideos]); // ✅ Only depends on loading & stable function
+
+  // ✅ FIX 6: Fallback scroll listener in case IntersectionObserver fails
+  useEffect(() => {
+    if (loading) return;
+
+    const handleScroll = () => {
+      if (loadingMoreRef.current || !hasMoreRef.current) return;
+
+      const scrollTop = window.scrollY || document.documentElement.scrollTop;
+      const scrollHeight = document.documentElement.scrollHeight;
+      const clientHeight = document.documentElement.clientHeight;
+
+      // When user is within 800px of bottom, load more
+      if (scrollTop + clientHeight >= scrollHeight - 800) {
+        loadMoreVideos();
+      }
+    };
+
+    // Throttle scroll events
+    let ticking = false;
+    const throttledScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          handleScroll();
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+
+    window.addEventListener('scroll', throttledScroll, { passive: true });
+
+    return () => {
+      window.removeEventListener('scroll', throttledScroll);
+    };
+  }, [loading, loadMoreVideos]);
+
+  // ==================== RENDER VIDEOS WITH ADS ====================
+  const renderVideosWithAds = () => {
+    if (allVideos.length === 0) {
+      return (
+        <div className="text-center py-12">
+          <div className="text-4xl mb-4">🎬</div>
+          <p className="text-gray-600 dark:text-gray-400">No videos found</p>
+        </div>
+      );
+    }
+
+    const videosPerAdBreak = isMobile ? 8 : 16; // ✅ Slightly wider spacing for ads
+    const items = [];
+    let adCounter = 0;
+
+    for (let i = 0; i < allVideos.length; i++) {
+      items.push(
+        <VideoCard key={allVideos[i]._id} video={allVideos[i]} />
+      );
+
+      if ((i + 1) % videosPerAdBreak === 0 && i < allVideos.length - 1) {
+        items.push(
+          <InFeedAd
+            key={`ad-${adCounter}`}
+            index={adCounter}
+            isMobile={isMobile}
+          />
+        );
+        adCounter++;
+      }
+    }
+
+    return (
+      <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
+        {items}
+      </div>
+    );
+  };
+
   return (
     <>
-      <button
-        onClick={handleClick}
-        className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium bg-gray-100 dark:bg-dark-100 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-dark-200 transition-all ${className}`}
-      >
-        <FiShare2 className="w-4 h-4" />
-        <span className="hidden sm:inline">Share</span>
-      </button>
-      <ShareModal video={video} isOpen={showModal} onClose={handleClose} />
+      <Helmet>
+        <title>Xmaster - Free porn Videos | Watch HD porn Online | porn Streaming Site</title>
+        <meta name="description" content="Watch free HD porn videos on Xmaster. Stream thousands of porn clips in HD & 4K. Browse leaked mms videos, viral mms videos, porn, mms, hardcore, anal categories. Best free porn tube site. Alternative to pornhub, xhamster, Xvideos. Updated daily with new porn content. MMS videos, desi mms, indian mms, amateur porn, homemade porn and more." />
+        <meta name="keywords" content="porn,free porn videos,HD porn,4K porn,porn streaming,watch porn online,porn tube,porn site,pornhub alternative,xhamster alternative,xvideos alternative,desi mms,indian mms,mms videos,leaked mms,amateur porn,homemade porn,milf,teen,anal,blowjob,creampie,big ass,big tits,latina,asian,ebony,lesbian,threesome,webcam,hentai,JAV,POV,hardcore,xmaster,xmaster.guru" />
+        <link rel="canonical" href="https://xmaster.guru" />
+        <meta property="og:type" content="website" />
+        <meta property="og:title" content="Xmaster - Free porn Videos | HD porn Streaming" />
+        <meta property="og:description" content="Watch free HD porn videos online. Thousands of porn clips updated daily. Best porn tube alternative." />
+        <meta property="og:url" content="https://xmaster.guru" />
+        <meta property="og:image" content="https://xmaster.guru/logo.jpg" />
+        <meta property="og:site_name" content="Xmaster" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="Xmaster - Free porn Videos | HD Streaming" />
+        <meta name="twitter:description" content="Watch free HD porn videos online. Updated daily." />
+        <meta name="twitter:image" content="https://xmaster.guru/logo.jpg" />
+      </Helmet>
+
+      <div className="min-h-screen bg-gray-50 dark:bg-dark-400">
+        <AdBanner placement="home_top" className="max-w-7xl mx-auto px-4 pt-4" />
+
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div className="flex flex-col lg:flex-row gap-6">
+            {/* ==================== MAIN CONTENT ==================== */}
+            <div className="flex-1">
+              <h1 className="sr-only">
+                Xmaster - Free porn Videos | Watch HD porn Online | Best porn Tube Site | Alternative to pornhub xhamster Xvideos
+              </h1>
+
+              {/* Featured Videos */}
+              {featuredVideos.length > 0 && (
+                <section className="mb-10">
+                  <SectionHeader icon={FiStar} title="Featured Videos" iconColor="text-yellow-500" />
+                  {loading ? (
+                    <VideoGridSkeleton count={6} columns={3} />
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+                      {featuredVideos.slice(0, 6).map((video) => (
+                        <VideoCard key={video._id} video={video} />
+                      ))}
+                    </div>
+                  )}
+                </section>
+              )}
+
+              {isMobile && (
+                <div className="mb-8">
+                  <AdSlot adCode={ADS.mobile320x50} label="Sponsored" className="flex justify-center" />
+                </div>
+              )}
+
+              {!isMobile && <AdBanner placement="home_infeed" className="mb-8" />}
+
+              {/* All Videos with Infinite Scroll */}
+              <section className="mb-10">
+                <SectionHeader
+                  icon={FiClock}
+                  title={`Latest Videos${totalVideos > 0 ? ` (${totalVideos})` : ''}`}
+                  link="/search?sort=newest"
+                  linkText="View All"
+                  iconColor="text-blue-500"
+                />
+
+                {loading ? (
+                  <VideoGridSkeleton count={12} columns={4} />
+                ) : (
+                  <>
+                    {renderVideosWithAds()}
+
+                    {/* ✅ FIX 7: Sentinel div OUTSIDE the grid, always visible */}
+                    <div
+                      ref={loadMoreRef}
+                      className="py-8 flex flex-col items-center justify-center"
+                      style={{ minHeight: '100px' }} // ✅ Ensure it has height for observer
+                    >
+                      {loadingMore && (
+                        <div className="flex items-center gap-3 text-gray-400">
+                          <FiLoader className="w-5 h-5 animate-spin" />
+                          <span className="text-sm">Loading more videos...</span>
+                        </div>
+                      )}
+                      {!hasMore && allVideos.length > 0 && (
+                        <p className="text-gray-500 dark:text-gray-400 text-sm">
+                          You've reached the end • {allVideos.length} of {totalVideos} videos loaded
+                        </p>
+                      )}
+                      {hasMore && !loadingMore && (
+                        <button
+                          onClick={loadMoreVideos}
+                          className="px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white rounded-lg 
+                                     font-medium transition-colors text-sm"
+                        >
+                          Load More Videos ({allVideos.length} of {totalVideos} loaded)
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </section>
+
+              {/* Categories */}
+              {categories.length > 0 && (
+                <section id="categories" className="mb-10">
+                  <SectionHeader title="Browse Categories" iconColor="text-purple-500" />
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
+                    {categories.map((category) => (
+                      <CategoryCard key={category._id} category={category} />
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* SEO Content */}
+              <section className="mb-10 bg-white dark:bg-dark-200 rounded-xl p-6">
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">
+                  Popular Porn Categories on Xmaster
+                </h2>
+                <div className="flex flex-wrap gap-2 mb-6">
+                  {SEO_CATEGORIES.map((cat, i) => (
+                    <Link
+                      key={i}
+                      to={`/search?q=${encodeURIComponent(cat)}`}
+                      className="px-3 py-1.5 bg-gray-100 dark:bg-dark-100 text-gray-700 dark:text-gray-300 text-xs rounded-full hover:bg-primary-600 hover:text-white transition-colors"
+                    >
+                      {cat}
+                    </Link>
+                  ))}
+                </div>
+
+                <div className="text-sm text-gray-500 dark:text-gray-400 space-y-3 leading-relaxed">
+                  <p>
+                    <strong>Xmaster</strong> is your ultimate destination for free porn videos online.
+                    We offer a massive collection of HD and 4K Porn content across hundreds of categories
+                    including mms videos, porn videos, latest mms viral videos porn, latest porn, and many more.
+                  </p>
+                  <p>
+                    Looking for an alternative to pornhub, xhamster, or xvideos? Xmaster provides
+                    the same premium experience with faster streaming, better video quality, and a
+                    cleaner interface.
+                  </p>
+                  <p>
+                    Whether you enjoy anal, hardcore, sex videos, latest porn, MMS videos, desi content, or
+                    any other category, Xmaster has thousands of free porn videos ready to stream.
+                    No signup required.
+                  </p>
+                </div>
+
+                <h3 className="text-base font-semibold text-gray-900 dark:text-white mt-6 mb-3">
+                  Why Choose Xmaster?
+                </h3>
+                <ul className="text-sm text-gray-500 dark:text-gray-400 space-y-2 list-disc list-inside">
+                  <li>Free HD & 4K porn video streaming</li>
+                  <li>Thousands of porn videos updated daily</li>
+                  <li>Hundreds of porn categories to explore</li>
+                  <li>Fast loading and smooth playback</li>
+                  <li>Works on all devices - mobile, desktop, tablet</li>
+                  <li>No registration required</li>
+                  <li>Best alternative to pornhub, xhamster, xvideos</li>
+                </ul>
+              </section>
+
+              {/* Comments */}
+              <section className="mb-10">
+                <SectionHeader title="💬 Comments" />
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  <div><CommentForm /></div>
+                  <div><CommentsList /></div>
+                </div>
+              </section>
+            </div>
+
+            {/* ==================== SIDEBAR ==================== */}
+            <aside className="w-full lg:w-80 flex-shrink-0 hidden lg:block">
+              <div className="sticky top-20 space-y-6">
+                <AdBanner placement="home_sidebar" />
+                <div className="card p-4">
+                  <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Quick Links</h3>
+                  <div className="space-y-2">
+                    <Link to="/trending" className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-100 transition-colors">
+                      <span className="text-red-500">🔥</span>
+                      <span className="text-gray-700 dark:text-gray-300">Trending Videos</span>
+                    </Link>
+                    <Link to="/search?sort=newest" className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-100 transition-colors">
+                      <FiClock className="w-5 h-5 text-blue-500" />
+                      <span className="text-gray-700 dark:text-gray-300">Latest Uploads</span>
+                    </Link>
+                  </div>
+                </div>
+                <div className="card p-4">
+                  <h3 className="font-semibold text-gray-900 dark:text-white mb-3 text-sm">Popular Searches</h3>
+                  <div className="flex flex-wrap gap-1.5">
+                    {["HD Porn", "Amateur", "MILF", "Teen", "Desi", "MMS", "Anal", "POV", "Lesbian", "Homemade", "Indian", "Webcam"].map((tag, i) => (
+                      <Link
+                        key={i}
+                        to={`/search?q=${encodeURIComponent(tag)}`}
+                        className="px-2 py-1 bg-dark-100 text-gray-400 text-[10px] rounded hover:bg-primary-600 hover:text-white transition-colors"
+                      >
+                        {tag}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+                <AdBanner placement="home_sidebar" />
+              </div>
+            </aside>
+          </div>
+        </div>
+
+        {/* Footer Ad */}
+        <div className="max-w-7xl mx-auto px-4 pb-8">
+          {!isMobile && (
+            <div className="py-6 border-t border-gray-200 dark:border-dark-100">
+              <AdSlot adCode={ADS.footer728x90} label="Sponsored" className="flex justify-center" />
+            </div>
+          )}
+          {isMobile && (
+            <div className="py-6 border-t border-gray-200 dark:border-dark-100">
+              <AdSlot adCode={ADS.footer300x250} label="Sponsored" className="flex justify-center" />
+            </div>
+          )}
+        </div>
+      </div>
     </>
   );
 };
 
-export default ShareButton;
-export { ShareModal };
+// ==================== SECTION HEADER ====================
+const SectionHeader = ({ icon: Icon, title, link, linkText, iconColor = 'text-primary-500' }) => (
+  <div className="flex items-center justify-between mb-6">
+    <h2 className="flex items-center gap-2 text-lg sm:text-xl font-bold text-gray-900 dark:text-white">
+      {Icon && <Icon className={`w-5 h-5 sm:w-6 sm:h-6 ${iconColor}`} />}
+      {title}
+    </h2>
+    {link && (
+      <Link to={link} className="flex items-center gap-1 text-sm text-primary-600 hover:text-primary-700 font-medium transition-colors">
+        {linkText}
+        <FiChevronRight className="w-4 h-4" />
+      </Link>
+    )}
+  </div>
+);
 
-frontend/src/services/api.js
+// ==================== CATEGORY CARD ====================
+const CategoryCard = ({ category }) => (
+  <Link
+    to={`/category/${category.slug}`}
+    className="group card p-4 text-center hover:shadow-lg transition-all"
+    style={{ borderTop: `3px solid ${category.color || '#ef4444'}` }}
+  >
+    <div className="text-3xl mb-2">{category.icon || '📁'}</div>
+    <h3 className="font-medium text-gray-900 dark:text-white group-hover:text-primary-600 transition-colors text-sm sm:text-base">
+      {category.name}
+    </h3>
+    <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-1">
+      {category.videoCount || 0} videos
+    </p>
+  </Link>
+);
 
-import axios from 'axios';
+export default HomePage;
 
-const API_URL = process.env.REACT_APP_API_URL || "https://api.xmaster.guru/api";
+backend/routes/adRoutes.js
 
-const api = axios.create({
-  baseURL: API_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+const express = require('express');
+const router = express.Router();
+const jwt = require('jsonwebtoken');
+const Ad = require('../models/Ad');
+
+// Admin Auth Middleware
+const simpleAdminAuth = (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Access denied' });
+    }
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (!decoded.isAdmin) return res.status(401).json({ error: 'Invalid token' });
+    req.admin = decoded;
+    next();
+  } catch (error) {
+    res.status(401).json({ error: 'Authentication failed' });
+  }
+};
+
+// ==========================================
+// PUBLIC ROUTES
+// ==========================================
+
+// GET /api/ads - Get all active ads grouped by placement
+router.get('/', async (req, res) => {
+  try {
+    const { device = 'desktop' } = req.query;
+    const ads = await Ad.find({
+      enabled: true,
+      $or: [{ device: 'all' }, { device: device }]
+    }).sort({ priority: -1, placement: 1 });
+
+    const adsByPlacement = {};
+    ads.forEach(ad => {
+      if (!adsByPlacement[ad.placement]) {
+        adsByPlacement[ad.placement] = [];
+      }
+      adsByPlacement[ad.placement].push(ad);
+    });
+
+    res.json({ success: true, ads: adsByPlacement });
+  } catch (error) {
+    console.error('Get Ads Error:', error);
+    res.status(500).json({ error: 'Failed to get ads' });
+  }
 });
 
-api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('adminToken');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
+// GET /api/ads/placement/:placement - Get ad by placement (THIS WAS MISSING!)
+router.get('/placement/:placement', async (req, res) => {
+  try {
+    const { device = 'desktop' } = req.query;
+    const placement = req.params.placement;
 
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('adminToken');
-      if (window.location.pathname.startsWith('/admin')) {
-        window.location.href = '/xmaster-admin';
-      }
-    }
-    return Promise.reject(error);
+    console.log(`📢 Fetching ad for placement: ${placement}, device: ${device}`);
+
+    const ad = await Ad.findOne({
+      placement: placement,
+      enabled: true,
+      $or: [{ device: 'all' }, { device: device }]
+    }).sort({ priority: -1 });
+
+    // Return null if no ad found (not an error)
+    res.json({ success: true, ad: ad || null });
+  } catch (error) {
+    console.error('Get Ad by Placement Error:', error);
+    res.status(500).json({ error: 'Failed to get ad' });
   }
-);
+});
 
-// ==================== PUBLIC API ====================
-export const publicAPI = {
-  getHomeData: () => api.get('/public/home'),
-  getVideos: (params) => api.get('/videos', { params }),
-  getVideo: (id) => api.get(`/videos/${id}`),
-  getLatestVideos: (limit = 12) => api.get('/videos/latest', { params: { limit } }),
-  getTrendingVideos: (limit = 12, period = '7d') =>
-    api.get('/videos/trending', { params: { limit, period } }),
-  getFeaturedVideos: (limit = 6) => api.get('/videos/featured', { params: { limit } }),
+// POST /api/ads/:id/impression - Record ad impression
+router.post('/:id/impression', async (req, res) => {
+  try {
+    await Ad.findByIdAndUpdate(req.params.id, { $inc: { impressions: 1 } });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to record impression' });
+  }
+});
 
-  // UPDATED: Added seed parameter for random results on each call
-  getRelatedVideos: (id, limit = 10) =>
-    api.get(`/videos/${id}/related`, { params: { limit, seed: Date.now() } }),
+// POST /api/ads/:id/click - Record ad click
+router.post('/:id/click', async (req, res) => {
+  try {
+    await Ad.findByIdAndUpdate(req.params.id, { $inc: { clicks: 1 } });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to record click' });
+  }
+});
 
-  getRandomVideos: (limit = 10, exclude = '') =>
-    api.get('/videos/random', { params: { limit, exclude } }),
+// ==========================================
+// ADMIN ROUTES
+// ==========================================
 
-  recordView: (id, sessionId) => api.post(`/videos/${id}/view`, { sessionId }),
-  likeVideo: (id) => api.post(`/videos/${id}/like`),
-  dislikeVideo: (id) => api.post(`/videos/${id}/dislike`),
-  reportVideo: (id, data) => api.post(`/videos/${id}/report`, data),
-  getCategories: () => api.get('/categories'),
-  getCategory: (slug) => api.get(`/categories/${slug}`),
-  getCategoryVideos: (slug, params) => api.get(`/categories/${slug}/videos`, { params }),
-  searchVideos: (params) => api.get('/search', { params }),
-  getSearchSuggestions: (q) => api.get('/search/suggestions', { params: { q } }),
-  searchByTag: (tag, params) => api.get(`/search/tags/${tag}`, { params }),
-  getPopularTags: (limit = 20) => api.get('/search/popular-tags', { params: { limit } }),
-  getAds: (device = 'desktop') => api.get('/ads', { params: { device } }),
-  getAdByPlacement: (placement, device = 'desktop') =>
-    api.get(`/ads/placement/${placement}`, { params: { device } }),
-  recordAdImpression: (id) => api.post(`/ads/${id}/impression`),
-  recordAdClick: (id) => api.post(`/ads/${id}/click`),
-  getPublicStats: () => api.get('/public/stats'),
-  getPublicComments: (page = 1, limit = 20) =>
-    api.get('/comments/public', { params: { page, limit } }),
-  submitComment: (data) => api.post('/comments', data),
-  trackShare: (id, platform) => api.post(`/public/share/${id}/track`, { platform }),
-  getShareDebug: (id) => api.get(`/public/share/${id}/debug`),
-  bulkCreateCategories: (data) => api.post('/categories/bulk-create', data),
-};
+// GET /api/ads/admin/all - Get all ads (admin)
+router.get('/admin/all', simpleAdminAuth, async (req, res) => {
+  try {
+    const ads = await Ad.find().sort({ placement: 1, priority: -1 });
+    res.json({ success: true, ads });
+  } catch (error) {
+    console.error('Get All Ads Error:', error);
+    res.status(500).json({ error: 'Failed to get ads' });
+  }
+});
 
-// ==================== ADMIN API ====================
-export const adminAPI = {
-  // Auth
-  login: (password, username = 'admin') =>
-    api.post('/admin/login', { password, username }),
-  verifyToken: () => api.post('/admin/verify'),
-  changePassword: (currentPassword, newPassword) =>
-    api.post('/admin/change-password', { currentPassword, newPassword }),
+// GET /api/ads/admin/placements - Get available placements
+router.get('/admin/placements', simpleAdminAuth, (req, res) => {
+  const placements = [
+    { id: 'home_top', name: 'Home - Top Banner', size: '728x90' },
+    { id: 'home_sidebar', name: 'Home - Sidebar', size: '300x600' },
+    { id: 'home_infeed', name: 'Home - In-Feed', size: 'Native' },
+    { id: 'home_footer', name: 'Home - Footer', size: '728x90' },
+    { id: 'watch_sidebar', name: 'Watch - Sidebar', size: '300x250' },
+    { id: 'watch_below', name: 'Watch - Below Player', size: '728x90' },
+    { id: 'watch_related', name: 'Watch - Related Videos', size: 'Native' },
+    { id: 'watch_overlay', name: 'Watch - Video Overlay', size: '480x70' },
+    { id: 'search_top', name: 'Search - Top', size: '728x90' },
+    { id: 'category_top', name: 'Category - Top', size: '728x90' },
+    { id: 'popunder', name: 'Popunder', size: 'Full Page' },
+    { id: 'interstitial', name: 'Interstitial', size: 'Full Page' }
+  ];
+  res.json({ success: true, placements });
+});
 
-  // Dashboard
-  getDashboard: () => api.get('/admin/dashboard'),
+// POST /api/ads - Create new ad
+router.post('/', simpleAdminAuth, async (req, res) => {
+  try {
+    const { name, placement, type, code, imageUrl, targetUrl, device, enabled, priority } = req.body;
 
-  // Videos
-  getVideos: (params) => api.get('/admin/videos', { params }),
-  getVideo: (id) => api.get(`/admin/videos/${id}`),
-  updateVideo: (id, data) => api.put(`/admin/videos/${id}`, data),
-  deleteVideo: (id) => api.delete(`/admin/videos/${id}`),
-  bulkDeleteVideos: (ids) => api.post('/admin/videos/bulk-delete', { ids }),
-  toggleFeatured: (id) => api.put(`/admin/videos/${id}/feature`),
-  updateVideoStatus: (id, status) => api.put(`/admin/videos/${id}/status`, { status }),
+    if (!name || !placement || !code) {
+      return res.status(400).json({ error: 'Name, placement, and code are required' });
+    }
 
-  // Bulk Operations
-  bulkUpdateTitles: (updates) => api.post('/admin/videos/bulk-update-titles', { updates }),
-  bulkUpdateTags: (updates) => api.post('/admin/videos/bulk-update-tags', { updates }),
-  bulkShareLinks: (data) => api.post('/admin/videos/bulk-share-links', data),
-  bulkUpdateStatus: (data) => api.post('/admin/videos/bulk-update-status', data),
-  exportVideos: (params) => api.get('/admin/videos/export', { params }),
-  exportVideosCSV: (ids) => api.get('/admin/videos/export', {
-    params: { format: 'csv', ids: ids ? ids.join(',') : undefined },
-    responseType: 'blob',
-  }),
+    const ad = await Ad.create({
+      name,
+      placement,
+      type: type || 'script',
+      code,
+      imageUrl: imageUrl || '',
+      targetUrl: targetUrl || '',
+      device: device || 'all',
+      enabled: enabled !== false,
+      priority: priority || 0
+    });
 
-  // Upload
-  uploadVideo: (formData, onProgress) =>
-    api.post('/upload/single', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      onUploadProgress: (e) => {
-        if (onProgress) {
-          const percent = Math.round((e.loaded * 100) / e.total);
-          onProgress(percent, e.loaded, e.total);
-        }
-      },
-    }),
-  addByFileCode: (data) => api.post('/upload/file-code', data),
-  bulkAddFileCodes: (videos) => api.post('/upload/bulk-file-codes', { videos }),
-  uploadThumbnail: (formData) =>
-    api.post('/upload/thumbnail', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    }),
-  remoteUpload: (url, title, category, tags) =>
-    api.post('/upload/url', { url, title, category, tags }),
-  getAbyssFiles: (page = 1, limit = 50) =>
-    api.get('/upload/abyss-files', { params: { page, limit } }),
-  getAccountInfo: () => api.get('/upload/account-info'),
+    res.json({ success: true, ad, message: 'Ad created successfully' });
+  } catch (error) {
+    console.error('Create Ad Error:', error);
+    res.status(500).json({ error: 'Failed to create ad' });
+  }
+});
 
-  // Categories
-  createCategory: (data) => api.post('/categories', data),
-  updateCategory: (id, data) => api.put(`/categories/${id}`, data),
-  deleteCategory: (id) => api.delete(`/categories/${id}`),
-  bulkCreateCategories: (data) => api.post('/categories/bulk-create', data),
-  reorderCategories: (order) => api.put('/categories/admin/reorder', { order }),
+// PUT /api/ads/:id - Update ad
+router.put('/:id', simpleAdminAuth, async (req, res) => {
+  try {
+    const ad = await Ad.findById(req.params.id);
+    if (!ad) {
+      return res.status(404).json({ error: 'Ad not found' });
+    }
 
-  // Ads
-  getAllAds: () => api.get('/ads/admin/all'),
-  getAdPlacements: () => api.get('/ads/admin/placements'),
-  createAd: (data) => api.post('/ads', data),
-  updateAd: (id, data) => api.put(`/ads/${id}`, data),
-  deleteAd: (id) => api.delete(`/ads/${id}`),
-  toggleAd: (id) => api.put(`/ads/${id}/toggle`),
+    const updateFields = ['name', 'placement', 'type', 'code', 'imageUrl', 'targetUrl', 'device', 'enabled', 'priority'];
+    updateFields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        ad[field] = req.body[field];
+      }
+    });
 
-  // Analytics
-  getAnalyticsDashboard: () => api.get('/analytics/dashboard'),
-  getViewAnalytics: (period = '7d') => api.get('/analytics/views', { params: { period } }),
-  getTopVideos: (limit = 10, period = '7d') =>
-    api.get('/analytics/top-videos', { params: { limit, period } }),
-  getCategoryAnalytics: () => api.get('/analytics/categories'),
-  getAdAnalytics: () => api.get('/analytics/ads'),
+    await ad.save();
+    res.json({ success: true, ad, message: 'Ad updated successfully' });
+  } catch (error) {
+    console.error('Update Ad Error:', error);
+    res.status(500).json({ error: 'Failed to update ad' });
+  }
+});
 
-  // Reports
-  getReports: (params) => api.get('/analytics/reports', { params }),
-  updateReport: (id, data) => api.put(`/analytics/reports/${id}`, data),
+// DELETE /api/ads/:id - Delete ad
+router.delete('/:id', simpleAdminAuth, async (req, res) => {
+  try {
+    const ad = await Ad.findByIdAndDelete(req.params.id);
+    if (!ad) {
+      return res.status(404).json({ error: 'Ad not found' });
+    }
+    res.json({ success: true, message: 'Ad deleted successfully' });
+  } catch (error) {
+    console.error('Delete Ad Error:', error);
+    res.status(500).json({ error: 'Failed to delete ad' });
+  }
+});
 
-  // Comments
-  getComments: (params) => api.get('/comments/admin', { params }),
-  toggleCommentVisibility: (id) => api.put(`/comments/${id}/toggle-visibility`),
-  markCommentRead: (id) => api.put(`/comments/${id}/read`),
-  addCommentNote: (id, note) => api.put(`/comments/${id}/note`, { note }),
-  deleteComment: (id) => api.delete(`/comments/${id}`),
-  bulkDeleteComments: (ids) => api.post('/comments/bulk-delete', { ids }),
+// PUT /api/ads/:id/toggle - Toggle ad enabled status
+router.put('/:id/toggle', simpleAdminAuth, async (req, res) => {
+  try {
+    const ad = await Ad.findById(req.params.id);
+    if (!ad) {
+      return res.status(404).json({ error: 'Ad not found' });
+    }
 
-  // Duplicates
-  getDuplicates: (params) => api.get('/duplicates', { params }),
-  scanDuplicates: () => api.post('/duplicates/scan'),
-  checkDuplicate: (data) => api.post('/duplicates/check', data),
-  keepDuplicate: (id) => api.put(`/duplicates/${id}/keep`),
-  makePublicDuplicate: (id) => api.put(`/duplicates/${id}/make-public`),
-  deleteDuplicate: (id) => api.delete(`/duplicates/${id}`),
-  bulkDeleteDuplicates: (ids) => api.post('/duplicates/bulk-delete', { ids }),
-  clearAllDuplicates: () => api.post('/duplicates/clear-all'),
-  publishAllDuplicates: (filter) => api.post('/duplicates/publish-all', { filter }),
-bulkPublishDuplicates: (ids) => api.post('/duplicates/bulk-publish', { ids }),
-};
+    ad.enabled = !ad.enabled;
+    await ad.save();
 
-export default api;
+    res.json({
+      success: true,
+      enabled: ad.enabled,
+      message: ad.enabled ? 'Ad enabled' : 'Ad disabled'
+    });
+  } catch (error) {
+    console.error('Toggle Ad Error:', error);
+    res.status(500).json({ error: 'Failed to toggle ad' });
+  }
+});
+
+module.exports = router;
+
+backend/models/Ad.js
 
 
-backend/.env.example
+const mongoose = require('mongoose');
 
-# Abyss.to API Configuration (REQUIRED)
-ABYSS_API_KEY=2ce5472bb6faa900b747eeaf65012a18
-ABYSS_API_BASE_URL=https://api.abyss.to
+const adSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  placement: {
+    type: String,
+    required: true,
+    enum: [
+      'home_top', 'home_sidebar', 'home_infeed', 'home_footer',
+      'watch_sidebar', 'watch_below', 'watch_related', 'watch_overlay',
+      'search_top', 'category_top', 'popunder', 'interstitial'
+    ]
+  },
+  type: {
+    type: String,
+    enum: ['banner', 'script', 'html', 'image', 'video'],
+    default: 'script'
+  },
+  code: {
+    type: String,
+    required: true
+  },
+  imageUrl: {
+    type: String,
+    default: ''
+  },
+  targetUrl: {
+    type: String,
+    default: ''
+  },
+  device: {
+    type: String,
+    enum: ['all', 'desktop', 'mobile'],
+    default: 'all'
+  },
+  enabled: {
+    type: Boolean,
+    default: true
+  },
+  impressions: {
+    type: Number,
+    default: 0
+  },
+  clicks: {
+    type: Number,
+    default: 0
+  },
+  priority: {
+    type: Number,
+    default: 0
+  }
+}, {
+  timestamps: true
+});
 
-# Server Configuration
-PORT=5000
-NODE_ENV=production
+module.exports = mongoose.model('Ad', adSchema);
 
-# Frontend URL (for CORS) - PRODUCTION
-# For multiple origins, separate with commas
-# Example: https://your-app.netlify.app,http://localhost:3000
-FRONTEND_URL=https://your-app.netlify.app,http://localhost:3000
 
-# Database Configuration (if using real database instead of in-memory)
-# MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/video-platform
-# DATABASE_URL=postgres://username:password@host:port/database
+
+i've changed my ads link now and old code have hardcode ads i think so, if no make them hardcoded and last time it was different for mobile and different for desktop so manage it and do not change the ads placement and the poster size just change the link as my website 
+here's the links 
+
+
+
+<script src="https://pl28704151.effectivegatecpm.com/35/ee/21/35ee2192f0b1aa5ca35c1f3af9387b00.js"></script>
+
+<script src="https://pl28704173.effectivegatecpm.com/52/ef/a1/52efa111bceee1130b219af1074a5f95.js"></script>
+
+
+<script async="async" data-cfasync="false" src="https://pl28704186.effectivegatecpm.com/3ebdaa444c50232518b3752efc451cab/invoke.js"></script>
+<div id="container-3ebdaa444c50232518b3752efc451cab"></div>
+
+
+
+<script>
+  atOptions = {
+    'key' : 'e50c996a8b1f38f50988e7c6e6ebc19a',
+    'format' : 'iframe',
+    'height' : 60,
+    'width' : 468,
+    'params' : {}
+  };
+</script>
+<script src="https://www.highperformanceformat.com/e50c996a8b1f38f50988e7c6e6ebc19a/invoke.js"></script>
+
+
+
+<script>
+  atOptions = {
+    'key' : 'deffd68605ce0b0c91d11c13a0fffd06',
+    'format' : 'iframe',
+    'height' : 300,
+    'width' : 160,
+    'params' : {}
+  };
+</script>
+<script src="https://www.highperformanceformat.com/deffd68605ce0b0c91d11c13a0fffd06/invoke.js"></script>
+
+
+<script>
+  atOptions = {
+    'key' : '161b6adedd44fd65d7197bdc372ef90f',
+    'format' : 'iframe',
+    'height' : 50,
+    'width' : 320,
+    'params' : {}
+  };
+</script>
+<script src="https://www.highperformanceformat.com/161b6adedd44fd65d7197bdc372ef90f/invoke.js"></script>
+
+
+
+<script>
+  atOptions = {
+    'key' : '3becc7318ca2e6c794f587d8f3f05d0b',
+    'format' : 'iframe',
+    'height' : 250,
+    'width' : 300,
+    'params' : {}
+  };
+</script>
+<script src="https://www.highperformanceformat.com/3becc7318ca2e6c794f587d8f3f05d0b/invoke.js"></script>
+
+
+<script>
+  atOptions = {
+    'key' : '5341bbc09b5293c807f871518481b16d',
+    'format' : 'iframe',
+    'height' : 600,
+    'width' : 160,
+    'params' : {}
+  };
+</script>
+<script src="https://www.highperformanceformat.com/5341bbc09b5293c807f871518481b16d/invoke.js"></script>
+
+
+
+<script>
+  atOptions = {
+    'key' : '8615981141c313bf4581c3cf1de1fb8f',
+    'format' : 'iframe',
+    'height' : 90,
+    'width' : 728,
+    'params' : {}
+  };
+</script>
+<script src="https://www.highperformanceformat.com/8615981141c313bf4581c3cf1de1fb8f/invoke.js"></script>
+
+
+
+
+https://www.effectivegatecpm.com/sbfz9bs1c?key=4b48edda8bb87faa2b8f8b8708c46b0b
+
+
+
+replace the old ads with the new ones and if any ads dimention or any of the  ads are in the old code then do not use them and at last give me list of the ads you removed and replaced and if you need any other files then tell me i ll provide you the file 

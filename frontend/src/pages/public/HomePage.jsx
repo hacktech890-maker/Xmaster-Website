@@ -5,7 +5,6 @@ import { FiClock, FiStar, FiChevronRight, FiLoader } from 'react-icons/fi';
 import { publicAPI } from '../../services/api';
 import { VideoGridSkeleton } from '../../components/video/VideoGrid';
 import VideoCard from '../../components/video/VideoCard';
-import AdBanner from '../../components/ads/AdBanner';
 import CommentForm from '../../components/comments/CommentForm';
 import CommentsList from '../../components/comments/CommentsList';
 
@@ -13,6 +12,7 @@ import CommentsList from '../../components/comments/CommentsList';
 const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
   const containerRef = useRef(null);
   const loaded = useRef(false);
+  const uniqueId = useRef(`ad-${Math.random().toString(36).substr(2, 9)}`);
 
   useEffect(() => {
     if (!adCode || !containerRef.current || loaded.current) return;
@@ -20,10 +20,17 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
     container.innerHTML = "";
     loaded.current = true;
 
+    let processedCode = adCode;
+    const containerMatch = adCode.match(/id="(container-[a-f0-9]+)"/);
+    if (containerMatch) {
+      const newContainerId = containerMatch[1] + '-' + uniqueId.current;
+      processedCode = processedCode.replace(new RegExp(containerMatch[1], 'g'), newContainerId);
+    }
+
     const tempDiv = document.createElement("div");
-    tempDiv.innerHTML = adCode;
+    tempDiv.innerHTML = processedCode;
     const scripts = tempDiv.querySelectorAll("script");
-    const nonScript = adCode.replace(/<script[\s\S]*?<\/script>/gi, "");
+    const nonScript = processedCode.replace(/<script[\s\S]*?<\/script>/gi, "");
 
     if (nonScript.trim()) {
       const div = document.createElement("div");
@@ -59,43 +66,127 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
   );
 };
 
-// ==================== AD CODES ====================
+// ==================== NEW AD CODES ====================
 const ADS = {
+  // Mobile: 320x50
   mobile320x50: `<script>
     atOptions = {
-      'key' : '6234f16279422f68f13fae0f6cd38e19',
+      'key' : '161b6adedd44fd65d7197bdc372ef90f',
       'format' : 'iframe',
       'height' : 50,
       'width' : 320,
       'params' : {}
     };
   </script>
-  <script src="https://www.highperformanceformat.com/6234f16279422f68f13fae0f6cd38e19/invoke.js"></script>`,
+  <script src="https://www.highperformanceformat.com/161b6adedd44fd65d7197bdc372ef90f/invoke.js"></script>`,
 
+  // Desktop: 728x90
   footer728x90: `<script>
     atOptions = {
-      'key' : '63bdafcb22010cae5f0bf88ebb77480d',
+      'key' : '8615981141c313bf4581c3cf1de1fb8f',
       'format' : 'iframe',
       'height' : 90,
       'width' : 728,
       'params' : {}
     };
   </script>
-  <script src="https://www.highperformanceformat.com/63bdafcb22010cae5f0bf88ebb77480d/invoke.js"></script>`,
+  <script src="https://www.highperformanceformat.com/8615981141c313bf4581c3cf1de1fb8f/invoke.js"></script>`,
 
+  // 300x250
   footer300x250: `<script>
     atOptions = {
-      'key' : '14ec0d1a96c62198d09309e2e93cdbe1',
+      'key' : '3becc7318ca2e6c794f587d8f3f05d0b',
       'format' : 'iframe',
       'height' : 250,
       'width' : 300,
       'params' : {}
     };
   </script>
-  <script src="https://www.highperformanceformat.com/14ec0d1a96c62198d09309e2e93cdbe1/invoke.js"></script>`,
+  <script src="https://www.highperformanceformat.com/3becc7318ca2e6c794f587d8f3f05d0b/invoke.js"></script>`,
 
-  nativeBanner: `<script async="async" data-cfasync="false" src="https://pl28697514.effectivegatecpm.com/ff1ceb8407fd04d767e71ec9b3d366ef/invoke.js"></script>
-  <div id="container-ff1ceb8407fd04d767e71ec9b3d366ef"></div>`,
+  // Desktop: 468x60
+  medium468x60: `<script>
+    atOptions = {
+      'key' : 'e50c996a8b1f38f50988e7c6e6ebc19a',
+      'format' : 'iframe',
+      'height' : 60,
+      'width' : 468,
+      'params' : {}
+    };
+  </script>
+  <script src="https://www.highperformanceformat.com/e50c996a8b1f38f50988e7c6e6ebc19a/invoke.js"></script>`,
+
+  // Sidebar: 160x600
+  sidebar160x600: `<script>
+    atOptions = {
+      'key' : '5341bbc09b5293c807f871518481b16d',
+      'format' : 'iframe',
+      'height' : 600,
+      'width' : 160,
+      'params' : {}
+    };
+  </script>
+  <script src="https://www.highperformanceformat.com/5341bbc09b5293c807f871518481b16d/invoke.js"></script>`,
+
+  // Sidebar: 160x300
+  sidebar160x300: `<script>
+    atOptions = {
+      'key' : 'deffd68605ce0b0c91d11c13a0fffd06',
+      'format' : 'iframe',
+      'height' : 300,
+      'width' : 160,
+      'params' : {}
+    };
+  </script>
+  <script src="https://www.highperformanceformat.com/deffd68605ce0b0c91d11c13a0fffd06/invoke.js"></script>`,
+
+  // Native Banner
+  nativeBanner: `<script async="async" data-cfasync="false" src="https://pl28704186.effectivegatecpm.com/3ebdaa444c50232518b3752efc451cab/invoke.js"></script>
+  <div id="container-3ebdaa444c50232518b3752efc451cab"></div>`,
+
+  // Social Bar
+  socialBar: `<script src="https://pl28704151.effectivegatecpm.com/35/ee/21/35ee2192f0b1aa5ca35c1f3af9387b00.js"></script>`,
+
+  // Social Bar 2
+  socialBar2: `<script src="https://pl28704173.effectivegatecpm.com/52/ef/a1/52efa111bceee1130b219af1074a5f95.js"></script>`,
+
+  // Popunder
+  popunder: `<script src="https://www.effectivegatecpm.com/sbfz9bs1c?key=4b48edda8bb87faa2b8f8b8708c46b0b"></script>`,
+};
+
+// ==================== GLOBAL ADS LOADER ====================
+const GlobalAdsLoader = () => {
+  const loaded = useRef(false);
+  useEffect(() => {
+    if (loaded.current) return;
+    loaded.current = true;
+
+    // Social Bar 1
+    const s1 = document.createElement("script");
+    s1.src = "https://pl28704151.effectivegatecpm.com/35/ee/21/35ee2192f0b1aa5ca35c1f3af9387b00.js";
+    s1.async = true;
+    document.body.appendChild(s1);
+
+    // Social Bar 2
+    const s2 = document.createElement("script");
+    s2.src = "https://pl28704173.effectivegatecpm.com/52/ef/a1/52efa111bceee1130b219af1074a5f95.js";
+    s2.async = true;
+    document.body.appendChild(s2);
+
+    // Popunder
+    const s3 = document.createElement("script");
+    s3.src = "https://www.effectivegatecpm.com/sbfz9bs1c?key=4b48edda8bb87faa2b8f8b8708c46b0b";
+    s3.async = true;
+    document.body.appendChild(s3);
+
+    return () => {
+      [s1, s2, s3].forEach(s => {
+        if (document.body.contains(s)) document.body.removeChild(s);
+      });
+      loaded.current = false;
+    };
+  }, []);
+  return null;
 };
 
 // ==================== IN-FEED AD COMPONENT ====================
@@ -148,8 +239,10 @@ const InFeedAd = React.memo(({ index, isMobile }) => {
     );
   } else {
     return (
-      <div className="col-span-full py-4">
-        <AdBanner placement="home_infeed" />
+      <div className="col-span-full flex justify-center items-center py-4">
+        <div className="w-full bg-gray-100/30 dark:bg-dark-200/30 rounded-xl p-4">
+          <AdSlot adCode={ADS.medium468x60} label="Sponsored" />
+        </div>
       </div>
     );
   }
@@ -176,7 +269,6 @@ const HomePage = () => {
   const [totalVideos, setTotalVideos] = useState(0);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
 
-  // ✅ FIX 1: Use refs that persist across renders
   const observerRef = useRef(null);
   const loadMoreRef = useRef(null);
   const loadingMoreRef = useRef(false);
@@ -189,34 +281,22 @@ const HomePage = () => {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // ✅ FIX 2: Keep refs in sync with state
-  useEffect(() => {
-    loadingMoreRef.current = loadingMore;
-  }, [loadingMore]);
+  useEffect(() => { loadingMoreRef.current = loadingMore; }, [loadingMore]);
+  useEffect(() => { hasMoreRef.current = hasMore; }, [hasMore]);
+  useEffect(() => { pageRef.current = page; }, [page]);
 
-  useEffect(() => {
-    hasMoreRef.current = hasMore;
-  }, [hasMore]);
-
-  useEffect(() => {
-    pageRef.current = page;
-  }, [page]);
-
-  // ✅ FIX 3: Load initial data with LARGER first batch
   useEffect(() => {
     const fetchHomeData = async () => {
       try {
-        // Load home data (featured, categories, latest 12)
         const response = await publicAPI.getHomeData();
         if (response.data.success) {
           const data = response.data.data;
           setFeaturedVideos(data.featuredVideos || []);
           setCategories(data.categories || []);
 
-          // ✅ FIX: Also load first page of ALL videos immediately
           const videosResponse = await publicAPI.getVideos({
             page: 1,
-            limit: 40, // ✅ Load more initially
+            limit: 40,
             sort: 'newest',
           });
 
@@ -243,9 +323,7 @@ const HomePage = () => {
     fetchHomeData();
   }, []);
 
-  // ✅ FIX 4: Stable loadMoreVideos that uses refs instead of state
   const loadMoreVideos = useCallback(async () => {
-    // Use refs for checks to avoid stale closures
     if (loadingMoreRef.current || !hasMoreRef.current) return;
 
     loadingMoreRef.current = true;
@@ -255,7 +333,7 @@ const HomePage = () => {
       const nextPage = pageRef.current + 1;
       const response = await publicAPI.getVideos({
         page: nextPage,
-        limit: 40, // ✅ Load 40 per batch instead of 20
+        limit: 40,
         sort: 'newest',
       });
 
@@ -289,16 +367,11 @@ const HomePage = () => {
       setLoadingMore(false);
       loadingMoreRef.current = false;
     }
-  }, []); // ✅ Empty deps - uses refs, never goes stale
+  }, []);
 
-  // ✅ FIX 5: Create observer ONCE and never recreate it
   useEffect(() => {
     if (loading) return;
-
-    // Disconnect existing observer
-    if (observerRef.current) {
-      observerRef.current.disconnect();
-    }
+    if (observerRef.current) observerRef.current.disconnect();
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -307,60 +380,38 @@ const HomePage = () => {
           loadMoreVideos();
         }
       },
-      {
-        threshold: 0.01, // ✅ Very low threshold — triggers earlier
-        rootMargin: '600px', // ✅ Start loading 600px before sentinel is visible
-      }
+      { threshold: 0.01, rootMargin: '600px' }
     );
 
     observerRef.current = observer;
+    if (loadMoreRef.current) observer.observe(loadMoreRef.current);
 
-    if (loadMoreRef.current) {
-      observer.observe(loadMoreRef.current);
-    }
+    return () => observer.disconnect();
+  }, [loading, loadMoreVideos]);
 
-    return () => {
-      observer.disconnect();
-    };
-  }, [loading, loadMoreVideos]); // ✅ Only depends on loading & stable function
-
-  // ✅ FIX 6: Fallback scroll listener in case IntersectionObserver fails
   useEffect(() => {
     if (loading) return;
 
+    let ticking = false;
     const handleScroll = () => {
       if (loadingMoreRef.current || !hasMoreRef.current) return;
-
       const scrollTop = window.scrollY || document.documentElement.scrollTop;
       const scrollHeight = document.documentElement.scrollHeight;
       const clientHeight = document.documentElement.clientHeight;
-
-      // When user is within 800px of bottom, load more
-      if (scrollTop + clientHeight >= scrollHeight - 800) {
-        loadMoreVideos();
-      }
+      if (scrollTop + clientHeight >= scrollHeight - 800) loadMoreVideos();
     };
 
-    // Throttle scroll events
-    let ticking = false;
     const throttledScroll = () => {
       if (!ticking) {
-        window.requestAnimationFrame(() => {
-          handleScroll();
-          ticking = false;
-        });
+        window.requestAnimationFrame(() => { handleScroll(); ticking = false; });
         ticking = true;
       }
     };
 
     window.addEventListener('scroll', throttledScroll, { passive: true });
-
-    return () => {
-      window.removeEventListener('scroll', throttledScroll);
-    };
+    return () => window.removeEventListener('scroll', throttledScroll);
   }, [loading, loadMoreVideos]);
 
-  // ==================== RENDER VIDEOS WITH ADS ====================
   const renderVideosWithAds = () => {
     if (allVideos.length === 0) {
       return (
@@ -371,22 +422,16 @@ const HomePage = () => {
       );
     }
 
-    const videosPerAdBreak = isMobile ? 8 : 16; // ✅ Slightly wider spacing for ads
+    const videosPerAdBreak = isMobile ? 8 : 16;
     const items = [];
     let adCounter = 0;
 
     for (let i = 0; i < allVideos.length; i++) {
-      items.push(
-        <VideoCard key={allVideos[i]._id} video={allVideos[i]} />
-      );
+      items.push(<VideoCard key={allVideos[i]._id} video={allVideos[i]} />);
 
       if ((i + 1) % videosPerAdBreak === 0 && i < allVideos.length - 1) {
         items.push(
-          <InFeedAd
-            key={`ad-${adCounter}`}
-            index={adCounter}
-            isMobile={isMobile}
-          />
+          <InFeedAd key={`ad-${adCounter}`} index={adCounter} isMobile={isMobile} />
         );
         adCounter++;
       }
@@ -419,7 +464,16 @@ const HomePage = () => {
       </Helmet>
 
       <div className="min-h-screen bg-gray-50 dark:bg-dark-400">
-        <AdBanner placement="home_top" className="max-w-7xl mx-auto px-4 pt-4" />
+        <GlobalAdsLoader />
+
+        {/* Top Banner Ad */}
+        <div className="max-w-7xl mx-auto px-4 pt-4">
+          {isMobile ? (
+            <AdSlot adCode={ADS.mobile320x50} label="Sponsored" className="flex justify-center" />
+          ) : (
+            <AdSlot adCode={ADS.footer728x90} label="Sponsored" className="flex justify-center" />
+          )}
+        </div>
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex flex-col lg:flex-row gap-6">
@@ -445,13 +499,14 @@ const HomePage = () => {
                 </section>
               )}
 
-              {isMobile && (
-                <div className="mb-8">
-                  <AdSlot adCode={ADS.mobile320x50} label="Sponsored" className="flex justify-center" />
-                </div>
-              )}
-
-              {!isMobile && <AdBanner placement="home_infeed" className="mb-8" />}
+              {/* Mid-page ad */}
+              <div className="mb-8">
+                {isMobile ? (
+                  <AdSlot adCode={ADS.footer300x250} label="Sponsored" className="flex justify-center" />
+                ) : (
+                  <AdSlot adCode={ADS.nativeBanner} label="Recommended" />
+                )}
+              </div>
 
               {/* All Videos with Infinite Scroll */}
               <section className="mb-10">
@@ -469,11 +524,10 @@ const HomePage = () => {
                   <>
                     {renderVideosWithAds()}
 
-                    {/* ✅ FIX 7: Sentinel div OUTSIDE the grid, always visible */}
                     <div
                       ref={loadMoreRef}
                       className="py-8 flex flex-col items-center justify-center"
-                      style={{ minHeight: '100px' }} // ✅ Ensure it has height for observer
+                      style={{ minHeight: '100px' }}
                     >
                       {loadingMore && (
                         <div className="flex items-center gap-3 text-gray-400">
@@ -489,8 +543,7 @@ const HomePage = () => {
                       {hasMore && !loadingMore && (
                         <button
                           onClick={loadMoreVideos}
-                          className="px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white rounded-lg 
-                                     font-medium transition-colors text-sm"
+                          className="px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-medium transition-colors text-sm"
                         >
                           Load More Videos ({allVideos.length} of {totalVideos} loaded)
                         </button>
@@ -574,7 +627,11 @@ const HomePage = () => {
             {/* ==================== SIDEBAR ==================== */}
             <aside className="w-full lg:w-80 flex-shrink-0 hidden lg:block">
               <div className="sticky top-20 space-y-6">
-                <AdBanner placement="home_sidebar" />
+                {/* Sidebar tall ad: 160x600 */}
+                <div className="flex justify-center">
+                  <AdSlot adCode={ADS.sidebar160x600} label="Sponsored" />
+                </div>
+
                 <div className="card p-4">
                   <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Quick Links</h3>
                   <div className="space-y-2">
@@ -588,6 +645,12 @@ const HomePage = () => {
                     </Link>
                   </div>
                 </div>
+
+                {/* Sidebar ad: 160x300 */}
+                <div className="flex justify-center">
+                  <AdSlot adCode={ADS.sidebar160x300} label="Sponsored" />
+                </div>
+
                 <div className="card p-4">
                   <h3 className="font-semibold text-gray-900 dark:text-white mb-3 text-sm">Popular Searches</h3>
                   <div className="flex flex-wrap gap-1.5">
@@ -602,7 +665,9 @@ const HomePage = () => {
                     ))}
                   </div>
                 </div>
-                <AdBanner placement="home_sidebar" />
+
+                {/* Native banner in sidebar */}
+                <AdSlot adCode={ADS.nativeBanner} label="Recommended" />
               </div>
             </aside>
           </div>
@@ -610,16 +675,13 @@ const HomePage = () => {
 
         {/* Footer Ad */}
         <div className="max-w-7xl mx-auto px-4 pb-8">
-          {!isMobile && (
-            <div className="py-6 border-t border-gray-200 dark:border-dark-100">
-              <AdSlot adCode={ADS.footer728x90} label="Sponsored" className="flex justify-center" />
-            </div>
-          )}
-          {isMobile && (
-            <div className="py-6 border-t border-gray-200 dark:border-dark-100">
+          <div className="py-6 border-t border-gray-200 dark:border-dark-100">
+            {isMobile ? (
               <AdSlot adCode={ADS.footer300x250} label="Sponsored" className="flex justify-center" />
-            </div>
-          )}
+            ) : (
+              <AdSlot adCode={ADS.footer728x90} label="Sponsored" className="flex justify-center" />
+            )}
+          </div>
         </div>
       </div>
     </>
