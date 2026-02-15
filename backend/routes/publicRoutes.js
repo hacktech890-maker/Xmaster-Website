@@ -189,7 +189,6 @@ router.get('/share/:id', async (req, res) => {
     var userAgent = req.headers['user-agent'] || '';
     var botRequest = isCrawlerBot(userAgent);
 
-    // Share page URL (self-referencing for og:url)
     var sharePageUrl = getBackendUrl() + '/api/public/share/' + video._id;
 
     // ==========================================
@@ -203,9 +202,9 @@ router.get('/share/:id', async (req, res) => {
     html += '<title>' + title + ' - ' + SITE_NAME + '</title>\n\n';
 
     // ==========================================
-    // OPEN GRAPH TAGS (Critical for Telegram)
+    // OG TAGS — SAME FOR BOTH BOT AND HUMAN
+    // This ensures Telegram preview always works
     // ==========================================
-    html += '<!-- OpenGraph Meta Tags -->\n';
     html += '<meta property="og:type" content="article" />\n';
     html += '<meta property="og:title" content="' + title + '" />\n';
     html += '<meta property="og:description" content="' + description + '" />\n';
@@ -213,11 +212,7 @@ router.get('/share/:id', async (req, res) => {
     html += '<meta property="og:site_name" content="' + SITE_NAME + '" />\n';
     html += '<meta property="og:locale" content="en_US" />\n';
 
-    // ==========================================
-    // IMAGE TAGS (Telegram thumbnail)
-    // ==========================================
     if (thumbnail) {
-      html += '\n<!-- Image Tags (Telegram-optimized via proxy) -->\n';
       html += '<meta property="og:image" content="' + thumbnail + '" />\n';
       html += '<meta property="og:image:secure_url" content="' + thumbnail + '" />\n';
       html += '<meta property="og:image:type" content="image/jpeg" />\n';
@@ -226,22 +221,13 @@ router.get('/share/:id', async (req, res) => {
       html += '<meta property="og:image:alt" content="' + title + '" />\n';
     }
 
-    // ==========================================
-    // TWITTER CARD TAGS
-    // ==========================================
-    html += '\n<!-- Twitter Card Tags -->\n';
     html += '<meta name="twitter:card" content="summary_large_image" />\n';
     html += '<meta name="twitter:title" content="' + title + '" />\n';
     html += '<meta name="twitter:description" content="' + description + '" />\n';
     if (thumbnail) {
       html += '<meta name="twitter:image" content="' + thumbnail + '" />\n';
-      html += '<meta name="twitter:image:src" content="' + thumbnail + '" />\n';
     }
 
-    // ==========================================
-    // ADDITIONAL SEO META TAGS
-    // ==========================================
-    html += '\n<!-- Additional Meta -->\n';
     html += '<meta name="description" content="' + description + '" />\n';
     html += '<link rel="canonical" href="' + sharePageUrl + '" />\n';
     if (thumbnail) {
@@ -250,10 +236,9 @@ router.get('/share/:id', async (req, res) => {
     html += '<meta name="robots" content="index, follow" />\n';
 
     // ==========================================
-    // RESPONSE BASED ON REQUESTER TYPE
+    // FOR BOTS: Simple semantic HTML, no redirect
     // ==========================================
     if (botRequest) {
-      // === BOT RESPONSE (unchanged - Telegram reads OG tags from this) ===
       html += '</head>\n';
       html += '<body>\n';
       html += '<h1>' + title + '</h1>\n';
@@ -261,179 +246,143 @@ router.get('/share/:id', async (req, res) => {
         html += '<img src="' + thumbnail + '" alt="' + title + '" width="1280" height="720" />\n';
       }
       html += '<p>' + description + '</p>\n';
-      if (duration) {
-        html += '<p>Duration: ' + duration + '</p>\n';
-      }
+      if (duration) html += '<p>Duration: ' + duration + '</p>\n';
       html += '<p>Views: ' + formatViews(views) + '</p>\n';
       html += '<a href="' + videoPageUrl + '">Watch on ' + SITE_NAME + '</a>\n';
-      html += '</body>\n';
-      html += '</html>';
+      html += '</body></html>';
+
     } else {
-      // === HUMAN USER RESPONSE - FORCE EXTERNAL BROWSER ===
-      // NO meta http-equiv="refresh" — we use JS to detect in-app browsers
-      // and force opening in Chrome/Safari/default browser
+      // ==========================================
+      // FOR HUMANS: Landing page with prominent 
+      // "Open in Browser" button — NO auto redirect
+      // ==========================================
+      // WHY: Telegram's in-app browser intercepts all
+      // redirects (JS, meta refresh, location.replace).
+      // The ONLY way to open external browser is for 
+      // the USER to tap the ⋮ menu → "Open in Browser"
+      // OR we give them a clear landing page that makes
+      // them WANT to open externally.
 
       html += '<style>\n';
       html += '* { margin: 0; padding: 0; box-sizing: border-box; }\n';
-      html += 'body { background: #0f0f0f; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }\n';
-      html += '.card { text-align: center; max-width: 400px; width: 100%; }\n';
-      html += '.thumb { width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: 12px; margin-bottom: 16px; background: #1a1a1a; }\n';
-      html += '.title { font-size: 16px; font-weight: 600; margin-bottom: 8px; line-height: 1.4; }\n';
-      html += '.meta { color: #888; font-size: 13px; margin-bottom: 16px; }\n';
-      html += '.btn { display: inline-block; padding: 14px 32px; background: #3b82f6; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px; margin-bottom: 12px; }\n';
-      html += '.btn:hover { background: #2563eb; }\n';
-      html += '.btn-external { background: #e50914; display: inline-block; padding: 14px 32px; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px; margin-bottom: 12px; }\n';
-      html += '.btn-external:hover { background: #b20710; }\n';
-      html += '.loading { color: #666; font-size: 12px; margin-top: 12px; }\n';
-      html += '.tip { color: #999; font-size: 11px; margin-top: 16px; padding: 12px; background: #1a1a1a; border-radius: 8px; line-height: 1.5; }\n';
-      html += '.hidden { display: none; }\n';
-      html += '@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }\n';
-      html += '.loading { animation: pulse 1.5s ease-in-out infinite; }\n';
-      html += '@keyframes spin { to { transform: rotate(360deg); } }\n';
-      html += '.spinner { width: 32px; height: 32px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #3b82f6; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px; }\n';
+      html += 'body { background: #0a0a0f; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; min-height: 100vh; display: flex; flex-direction: column; }\n';
+      html += '.container { flex: 1; display: flex; align-items: center; justify-content: center; padding: 20px; }\n';
+      html += '.card { max-width: 420px; width: 100%; }\n';
+      html += '.thumb-wrap { position: relative; width: 100%; border-radius: 16px; overflow: hidden; margin-bottom: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }\n';
+      html += '.thumb { width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block; }\n';
+      html += '.play-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.3); }\n';
+      html += '.play-btn { width: 72px; height: 72px; background: rgba(255,255,255,0.95); border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 20px rgba(0,0,0,0.4); }\n';
+      html += '.play-btn svg { width: 32px; height: 32px; margin-left: 4px; }\n';
+      html += '.duration-badge { position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.85); color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }\n';
+      html += '.title { font-size: 18px; font-weight: 700; line-height: 1.4; margin-bottom: 8px; }\n';
+      html += '.meta { color: #888; font-size: 13px; margin-bottom: 24px; }\n';
+      html += '.open-btn { display: block; width: 100%; padding: 16px; background: linear-gradient(135deg, #e50914, #b20710); color: #fff; text-decoration: none; border-radius: 12px; font-weight: 700; font-size: 17px; text-align: center; letter-spacing: 0.3px; box-shadow: 0 4px 20px rgba(229,9,20,0.4); transition: transform 0.15s, box-shadow 0.15s; }\n';
+      html += '.open-btn:active { transform: scale(0.98); }\n';
+      html += '.open-btn svg { width: 20px; height: 20px; vertical-align: middle; margin-right: 8px; }\n';
+      html += '.secondary-btn { display: block; width: 100%; padding: 14px; background: rgba(255,255,255,0.08); color: #fff; text-decoration: none; border-radius: 12px; font-weight: 600; font-size: 15px; text-align: center; margin-top: 12px; border: 1px solid rgba(255,255,255,0.1); transition: background 0.15s; }\n';
+      html += '.secondary-btn:active { background: rgba(255,255,255,0.15); }\n';
+      html += '.tip-box { margin-top: 20px; padding: 14px 16px; background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.2); border-radius: 12px; }\n';
+      html += '.tip-box p { font-size: 12px; color: #93bbfc; line-height: 1.6; }\n';
+      html += '.tip-box strong { color: #60a5fa; }\n';
+      html += '.steps { margin-top: 20px; }\n';
+      html += '.step { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; }\n';
+      html += '.step-num { width: 28px; height: 28px; background: rgba(229,9,20,0.15); color: #e50914; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; flex-shrink: 0; }\n';
+      html += '.step-text { font-size: 13px; color: #bbb; line-height: 1.5; padding-top: 3px; }\n';
+      html += '.site-badge { text-align: center; padding: 16px; color: #444; font-size: 11px; }\n';
       html += '</style>\n';
       html += '</head>\n';
       html += '<body>\n';
-      html += '<div class="card">\n';
+      html += '<div class="container"><div class="card">\n';
 
-      // Spinner shown while JS tries to redirect
-      html += '<div id="loading-state">\n';
-      html += '<div class="spinner"></div>\n';
-      html += '<div class="loading">Opening in browser...</div>\n';
-      html += '</div>\n';
-
-      // Fallback UI shown if auto-redirect doesn't work
-      html += '<div id="fallback-state" class="hidden">\n';
+      // Thumbnail with play overlay
       if (thumbnail) {
-        html += '<img class="thumb" src="' + thumbnail + '" alt="' + title + '" onerror="this.style.display=\'none\'" />\n';
+        html += '<div class="thumb-wrap">\n';
+        html += '  <img class="thumb" src="' + thumbnail + '" alt="' + title + '" onerror="this.parentElement.style.display=\'none\'" />\n';
+        html += '  <div class="play-overlay"><div class="play-btn"><svg viewBox="0 0 24 24" fill="#e50914"><path d="M8 5v14l11-7z"/></svg></div></div>\n';
+        if (duration && duration !== '00:00') {
+          html += '  <div class="duration-badge">' + duration + '</div>\n';
+        }
+        html += '</div>\n';
       }
+
+      // Title and meta
       html += '<div class="title">' + title + '</div>\n';
       html += '<div class="meta">';
-      if (duration) html += duration + ' &bull; ';
-      html += formatViews(views) + ' views</div>\n';
-
-      // Two buttons: one tries external browser, one is direct link
-      html += '<a id="external-btn" class="btn-external" href="' + videoPageUrl + '">&#9654; Open in Browser</a><br/>\n';
-      html += '<a class="btn" href="' + videoPageUrl + '">&#9654; Watch Video</a>\n';
-
-      html += '<div class="tip">\n';
-      html += '<strong>💡 Tip:</strong> If the video opens inside Telegram, tap the <strong>⋮</strong> menu (top right) and select <strong>"Open in Chrome"</strong> or <strong>"Open in Browser"</strong>.\n';
-      html += '</div>\n';
+      if (duration && duration !== '00:00') html += duration + ' &bull; ';
+      html += formatViews(views) + ' views &bull; ' + SITE_NAME;
       html += '</div>\n';
 
+      // PRIMARY: Open in external browser button
+      // On Android, this uses intent:// to force Chrome
+      // On iOS/desktop, links to the video page directly
+      html += '<a id="main-btn" class="open-btn" href="' + videoPageUrl + '">\n';
+      html += '  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>\n';
+      html += '  Open in Browser\n';
+      html += '</a>\n';
+
+      // SECONDARY: Direct link (works in any context)
+      html += '<a class="secondary-btn" href="' + videoPageUrl + '">▶ Watch Here</a>\n';
+
+      // Instructions
+      html += '<div class="steps">\n';
+      html += '  <div class="step"><div class="step-num">1</div><div class="step-text">Tap <strong>"Open in Browser"</strong> above</div></div>\n';
+      html += '  <div class="step"><div class="step-num">2</div><div class="step-text">If it opens here, tap <strong>⋮</strong> (top right) → <strong>"Open in Chrome"</strong></div></div>\n';
+      html += '  <div class="step"><div class="step-num">3</div><div class="step-text">Enjoy the full video experience! 🎬</div></div>\n';
       html += '</div>\n';
+
+      // Tip
+      html += '<div class="tip-box">\n';
+      html += '  <p>💡 <strong>Why external browser?</strong> Videos play better in Chrome/Safari with full controls, quality options, and no interruptions.</p>\n';
+      html += '</div>\n';
+
+      html += '</div></div>\n';
+
+      // Footer
+      html += '<div class="site-badge">' + SITE_NAME + ' &bull; Best viewing experience in your browser</div>\n';
 
       // ==========================================
-      // JAVASCRIPT: EXTERNAL BROWSER REDIRECT
+      // JAVASCRIPT: Try to open external browser
       // ==========================================
       html += '<script>\n';
       html += '(function() {\n';
       html += '  var targetUrl = "' + videoPageUrl + '";\n';
       html += '  var ua = navigator.userAgent || "";\n';
-      html += '  var loadingEl = document.getElementById("loading-state");\n';
-      html += '  var fallbackEl = document.getElementById("fallback-state");\n';
-      html += '  var externalBtn = document.getElementById("external-btn");\n';
-      html += '\n';
-      html += '  // Detect in-app browsers\n';
-      html += '  function isInAppBrowser() {\n';
-      html += '    var patterns = [\n';
-      html += '      /Telegram/i, /TelegramBot/i,\n';
-      html += '      /FBAN/i, /FBAV/i, /FB_IAB/i,\n';
-      html += '      /Instagram/i,\n';
-      html += '      /Twitter/i,\n';
-      html += '      /Line\\//i,\n';
-      html += '      /Snapchat/i,\n';
-      html += '      /Viber/i,\n';
-      html += '      /WhatsApp/i,\n';
-      html += '      /MicroMessenger/i,\n';  // WeChat
-      html += '      /QQBrowser/i\n';
-      html += '    ];\n';
-      html += '    for (var i = 0; i < patterns.length; i++) {\n';
-      html += '      if (patterns[i].test(ua)) return true;\n';
-      html += '    }\n';
-      html += '    return false;\n';
-      html += '  }\n';
-      html += '\n';
+      html += '  var mainBtn = document.getElementById("main-btn");\n';
       html += '  var isAndroid = /Android/i.test(ua);\n';
       html += '  var isIOS = /iPhone|iPad|iPod/i.test(ua);\n';
-      html += '  var inApp = isInAppBrowser();\n';
       html += '\n';
-      html += '  // Show fallback UI after timeout\n';
-      html += '  function showFallback() {\n';
-      html += '    if (loadingEl) loadingEl.className = "hidden";\n';
-      html += '    if (fallbackEl) fallbackEl.className = "";\n';
-      html += '  }\n';
+      html += '  // Detect if inside an in-app browser\n';
+      html += '  var inApp = /Telegram|FBAN|FBAV|Instagram|Twitter|Line\\/|Snapchat|Viber|WhatsApp|MicroMessenger/i.test(ua);\n';
       html += '\n';
       html += '  if (!inApp) {\n';
-      html += '    // Already in a real browser — just redirect immediately\n';
+      html += '    // Already in real browser — redirect immediately\n';
       html += '    window.location.replace(targetUrl);\n';
       html += '    return;\n';
       html += '  }\n';
       html += '\n';
-      html += '  // === IN-APP BROWSER DETECTED ===\n';
-      html += '\n';
-      html += '  if (isAndroid) {\n';
-      html += '    // Method 1: Android Intent — opens in Chrome or default browser\n';
+      html += '  if (isAndroid && mainBtn) {\n';
+      html += '    // Build intent URL for the button\n';
       html += '    var intentUrl = "intent://" + targetUrl.replace(/^https?:\\/\\//, "")\n';
-      html += '      + "#Intent"\n';
-      html += '      + ";scheme=https"\n';
-      html += '      + ";package=com.android.chrome"\n';
+      html += '      + "#Intent;scheme=https;package=com.android.chrome"\n';
       html += '      + ";S.browser_fallback_url=" + encodeURIComponent(targetUrl)\n';
       html += '      + ";end;";\n';
-      html += '\n';
-      html += '    window.location.href = intentUrl;\n';
-      html += '\n';
-      html += '    // Method 2: Fallback — try generic browser intent after delay\n';
-      html += '    setTimeout(function() {\n';
-      html += '      var genericIntent = "intent://" + targetUrl.replace(/^https?:\\/\\//, "")\n';
-      html += '        + "#Intent"\n';
-      html += '        + ";scheme=https"\n';
-      html += '        + ";action=android.intent.action.VIEW"\n';
-      html += '        + ";S.browser_fallback_url=" + encodeURIComponent(targetUrl)\n';
-      html += '        + ";end;";\n';
-      html += '      window.location.href = genericIntent;\n';
-      html += '    }, 1000);\n';
-      html += '\n';
-      html += '    // Method 3: Show fallback UI if nothing worked\n';
-      html += '    setTimeout(showFallback, 2000);\n';
-      html += '\n';
-      html += '  } else if (isIOS) {\n';
-      html += '    // iOS: Try x-safari-https scheme to force Safari\n';
-      html += '    var safariUrl = "x-safari-https://" + targetUrl.replace(/^https?:\\/\\//, "");\n';
-      html += '    window.location.href = safariUrl;\n';
-      html += '\n';
-      html += '    // Fallback: try window.open\n';
-      html += '    setTimeout(function() {\n';
-      html += '      window.open(targetUrl, "_blank");\n';
-      html += '    }, 800);\n';
-      html += '\n';
-      html += '    // Show fallback UI if nothing worked\n';
-      html += '    setTimeout(showFallback, 1500);\n';
-      html += '\n';
-      html += '  } else {\n';
-      html += '    // Desktop or unknown — try direct redirect, show fallback\n';
-      html += '    window.location.replace(targetUrl);\n';
-      html += '    setTimeout(showFallback, 1000);\n';
+      html += '    mainBtn.href = intentUrl;\n';
       html += '  }\n';
       html += '\n';
-      html += '  // Update the external button with intent URL on Android\n';
-      html += '  if (isAndroid && externalBtn) {\n';
-      html += '    externalBtn.addEventListener("click", function(e) {\n';
+      html += '  if (isIOS && mainBtn) {\n';
+      html += '    mainBtn.addEventListener("click", function(e) {\n';
       html += '      e.preventDefault();\n';
-      html += '      var clickIntent = "intent://" + targetUrl.replace(/^https?:\\/\\//, "")\n';
-      html += '        + "#Intent"\n';
-      html += '        + ";scheme=https"\n';
-      html += '        + ";package=com.android.chrome"\n';
-      html += '        + ";S.browser_fallback_url=" + encodeURIComponent(targetUrl)\n';
-      html += '        + ";end;";\n';
-      html += '      window.location.href = clickIntent;\n';
+      html += '      // Try Safari URL scheme\n';
+      html += '      window.location.href = "x-safari-" + targetUrl;\n';
+      html += '      // Fallback after delay\n';
+      html += '      setTimeout(function() {\n';
+      html += '        window.location.href = targetUrl;\n';
+      html += '      }, 500);\n';
       html += '    });\n';
       html += '  }\n';
-      html += '\n';
       html += '})();\n';
       html += '</script>\n';
-      html += '</body>\n';
-      html += '</html>';
+      html += '</body></html>';
     }
 
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
