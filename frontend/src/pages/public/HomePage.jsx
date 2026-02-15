@@ -272,107 +272,77 @@ const HomePage = () => {
   useEffect(() => { hasMoreRef.current = hasMore; }, [hasMore]);
   useEffect(() => { pageRef.current = page; }, [page]);
 
+  // ==================== FETCH INITIAL DATA ====================
   useEffect(() => {
     const fetchHomeData = async () => {
+      // Fetch home data (featured, categories)
       try {
-        // Fetch home data (featured, categories)
-        try {
-          const response = await publicAPI.getHomeData();
-          if (response.data && response.data.success) {
-            const data = response.data.data;
-            setFeaturedVideos(data.featuredVideos || []);
-            setCategories(data.categories || []);
-          }
-        } catch (homeErr) {
-          console.error('Home data error:', homeErr);
+        const response = await publicAPI.getHomeData();
+        if (response.data && response.data.success) {
+          const data = response.data.data;
+          setFeaturedVideos(data.featuredVideos || []);
+          setCategories(data.categories || []);
         }
-
-        // Fetch first page of videos separately
-        try {
-          const videosResponse = await publicAPI.getVideos({
-            page: 1,
-            limit: 40,
-            sort: 'newest',
-          });
-
-          const vData = videosResponse.data;
-          console.log('Initial videos response:', {
-            success: vData?.success,
-            videoCount: vData?.videos?.length,
-            pagination: vData?.pagination
-          });
-
-          if (vData && vData.videos) {
-            const videos = vData.videos;
-            setAllVideos(videos);
-            setPage(1);
-            pageRef.current = 1;
-
-            const pag = vData.pagination;
-            const total = pag?.total || 0;
-            const totalPages = pag?.pages || 1;
-
-            setTotalVideos(total);
-
-            if (videos.length === 0 || 1 >= totalPages) {
-              setHasMore(false);
-              hasMoreRef.current = false;
-            } else {
-              setHasMore(true);
-              hasMoreRef.current = true;
-            }
-          }
-        } catch (vidErr) {
-          console.error('Videos fetch error:', vidErr);
-        }
-      } finally {
-        setLoading(false);
+      } catch (homeErr) {
+        console.error('Home data error:', homeErr);
       }
-    };
-    fetchHomeData();
-  }, []);
+
+      // Fetch first page of videos
+      try {
+        const videosResponse = await publicAPI.getVideos({
           page: 1,
           limit: 40,
           sort: 'newest',
         });
 
-        if (videosResponse.data) {
-          const vData = videosResponse.data;
-          const videos = vData.videos || [];
+        const vData = videosResponse.data;
+        console.log('Initial videos response:', {
+          success: vData?.success,
+          videoCount: vData?.videos?.length,
+          pagination: vData?.pagination
+        });
+
+        if (vData && vData.videos) {
+          const videos = vData.videos;
           setAllVideos(videos);
           setPage(1);
           pageRef.current = 1;
 
-          const total = vData.pagination?.total || vData.total || 0;
+          const pag = vData.pagination;
+          const total = pag?.total || 0;
+          const totalPages = pag?.pages || 1;
+
           setTotalVideos(total);
 
-          const totalPages = vData.pagination?.pages || Math.ceil(total / 40) || 1;
-          if (1 >= totalPages || videos.length === 0) {
+          if (videos.length === 0 || 1 >= totalPages) {
             setHasMore(false);
             hasMoreRef.current = false;
+          } else {
+            setHasMore(true);
+            hasMoreRef.current = true;
           }
         }
-      } catch (error) {
-        console.error('Failed to fetch home data:', error);
-      } finally {
-        setLoading(false);
+      } catch (vidErr) {
+        console.error('Videos fetch error:', vidErr);
       }
+
+      setLoading(false);
     };
+
     fetchHomeData();
   }, []);
 
-    const loadMoreVideos = useCallback(async () => {
-    // Strict guard using refs
+  // ==================== LOAD MORE VIDEOS ====================
+  const loadMoreVideos = useCallback(async () => {
     if (loadingMoreRef.current) {
-      console.log('Blocked: already loading');
+      console.log('[LoadMore] Blocked: already loading');
       return;
     }
     if (!hasMoreRef.current) {
-      console.log('Blocked: no more videos');
+      console.log('[LoadMore] Blocked: no more videos');
       return;
     }
 
-    // Lock immediately
     loadingMoreRef.current = true;
     setLoadingMore(true);
 
@@ -412,7 +382,6 @@ const HomePage = () => {
         return;
       }
 
-      // Deduplicate and append
       setAllVideos(prev => {
         const existingIds = new Set(prev.map(v => v._id));
         const unique = newVideos.filter(v => !existingIds.has(v._id));
@@ -420,15 +389,12 @@ const HomePage = () => {
         return [...prev, ...unique];
       });
 
-      // Update page counter
       setPage(nextPage);
       pageRef.current = nextPage;
 
-      // Update total
       const pag = vData.pagination;
       if (pag) {
         setTotalVideos(pag.total || 0);
-
         if (nextPage >= pag.pages) {
           console.log(`[LoadMore] Reached last page (${nextPage}/${pag.pages})`);
           setHasMore(false);
@@ -437,16 +403,14 @@ const HomePage = () => {
       }
     } catch (error) {
       console.error('[LoadMore] Error:', error.message);
-      // Don't disable hasMore on network error — user can retry
     } finally {
-      // ALWAYS unlock
       loadingMoreRef.current = false;
       setLoadingMore(false);
       console.log('[LoadMore] Done, unlocked');
     }
   }, []);
 
-  // IntersectionObserver for auto-loading
+  // ==================== INTERSECTION OBSERVER ====================
   useEffect(() => {
     if (loading) return;
     if (observerRef.current) observerRef.current.disconnect();
@@ -467,7 +431,7 @@ const HomePage = () => {
     return () => observer.disconnect();
   }, [loading, loadMoreVideos]);
 
-  // Scroll fallback
+  // ==================== SCROLL FALLBACK ====================
   useEffect(() => {
     if (loading) return;
 
@@ -491,6 +455,7 @@ const HomePage = () => {
     return () => window.removeEventListener('scroll', throttledScroll);
   }, [loading, loadMoreVideos]);
 
+  // ==================== RENDER VIDEOS WITH ADS ====================
   const renderVideosWithAds = () => {
     if (allVideos.length === 0) {
       return (
@@ -523,6 +488,7 @@ const HomePage = () => {
     );
   };
 
+  // ==================== RENDER ====================
   return (
     <>
       <Helmet>
@@ -545,7 +511,6 @@ const HomePage = () => {
       <div className="min-h-screen bg-gray-50 dark:bg-dark-400">
         <GlobalAdsLoader />
 
-        {/* Top Banner Ad */}
         <div className="max-w-7xl mx-auto px-4 pt-4">
           {isMobile ? (
             <AdSlot adCode={ADS.mobile320x50} label="Sponsored" className="flex justify-center" />
@@ -556,13 +521,11 @@ const HomePage = () => {
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex flex-col lg:flex-row gap-6">
-            {/* ==================== MAIN CONTENT ==================== */}
             <div className="flex-1">
               <h1 className="sr-only">
                 Xmaster - Free porn Videos | Watch HD porn Online | Best porn Tube Site | Alternative to pornhub xhamster Xvideos
               </h1>
 
-              {/* Featured Videos */}
               {featuredVideos.length > 0 && (
                 <section className="mb-10">
                   <SectionHeader icon={FiStar} title="Featured Videos" iconColor="text-yellow-500" />
@@ -578,7 +541,6 @@ const HomePage = () => {
                 </section>
               )}
 
-              {/* Mid-page ad */}
               <div className="mb-8">
                 {isMobile ? (
                   <AdSlot adCode={ADS.footer300x250} label="Sponsored" className="flex justify-center" />
@@ -587,7 +549,6 @@ const HomePage = () => {
                 )}
               </div>
 
-              {/* All Videos with Infinite Scroll */}
               <section className="mb-10">
                 <SectionHeader
                   icon={FiClock}
@@ -603,7 +564,6 @@ const HomePage = () => {
                   <>
                     {renderVideosWithAds()}
 
-                    {/* Load More Section */}
                     <div
                       ref={loadMoreRef}
                       className="py-8 flex flex-col items-center justify-center"
@@ -642,7 +602,6 @@ const HomePage = () => {
                 )}
               </section>
 
-              {/* Categories */}
               {categories.length > 0 && (
                 <section id="categories" className="mb-10">
                   <SectionHeader title="Browse Categories" iconColor="text-purple-500" />
@@ -654,7 +613,6 @@ const HomePage = () => {
                 </section>
               )}
 
-              {/* SEO Content */}
               <section className="mb-10 bg-white dark:bg-dark-200 rounded-xl p-6">
                 <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">
                   Popular Porn Categories on Xmaster
@@ -703,7 +661,6 @@ const HomePage = () => {
                 </ul>
               </section>
 
-              {/* Comments */}
               <section className="mb-10">
                 <SectionHeader title="💬 Comments" />
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -713,7 +670,6 @@ const HomePage = () => {
               </section>
             </div>
 
-            {/* ==================== SIDEBAR ==================== */}
             <aside className="w-full lg:w-80 flex-shrink-0 hidden lg:block">
               <div className="sticky top-20 space-y-6">
                 <div className="flex justify-center">
@@ -759,7 +715,6 @@ const HomePage = () => {
           </div>
         </div>
 
-        {/* Footer Ad */}
         <div className="max-w-7xl mx-auto px-4 pb-8">
           <div className="py-6 border-t border-gray-200 dark:border-dark-100">
             {isMobile ? (
@@ -774,7 +729,6 @@ const HomePage = () => {
   );
 };
 
-// ==================== SECTION HEADER ====================
 const SectionHeader = ({ icon: Icon, title, link, linkText, iconColor = 'text-primary-500' }) => (
   <div className="flex items-center justify-between mb-6">
     <h2 className="flex items-center gap-2 text-lg sm:text-xl font-bold text-gray-900 dark:text-white">
@@ -790,7 +744,6 @@ const SectionHeader = ({ icon: Icon, title, link, linkText, iconColor = 'text-pr
   </div>
 );
 
-// ==================== CATEGORY CARD ====================
 const CategoryCard = ({ category }) => (
   <Link
     to={`/category/${category.slug}`}
