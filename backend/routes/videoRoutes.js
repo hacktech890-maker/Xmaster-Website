@@ -6,13 +6,15 @@ const Category = require('../models/Category');
 const ViewLog = require('../models/ViewLog');
 const Report = require('../models/Report');
 
-// GET /api/videos
+// GET /api/videos — Change the default limit
 router.get('/', async (req, res) => {
   try {
-    const { page = 1, limit = 20, sort = 'newest', category = '', tag = '' } = req.query;
+    // ✅ FIX: Increase default limit from 20 to 40, allow up to 100
+    const { page = 1, sort = 'newest', category = '', tag = '' } = req.query;
+    const limit = Math.min(parseInt(req.query.limit) || 40, 100);
     const query = { status: 'public', isDuplicate: { $ne: true } };
 
-    // Category filter - supports ObjectId
+    // Category filter
     if (category) {
       if (mongoose.Types.ObjectId.isValid(category)) {
         query.$or = [
@@ -31,14 +33,14 @@ router.get('/', async (req, res) => {
       default: sortOption = { uploadDate: -1 };
     }
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const skip = (parseInt(page) - 1) * limit;
     const [videos, total] = await Promise.all([
       Video.find(query)
         .populate('category', 'name slug color icon')
         .populate('categories', 'name slug color icon')
         .sort(sortOption)
         .skip(skip)
-        .limit(parseInt(limit))
+        .limit(limit)
         .lean(),
       Video.countDocuments(query)
     ]);
@@ -48,9 +50,9 @@ router.get('/', async (req, res) => {
       videos,
       pagination: {
         page: parseInt(page),
-        limit: parseInt(limit),
+        limit: limit,
         total,
-        pages: Math.ceil(total / parseInt(limit))
+        pages: Math.ceil(total / limit)
       }
     });
   } catch (error) {

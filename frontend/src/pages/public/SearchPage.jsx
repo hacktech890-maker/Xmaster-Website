@@ -41,7 +41,7 @@ const SearchPage = () => {
         let response;
         
         if (tag) {
-          response = await publicAPI.searchByTag(tag, { page, sort, limit: 20 });
+          response = await publicAPI.searchByTag(tag, { page, sort, limit: 40 });
         } else if (query) {
           // Has search query — use search endpoint
           response = await publicAPI.searchVideos({ 
@@ -49,7 +49,7 @@ const SearchPage = () => {
             page, 
             sort, 
             category,
-            limit: 20 
+            limit: 40 
           });
         } else {
           // No query — "Browse All" / "View All"
@@ -58,7 +58,7 @@ const SearchPage = () => {
             page, 
             sort, 
             category,
-            limit: 20 
+            limit: 40 
           });
         }
 
@@ -72,7 +72,7 @@ const SearchPage = () => {
         console.error('Search/Browse failed:', error);
         // Fallback: try getVideos
         try {
-          const fallback = await publicAPI.getVideos({ page, sort, limit: 20 });
+          const fallback = await publicAPI.getVideos({ page, sort, limit: 40 });
           if (fallback.data.success) {
             setVideos(fallback.data.videos || []);
             if (fallback.data.pagination) {

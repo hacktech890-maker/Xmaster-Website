@@ -13,7 +13,7 @@ const TrendingPage = () => {
     const fetchTrending = async () => {
       setLoading(true);
       try {
-        const response = await publicAPI.getTrendingVideos(24);
+        const response = await publicAPI.getTrendingVideos(48);
         if (response.data?.success) {
           setVideos(response.data.videos || []);
         }

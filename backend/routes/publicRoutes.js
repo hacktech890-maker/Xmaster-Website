@@ -548,7 +548,6 @@ router.get('/home', async (req, res) => {
   try {
     var query = { status: 'public', isDuplicate: { $ne: true } };
 
-    // Featured: random selection from featured videos
     const featuredVideos = await Video.aggregate([
       { $match: { ...query, featured: true } },
       { $sample: { size: 6 } },
@@ -568,13 +567,12 @@ router.get('/home', async (req, res) => {
       { $project: { categoryData: 0 } }
     ]);
 
-    // Latest: still sorted by date (these should be newest)
+    // ✅ FIX: Changed from .limit(12) to .limit(40)
     const latestVideos = await Video.find(query)
       .sort({ uploadDate: -1 })
-      .limit(12)
+      .limit(40)
       .populate('category', 'name slug');
 
-    // Trending: mix of top viewed + random for variety
     const trendingVideos = await Video.aggregate([
       { $match: query },
       { $sort: { views: -1 } },
@@ -598,7 +596,19 @@ router.get('/home', async (req, res) => {
 
     const categories = await Category.find({ isActive: true }).sort({ order: 1 }).limit(10);
 
-    res.json({ success: true, data: { featuredVideos, latestVideos, trendingVideos, categories } });
+    // ✅ FIX: Also return total count so frontend knows how many exist
+    const totalVideos = await Video.countDocuments(query);
+
+    res.json({
+      success: true,
+      data: {
+        featuredVideos,
+        latestVideos,
+        trendingVideos,
+        categories,
+        totalVideos  // ✅ Added
+      }
+    });
   } catch (error) {
     console.error('Home Data Error:', error);
     res.status(500).json({ error: 'Failed to get home data' });

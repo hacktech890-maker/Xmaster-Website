@@ -99,12 +99,10 @@ const ADS = {
 };
 
 // ==================== IN-FEED AD COMPONENT ====================
-const InFeedAd = ({ index, isMobile }) => {
-  // Rotate between different ad types based on index
+const InFeedAd = React.memo(({ index, isMobile }) => {
   const adType = index % 3;
 
   if (isMobile) {
-    // Mobile: alternate between 320x50 and 300x250
     if (adType === 0) {
       return (
         <div className="col-span-2 flex justify-center items-center py-3">
@@ -132,7 +130,6 @@ const InFeedAd = ({ index, isMobile }) => {
     }
   }
 
-  // Desktop: alternate between 728x90, native banner, and AdBanner
   if (adType === 0) {
     return (
       <div className="col-span-full flex justify-center items-center py-4">
@@ -156,9 +153,9 @@ const InFeedAd = ({ index, isMobile }) => {
       </div>
     );
   }
-};
+});
 
-// ==================== SEO KEYWORDS FOR HIDDEN TEXT ====================
+// ==================== SEO KEYWORDS ====================
 const SEO_CATEGORIES = [
   "Amateur", "Anal", "Asian", "BBW", "Big Ass", "Big Tits", "Blonde", "Blowjob",
   "Brunette", "Cosplay", "Creampie", "Cumshot", "Desi", "Ebony", "Gangbang",
@@ -176,9 +173,15 @@ const HomePage = () => {
   const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+  const [totalVideos, setTotalVideos] = useState(0);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
+
+  // ✅ FIX 1: Use refs that persist across renders
   const observerRef = useRef(null);
   const loadMoreRef = useRef(null);
+  const loadingMoreRef = useRef(false);
+  const hasMoreRef = useRef(true);
+  const pageRef = useRef(1);
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 1024);
@@ -186,17 +189,49 @@ const HomePage = () => {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
+  // ✅ FIX 2: Keep refs in sync with state
+  useEffect(() => {
+    loadingMoreRef.current = loadingMore;
+  }, [loadingMore]);
+
+  useEffect(() => {
+    hasMoreRef.current = hasMore;
+  }, [hasMore]);
+
+  useEffect(() => {
+    pageRef.current = page;
+  }, [page]);
+
+  // ✅ FIX 3: Load initial data with LARGER first batch
   useEffect(() => {
     const fetchHomeData = async () => {
       try {
+        // Load home data (featured, categories, latest 12)
         const response = await publicAPI.getHomeData();
         if (response.data.success) {
           const data = response.data.data;
           setFeaturedVideos(data.featuredVideos || []);
           setCategories(data.categories || []);
-          setAllVideos(data.latestVideos || []);
-          if ((data.latestVideos || []).length < 12) {
-            setHasMore(false);
+
+          // ✅ FIX: Also load first page of ALL videos immediately
+          const videosResponse = await publicAPI.getVideos({
+            page: 1,
+            limit: 40, // ✅ Load more initially
+            sort: 'newest',
+          });
+
+          if (videosResponse.data.success) {
+            const videos = videosResponse.data.videos || [];
+            setAllVideos(videos);
+            setPage(1);
+            setTotalVideos(videosResponse.data.pagination?.total || 0);
+
+            const pagination = videosResponse.data.pagination;
+            if (pagination && 1 >= pagination.pages) {
+              setHasMore(false);
+            } else if (videos.length === 0) {
+              setHasMore(false);
+            }
           }
         }
       } catch (error) {
@@ -208,33 +243,43 @@ const HomePage = () => {
     fetchHomeData();
   }, []);
 
+  // ✅ FIX 4: Stable loadMoreVideos that uses refs instead of state
   const loadMoreVideos = useCallback(async () => {
-    if (loadingMore || !hasMore) return;
+    // Use refs for checks to avoid stale closures
+    if (loadingMoreRef.current || !hasMoreRef.current) return;
+
+    loadingMoreRef.current = true;
     setLoadingMore(true);
 
     try {
-      const nextPage = page + 1;
+      const nextPage = pageRef.current + 1;
       const response = await publicAPI.getVideos({
         page: nextPage,
-        limit: 20,
+        limit: 40, // ✅ Load 40 per batch instead of 20
         sort: 'newest',
       });
 
       if (response.data.success) {
         const newVideos = response.data.videos || [];
+
         if (newVideos.length === 0) {
           setHasMore(false);
+          hasMoreRef.current = false;
         } else {
           setAllVideos(prev => {
             const existingIds = new Set(prev.map(v => v._id));
             const unique = newVideos.filter(v => !existingIds.has(v._id));
             return [...prev, ...unique];
           });
+
           setPage(nextPage);
+          pageRef.current = nextPage;
+          setTotalVideos(response.data.pagination?.total || 0);
 
           const pagination = response.data.pagination;
           if (pagination && nextPage >= pagination.pages) {
             setHasMore(false);
+            hasMoreRef.current = false;
           }
         }
       }
@@ -242,19 +287,30 @@ const HomePage = () => {
       console.error('Failed to load more videos:', error);
     } finally {
       setLoadingMore(false);
+      loadingMoreRef.current = false;
     }
-  }, [page, loadingMore, hasMore]);
+  }, []); // ✅ Empty deps - uses refs, never goes stale
 
+  // ✅ FIX 5: Create observer ONCE and never recreate it
   useEffect(() => {
     if (loading) return;
 
+    // Disconnect existing observer
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+    }
+
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasMore && !loadingMore) {
+        const entry = entries[0];
+        if (entry.isIntersecting && hasMoreRef.current && !loadingMoreRef.current) {
           loadMoreVideos();
         }
       },
-      { threshold: 0.1, rootMargin: '300px' }
+      {
+        threshold: 0.01, // ✅ Very low threshold — triggers earlier
+        rootMargin: '600px', // ✅ Start loading 600px before sentinel is visible
+      }
     );
 
     observerRef.current = observer;
@@ -264,11 +320,47 @@ const HomePage = () => {
     }
 
     return () => {
-      if (observer) observer.disconnect();
+      observer.disconnect();
     };
-  }, [loading, hasMore, loadingMore, loadMoreVideos]);
+  }, [loading, loadMoreVideos]); // ✅ Only depends on loading & stable function
 
-  // ==================== RENDER VIDEOS WITH ADS EVERY 3-4 ROWS ====================
+  // ✅ FIX 6: Fallback scroll listener in case IntersectionObserver fails
+  useEffect(() => {
+    if (loading) return;
+
+    const handleScroll = () => {
+      if (loadingMoreRef.current || !hasMoreRef.current) return;
+
+      const scrollTop = window.scrollY || document.documentElement.scrollTop;
+      const scrollHeight = document.documentElement.scrollHeight;
+      const clientHeight = document.documentElement.clientHeight;
+
+      // When user is within 800px of bottom, load more
+      if (scrollTop + clientHeight >= scrollHeight - 800) {
+        loadMoreVideos();
+      }
+    };
+
+    // Throttle scroll events
+    let ticking = false;
+    const throttledScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          handleScroll();
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+
+    window.addEventListener('scroll', throttledScroll, { passive: true });
+
+    return () => {
+      window.removeEventListener('scroll', throttledScroll);
+    };
+  }, [loading, loadMoreVideos]);
+
+  // ==================== RENDER VIDEOS WITH ADS ====================
   const renderVideosWithAds = () => {
     if (allVideos.length === 0) {
       return (
@@ -279,24 +371,15 @@ const HomePage = () => {
       );
     }
 
-    // Calculate videos per row based on screen size
-    // Mobile: 2 per row, Tablet: 3 per row, Desktop: 4 per row
-    // We'll insert ads every 3 rows
-    // Mobile: every 6 videos (2 cols × 3 rows)
-    // Desktop: every 12 videos (4 cols × 3 rows)
-    const videosPerAdBreak = isMobile ? 6 : 12;
-
+    const videosPerAdBreak = isMobile ? 8 : 16; // ✅ Slightly wider spacing for ads
     const items = [];
     let adCounter = 0;
 
     for (let i = 0; i < allVideos.length; i++) {
-      // Add the video card
       items.push(
         <VideoCard key={allVideos[i]._id} video={allVideos[i]} />
       );
 
-      // After every videosPerAdBreak videos, insert an ad
-      // But not after the very last video
       if ((i + 1) % videosPerAdBreak === 0 && i < allVideos.length - 1) {
         items.push(
           <InFeedAd
@@ -323,16 +406,12 @@ const HomePage = () => {
         <meta name="description" content="Watch free HD porn videos on Xmaster. Stream thousands of porn clips in HD & 4K. Browse leaked mms videos, viral mms videos, porn, mms, hardcore, anal categories. Best free porn tube site. Alternative to pornhub, xhamster, Xvideos. Updated daily with new porn content. MMS videos, desi mms, indian mms, amateur porn, homemade porn and more." />
         <meta name="keywords" content="porn,free porn videos,HD porn,4K porn,porn streaming,watch porn online,porn tube,porn site,pornhub alternative,xhamster alternative,xvideos alternative,desi mms,indian mms,mms videos,leaked mms,amateur porn,homemade porn,milf,teen,anal,blowjob,creampie,big ass,big tits,latina,asian,ebony,lesbian,threesome,webcam,hentai,JAV,POV,hardcore,xmaster,xmaster.guru" />
         <link rel="canonical" href="https://xmaster.guru" />
-
-        {/* Open Graph */}
         <meta property="og:type" content="website" />
         <meta property="og:title" content="Xmaster - Free porn Videos | HD porn Streaming" />
         <meta property="og:description" content="Watch free HD porn videos online. Thousands of porn clips updated daily. Best porn tube alternative." />
         <meta property="og:url" content="https://xmaster.guru" />
         <meta property="og:image" content="https://xmaster.guru/logo.jpg" />
         <meta property="og:site_name" content="Xmaster" />
-
-        {/* Twitter */}
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content="Xmaster - Free porn Videos | HD Streaming" />
         <meta name="twitter:description" content="Watch free HD porn videos online. Updated daily." />
@@ -346,8 +425,6 @@ const HomePage = () => {
           <div className="flex flex-col lg:flex-row gap-6">
             {/* ==================== MAIN CONTENT ==================== */}
             <div className="flex-1">
-
-              {/* SEO H1 - Hidden visually but readable by search engines */}
               <h1 className="sr-only">
                 Xmaster - Free porn Videos | Watch HD porn Online | Best porn Tube Site | Alternative to pornhub xhamster Xvideos
               </h1>
@@ -380,7 +457,7 @@ const HomePage = () => {
               <section className="mb-10">
                 <SectionHeader
                   icon={FiClock}
-                  title="Latest Videos"
+                  title={`Latest Videos${totalVideos > 0 ? ` (${totalVideos})` : ''}`}
                   link="/search?sort=newest"
                   linkText="View All"
                   iconColor="text-blue-500"
@@ -392,7 +469,12 @@ const HomePage = () => {
                   <>
                     {renderVideosWithAds()}
 
-                    <div ref={loadMoreRef} className="py-8 flex justify-center">
+                    {/* ✅ FIX 7: Sentinel div OUTSIDE the grid, always visible */}
+                    <div
+                      ref={loadMoreRef}
+                      className="py-8 flex flex-col items-center justify-center"
+                      style={{ minHeight: '100px' }} // ✅ Ensure it has height for observer
+                    >
                       {loadingMore && (
                         <div className="flex items-center gap-3 text-gray-400">
                           <FiLoader className="w-5 h-5 animate-spin" />
@@ -401,8 +483,17 @@ const HomePage = () => {
                       )}
                       {!hasMore && allVideos.length > 0 && (
                         <p className="text-gray-500 dark:text-gray-400 text-sm">
-                          You've reached the end • {allVideos.length} videos loaded
+                          You've reached the end • {allVideos.length} of {totalVideos} videos loaded
                         </p>
+                      )}
+                      {hasMore && !loadingMore && (
+                        <button
+                          onClick={loadMoreVideos}
+                          className="px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white rounded-lg 
+                                     font-medium transition-colors text-sm"
+                        >
+                          Load More Videos ({allVideos.length} of {totalVideos} loaded)
+                        </button>
                       )}
                     </div>
                   </>
@@ -421,7 +512,7 @@ const HomePage = () => {
                 </section>
               )}
 
-              {/* ==================== SEO CONTENT SECTION ==================== */}
+              {/* SEO Content */}
               <section className="mb-10 bg-white dark:bg-dark-200 rounded-xl p-6">
                 <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">
                   Popular Porn Categories on Xmaster
@@ -442,20 +533,17 @@ const HomePage = () => {
                   <p>
                     <strong>Xmaster</strong> is your ultimate destination for free porn videos online.
                     We offer a massive collection of HD and 4K Porn content across hundreds of categories
-                    including mms videos, porn videos,latest mms viral videos porn,latest porn, and many more. Our platform is updated daily with
-                    fresh new porn videos from top creators and amateur performers worldwide.
+                    including mms videos, porn videos, latest mms viral videos porn, latest porn, and many more.
                   </p>
                   <p>
                     Looking for an alternative to pornhub, xhamster, or xvideos? Xmaster provides
                     the same premium experience with faster streaming, better video quality, and a
-                    cleaner interface. Browse our trending section for the most popular porn videos,
-                    or explore our categories to find exactly what you're looking for.
+                    cleaner interface.
                   </p>
                   <p>
-                    Whether you enjoy anal, hardcore, sex videos, latest porn , MMS videos, desi content, or
+                    Whether you enjoy anal, hardcore, sex videos, latest porn, MMS videos, desi content, or
                     any other category, Xmaster has thousands of free porn videos ready to stream.
-                    No signup required. Watch porn videos for free in HD quality on any device -
-                    desktop, mobile, or tablet.
+                    No signup required.
                   </p>
                 </div>
 
@@ -470,9 +558,6 @@ const HomePage = () => {
                   <li>Works on all devices - mobile, desktop, tablet</li>
                   <li>No registration required</li>
                   <li>Best alternative to pornhub, xhamster, xvideos</li>
-                  <li>MMS videos, desi content, and regional porn categories</li>
-                  <li>Amateur, professional, and exclusive creator content</li>
-                  <li>Safe and private browsing experience</li>
                 </ul>
               </section>
 
@@ -480,12 +565,8 @@ const HomePage = () => {
               <section className="mb-10">
                 <SectionHeader title="💬 Comments" />
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  <div>
-                    <CommentForm />
-                  </div>
-                  <div>
-                    <CommentsList />
-                  </div>
+                  <div><CommentForm /></div>
+                  <div><CommentsList /></div>
                 </div>
               </section>
             </div>
@@ -494,7 +575,6 @@ const HomePage = () => {
             <aside className="w-full lg:w-80 flex-shrink-0 hidden lg:block">
               <div className="sticky top-20 space-y-6">
                 <AdBanner placement="home_sidebar" />
-
                 <div className="card p-4">
                   <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Quick Links</h3>
                   <div className="space-y-2">
@@ -508,8 +588,6 @@ const HomePage = () => {
                     </Link>
                   </div>
                 </div>
-
-                {/* Sidebar SEO Tags */}
                 <div className="card p-4">
                   <h3 className="font-semibold text-gray-900 dark:text-white mb-3 text-sm">Popular Searches</h3>
                   <div className="flex flex-wrap gap-1.5">
@@ -524,7 +602,6 @@ const HomePage = () => {
                     ))}
                   </div>
                 </div>
-
                 <AdBanner placement="home_sidebar" />
               </div>
             </aside>

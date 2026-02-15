@@ -6,7 +6,7 @@ const Video = require('../models/Video');
 // GET /api/search
 router.get('/', async (req, res) => {
   try {
-    const { q = '', page = 1, limit = 20, sort = 'relevance', category = '' } = req.query;
+    const { q = '', page = 1, limit = 40, sort = 'relevance', category = '' } = req.query;
 
     if (!q.trim()) {
       return res.json({ success: true, videos: [], pagination: { page: 1, limit: 20, total: 0, pages: 0 } });
@@ -86,7 +86,7 @@ router.get('/suggestions', async (req, res) => {
 // GET /api/search/tags/:tag
 router.get('/tags/:tag', async (req, res) => {
   try {
-    const { page = 1, limit = 20, sort = 'newest' } = req.query;
+    const { page = 1, limit = 40, sort = 'newest' } = req.query;
     const tag = req.params.tag.toLowerCase();
 
     let sortOption = {};

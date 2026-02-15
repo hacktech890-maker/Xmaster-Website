@@ -3,79 +3,126 @@ const Video = require("../models/Video");
 class DuplicateDetector {
   /**
    * Check if a video is a duplicate before saving
-   * Returns { isDuplicate: bool, duplicateOf: videoId, reasons: [] }
+   * STRICT MODE: Only marks as duplicate when genuinely the same video
+   * 
+   * Rules:
+   * - Same file_code = REAL duplicate (100% certain)
+   * - Same file hash = REAL duplicate (100% certain)
+   * - Exact same title AND exact same duration = LIKELY duplicate
+   * - Title similarity alone = NEVER a duplicate
+   * - Duration similarity alone = NEVER a duplicate
    */
-  static async checkDuplicate(videoData) {
+  static async checkDuplicate(videoData, excludeId = null) {
     const results = {
       isDuplicate: false,
       duplicateOf: null,
       reasons: [],
       matches: [],
+      confidence: 0,
     };
 
     try {
-      // 1. Check by normalized title
-      const titleMatch = await this.checkByTitle(videoData.title);
-      if (titleMatch) {
-        results.isDuplicate = true;
-        results.duplicateOf = results.duplicateOf || titleMatch._id;
-        results.reasons.push("title");
-        results.matches.push({
-          type: "title",
-          originalId: titleMatch._id,
-          originalTitle: titleMatch.title,
-        });
-      }
+      const excludeQuery = excludeId ? { _id: { $ne: excludeId } } : {};
 
-      // 2. Check by duration (if available and > 0)
-      if (videoData.duration_seconds && videoData.duration_seconds > 0) {
-        const durationMatch = await this.checkByDuration(
-          videoData.duration_seconds,
-          videoData.title
-        );
-        if (durationMatch) {
-          results.isDuplicate = true;
-          results.duplicateOf = results.duplicateOf || durationMatch._id;
-          if (!results.reasons.includes("duration")) {
-            results.reasons.push("duration");
-          }
-          results.matches.push({
-            type: "duration",
-            originalId: durationMatch._id,
-            originalTitle: durationMatch.title,
-            originalDuration: durationMatch.duration,
-          });
-        }
-      }
-
-      // 3. Check by file hash (if available)
-      if (videoData.fileHash) {
-        const fileMatch = await this.checkByFileHash(videoData.fileHash);
-        if (fileMatch) {
-          results.isDuplicate = true;
-          results.duplicateOf = results.duplicateOf || fileMatch._id;
-          if (!results.reasons.includes("file")) {
-            results.reasons.push("file");
-          }
-          results.matches.push({
-            type: "file",
-            originalId: fileMatch._id,
-            originalTitle: fileMatch.title,
-          });
-        }
-      }
-
-      // 4. Check by file_code (exact same video)
+      // ============================================
+      // CHECK 1: Exact file_code match (DEFINITIVE)
+      // Same file_code = literally the same video file on Abyss.to
+      // ============================================
       if (videoData.file_code) {
-        const codeMatch = await Video.findOne({ file_code: videoData.file_code });
+        const codeMatch = await Video.findOne({
+          file_code: videoData.file_code,
+          isDuplicate: { $ne: true },
+          ...excludeQuery,
+        }).lean();
+
         if (codeMatch) {
           results.isDuplicate = true;
           results.duplicateOf = codeMatch._id;
-          if (!results.reasons.includes("file")) {
-            results.reasons.push("file");
+          results.confidence = 100;
+          results.reasons.push("file");
+          results.matches.push({
+            type: "file",
+            originalId: codeMatch._id,
+            originalTitle: codeMatch.title,
+            originalFileCode: codeMatch.file_code,
+            confidence: 100,
+          });
+          return results; // No need to check further
+        }
+      }
+
+      // ============================================
+      // CHECK 2: File hash match (DEFINITIVE)
+      // Same hash = same actual video content
+      // ============================================
+      if (videoData.fileHash && videoData.fileHash.length > 10) {
+        const hashMatch = await Video.findOne({
+          fileHash: videoData.fileHash,
+          isDuplicate: { $ne: true },
+          status: { $ne: "duplicate" },
+          ...excludeQuery,
+        }).lean();
+
+        if (hashMatch) {
+          results.isDuplicate = true;
+          results.duplicateOf = hashMatch._id;
+          results.confidence = 100;
+          results.reasons.push("file");
+          results.matches.push({
+            type: "file",
+            originalId: hashMatch._id,
+            originalTitle: hashMatch.title,
+            confidence: 100,
+          });
+          return results; // No need to check further
+        }
+      }
+
+      // ============================================
+      // CHECK 3: Exact title + Exact duration (HIGH CONFIDENCE)
+      // Both must match EXACTLY — no fuzzy matching
+      // ============================================
+      if (videoData.title && videoData.duration_seconds && videoData.duration_seconds > 0) {
+        const normalized = this.normalizeTitle(videoData.title);
+
+        if (normalized && normalized.length >= 10) {
+          const exactMatch = await Video.findOne({
+            titleNormalized: normalized,
+            duration_seconds: videoData.duration_seconds, // EXACT seconds, no tolerance
+            isDuplicate: { $ne: true },
+            status: { $ne: "duplicate" },
+            ...excludeQuery,
+          }).lean();
+
+          if (exactMatch) {
+            results.isDuplicate = true;
+            results.duplicateOf = exactMatch._id;
+            results.confidence = 90;
+            results.reasons.push("title", "duration");
+            results.matches.push({
+              type: "title+duration",
+              originalId: exactMatch._id,
+              originalTitle: exactMatch.title,
+              originalDuration: exactMatch.duration,
+              confidence: 90,
+            });
+            return results;
           }
         }
       }
+
+      // ============================================
+      // NO MORE CHECKS!
+      // 
+      // We deliberately DO NOT check:
+      // ❌ Title similarity alone (causes massive false positives)
+      // ❌ Duration with tolerance (2:11 ≠ 2:13)
+      // ❌ Fuzzy title matching (85% similar ≠ same video)
+      // ❌ Duration + partial title (too unreliable)
+      //
+      // Different file_code = different video. Period.
+      // ============================================
+
     } catch (error) {
       console.error("⚠️ Duplicate check error:", error.message);
     }
@@ -84,209 +131,212 @@ class DuplicateDetector {
   }
 
   /**
-   * Check by normalized title
+   * Normalize title for comparison
+   * Strips everything except lowercase alphanumeric
    */
-  static async checkByTitle(title) {
-    if (!title) return null;
-
-    const normalized = title
+  static normalizeTitle(title) {
+    if (!title) return "";
+    return title
       .toLowerCase()
       .replace(/[^a-z0-9]/g, "")
       .trim();
-
-    if (normalized.length < 5) return null; // Too short to match
-
-    // Exact normalized title match
-    const exactMatch = await Video.findOne({
-      titleNormalized: normalized,
-      isDuplicate: false,
-      status: { $ne: "duplicate" },
-    });
-
-    if (exactMatch) return exactMatch;
-
-    // Fuzzy match - titles that are very similar
-    // Find videos where 80%+ of the normalized title matches
-    const allVideos = await Video.find({
-      isDuplicate: false,
-      status: { $ne: "duplicate" },
-      titleNormalized: { $exists: true, $ne: "" },
-    })
-      .select("title titleNormalized _id")
-      .limit(1000);
-
-    for (const video of allVideos) {
-      if (!video.titleNormalized) continue;
-      const similarity = this.calculateSimilarity(normalized, video.titleNormalized);
-      if (similarity >= 0.85) {
-        return video;
-      }
-    }
-
-    return null;
-  }
-
-  /**
-   * Check by duration (same duration + similar title = likely duplicate)
-   */
-  static async checkByDuration(durationSeconds, title) {
-    if (!durationSeconds || durationSeconds <= 0) return null;
-
-    // Find videos with exact same duration (±2 seconds tolerance)
-    const matches = await Video.find({
-      duration_seconds: {
-        $gte: durationSeconds - 2,
-        $lte: durationSeconds + 2,
-      },
-      isDuplicate: false,
-      status: { $ne: "duplicate" },
-    })
-      .select("title titleNormalized duration duration_seconds _id")
-      .limit(50);
-
-    if (matches.length === 0) return null;
-
-    // If same duration AND similar title, it's likely a duplicate
-    if (title) {
-      const normalized = title.toLowerCase().replace(/[^a-z0-9]/g, "").trim();
-      for (const match of matches) {
-        if (!match.titleNormalized) continue;
-        const similarity = this.calculateSimilarity(normalized, match.titleNormalized);
-        if (similarity >= 0.5) {
-          return match;
-        }
-      }
-    }
-
-    return null;
-  }
-
-  /**
-   * Check by file hash
-   */
-  static async checkByFileHash(hash) {
-    if (!hash) return null;
-
-    return await Video.findOne({
-      fileHash: hash,
-      isDuplicate: false,
-      status: { $ne: "duplicate" },
-    });
-  }
-
-  /**
-   * Calculate string similarity (0-1)
-   * Uses Levenshtein distance based approach
-   */
-  static calculateSimilarity(str1, str2) {
-    if (!str1 || !str2) return 0;
-    if (str1 === str2) return 1;
-
-    const longer = str1.length > str2.length ? str1 : str2;
-    const shorter = str1.length > str2.length ? str2 : str1;
-
-    if (longer.length === 0) return 1;
-
-    // Quick check - if one contains the other
-    if (longer.includes(shorter) || shorter.includes(longer)) {
-      return shorter.length / longer.length;
-    }
-
-    // Levenshtein distance
-    const costs = [];
-    for (let i = 0; i <= shorter.length; i++) {
-      let lastValue = i;
-      for (let j = 0; j <= longer.length; j++) {
-        if (i === 0) {
-          costs[j] = j;
-        } else if (j > 0) {
-          let newValue = costs[j - 1];
-          if (shorter[i - 1] !== longer[j - 1]) {
-            newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1;
-          }
-          costs[j - 1] = lastValue;
-          lastValue = newValue;
-        }
-      }
-      if (i > 0) costs[longer.length] = lastValue;
-    }
-
-    return (longer.length - costs[longer.length]) / longer.length;
   }
 
   /**
    * Scan entire database for duplicates (admin action)
+   * STRICT: Only flags videos with same file_code as duplicates
    */
   static async scanAllDuplicates() {
-    console.log("🔍 Starting full duplicate scan...");
-
-    const videos = await Video.find({
-      isDuplicate: false,
-      status: { $ne: "duplicate" },
-    })
-      .sort({ uploadDate: 1 })
-      .select("title titleNormalized duration duration_seconds file_code fileHash _id");
+    console.log("🔍 Starting STRICT duplicate scan...");
+    console.log("   Only same file_code or same hash = duplicate");
+    console.log("   Title/duration similarity alone will NOT flag duplicates\n");
 
     let duplicatesFound = 0;
-    const processed = new Set();
+    let totalScanned = 0;
 
-    for (let i = 0; i < videos.length; i++) {
-      if (processed.has(videos[i]._id.toString())) continue;
+    // ============================================
+    // PASS 1: Find duplicate file_codes
+    // ============================================
+    console.log("📋 Pass 1: Checking for duplicate file_codes...");
 
-      for (let j = i + 1; j < videos.length; j++) {
-        if (processed.has(videos[j]._id.toString())) continue;
+    const duplicateFileCodes = await Video.aggregate([
+      {
+        $match: {
+          file_code: { $exists: true, $ne: "", $ne: null },
+        },
+      },
+      {
+        $group: {
+          _id: "$file_code",
+          count: { $sum: 1 },
+          ids: { $push: "$_id" },
+          titles: { $push: "$title" },
+          dates: { $push: "$uploadDate" },
+        },
+      },
+      { $match: { count: { $gt: 1 } } },
+    ]);
 
-        const reasons = [];
+    for (const group of duplicateFileCodes) {
+      // Get full video details sorted by upload date (oldest first = original)
+      const videos = await Video.find({ file_code: group._id })
+        .sort({ uploadDate: 1 })
+        .select("_id title file_code uploadDate views isDuplicate")
+        .lean();
 
-        // Check title similarity
-        if (videos[i].titleNormalized && videos[j].titleNormalized) {
-          const similarity = this.calculateSimilarity(
-            videos[i].titleNormalized,
-            videos[j].titleNormalized
-          );
-          if (similarity >= 0.85) {
-            reasons.push("title");
-          }
-        }
+      // Keep the first one (oldest/most viewed), mark rest as duplicates
+      const original = videos[0];
+      const dupes = videos.slice(1);
 
-        // Check duration match
-        if (
-          videos[i].duration_seconds > 0 &&
-          videos[j].duration_seconds > 0 &&
-          Math.abs(videos[i].duration_seconds - videos[j].duration_seconds) <= 2
-        ) {
-          reasons.push("duration");
-        }
+      for (const dupe of dupes) {
+        if (dupe.isDuplicate) continue; // Already marked
 
-        // Check file hash
-        if (
-          videos[i].fileHash &&
-          videos[j].fileHash &&
-          videos[i].fileHash === videos[j].fileHash
-        ) {
-          reasons.push("file");
-        }
+        await Video.findByIdAndUpdate(dupe._id, {
+          isDuplicate: true,
+          duplicateOf: original._id,
+          duplicateReasons: ["file"],
+        });
+        // Do NOT change status to private — keep it as is
 
-        // If any match found, mark the newer one as duplicate
-        if (reasons.length > 0) {
-          await Video.findByIdAndUpdate(videos[j]._id, {
-            isDuplicate: true,
-            duplicateOf: videos[i]._id,
-            duplicateReasons: reasons,
-            status: "private",
-          });
-
-          processed.add(videos[j]._id.toString());
-          duplicatesFound++;
-          console.log(
-            `🔄 Duplicate found: "${videos[j].title}" → matches "${videos[i].title}" [${reasons.join(", ")}]`
-          );
-        }
+        duplicatesFound++;
+        console.log(
+          `   🔄 "${dupe.title}" is duplicate of "${original.title}" [same file_code: ${group._id}]`
+        );
       }
     }
 
-    console.log(`✅ Scan complete. Found ${duplicatesFound} duplicates.`);
-    return { duplicatesFound, totalScanned: videos.length };
+    console.log(`   Found ${duplicateFileCodes.length} duplicate file_code groups\n`);
+
+    // ============================================
+    // PASS 2: Find duplicate file hashes
+    // ============================================
+    console.log("📋 Pass 2: Checking for duplicate file hashes...");
+
+    const duplicateHashes = await Video.aggregate([
+      {
+        $match: {
+          fileHash: { $exists: true, $ne: "", $ne: null },
+          isDuplicate: { $ne: true },
+        },
+      },
+      {
+        $group: {
+          _id: "$fileHash",
+          count: { $sum: 1 },
+          ids: { $push: "$_id" },
+        },
+      },
+      { $match: { count: { $gt: 1 } } },
+    ]);
+
+    for (const group of duplicateHashes) {
+      const videos = await Video.find({
+        fileHash: group._id,
+        isDuplicate: { $ne: true },
+      })
+        .sort({ uploadDate: 1 })
+        .select("_id title fileHash uploadDate isDuplicate")
+        .lean();
+
+      if (videos.length < 2) continue;
+
+      const original = videos[0];
+      const dupes = videos.slice(1);
+
+      for (const dupe of dupes) {
+        await Video.findByIdAndUpdate(dupe._id, {
+          isDuplicate: true,
+          duplicateOf: original._id,
+          duplicateReasons: ["file"],
+        });
+
+        duplicatesFound++;
+        console.log(
+          `   🔄 "${dupe.title}" is duplicate of "${original.title}" [same hash]`
+        );
+      }
+    }
+
+    console.log(`   Found ${duplicateHashes.length} duplicate hash groups\n`);
+
+    // ============================================
+    // PASS 3: Exact title + exact duration
+    // ============================================
+    console.log("📋 Pass 3: Checking exact title + exact duration matches...");
+
+    const titleDurationDupes = await Video.aggregate([
+      {
+        $match: {
+          isDuplicate: { $ne: true },
+          titleNormalized: { $exists: true, $ne: "" },
+          duration_seconds: { $gt: 0 },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            title: "$titleNormalized",
+            duration: "$duration_seconds",
+          },
+          count: { $sum: 1 },
+          ids: { $push: "$_id" },
+        },
+      },
+      { $match: { count: { $gt: 1 } } },
+    ]);
+
+    for (const group of titleDurationDupes) {
+      const videos = await Video.find({
+        _id: { $in: group.ids },
+        isDuplicate: { $ne: true },
+      })
+        .sort({ uploadDate: 1, views: -1 })
+        .select("_id title titleNormalized duration_seconds file_code uploadDate isDuplicate")
+        .lean();
+
+      if (videos.length < 2) continue;
+
+      // IMPORTANT: Only mark if they have DIFFERENT file_codes
+      // If same file_code, Pass 1 already handled it
+      const original = videos[0];
+      const dupes = videos.slice(1);
+
+      for (const dupe of dupes) {
+        // Skip if same file_code (already handled)
+        if (dupe.file_code === original.file_code) continue;
+
+        await Video.findByIdAndUpdate(dupe._id, {
+          isDuplicate: true,
+          duplicateOf: original._id,
+          duplicateReasons: ["title", "duration"],
+        });
+
+        duplicatesFound++;
+        console.log(
+          `   🔄 "${dupe.title}" matches "${original.title}" [exact title + exact duration: ${original.duration_seconds}s]`
+        );
+      }
+    }
+
+    console.log(`   Found ${titleDurationDupes.length} exact title+duration groups\n`);
+
+    // Final count
+    totalScanned = await Video.countDocuments({});
+    const totalDuplicates = await Video.countDocuments({ isDuplicate: true });
+
+    console.log("====================================");
+    console.log(`✅ Scan complete!`);
+    console.log(`   Total videos scanned: ${totalScanned}`);
+    console.log(`   New duplicates found: ${duplicatesFound}`);
+    console.log(`   Total duplicates now: ${totalDuplicates}`);
+    console.log(`   Videos showing: ${totalScanned - totalDuplicates}`);
+    console.log("====================================\n");
+
+    return {
+      duplicatesFound,
+      totalScanned,
+      totalDuplicates,
+    };
   }
 }
 

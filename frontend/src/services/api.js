@@ -174,6 +174,8 @@ export const adminAPI = {
   deleteDuplicate: (id) => api.delete(`/duplicates/${id}`),
   bulkDeleteDuplicates: (ids) => api.post('/duplicates/bulk-delete', { ids }),
   clearAllDuplicates: () => api.post('/duplicates/clear-all'),
+  publishAllDuplicates: (filter) => api.post('/duplicates/publish-all', { filter }),
+bulkPublishDuplicates: (ids) => api.post('/duplicates/bulk-publish', { ids }),
 };
 
 export default api;

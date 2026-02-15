@@ -23,7 +23,7 @@ const CategoryPage = () => {
           setCategory(catResponse.data.category);
         }
 
-        const vidResponse = await publicAPI.getCategoryVideos(slug, { page, limit: 20 });
+        const vidResponse = await publicAPI.getCategoryVideos(slug, { page, limit: 40 });
         if (vidResponse.data?.success) {
           setVideos(vidResponse.data.videos || []);
           if (vidResponse.data.pagination) {

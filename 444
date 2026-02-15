@@ -1,0 +1,1712 @@
+backend/utils/duplicateDetector.js
+
+const Video = require("../models/Video");
+
+class DuplicateDetector {
+  /**
+   * Check if a video is a duplicate before saving
+   * Returns { isDuplicate: bool, duplicateOf: videoId, reasons: [] }
+   */
+  static async checkDuplicate(videoData) {
+    const results = {
+      isDuplicate: false,
+      duplicateOf: null,
+      reasons: [],
+      matches: [],
+    };
+
+    try {
+      // 1. Check by normalized title
+      const titleMatch = await this.checkByTitle(videoData.title);
+      if (titleMatch) {
+        results.isDuplicate = true;
+        results.duplicateOf = results.duplicateOf || titleMatch._id;
+        results.reasons.push("title");
+        results.matches.push({
+          type: "title",
+          originalId: titleMatch._id,
+          originalTitle: titleMatch.title,
+        });
+      }
+
+      // 2. Check by duration (if available and > 0)
+      if (videoData.duration_seconds && videoData.duration_seconds > 0) {
+        const durationMatch = await this.checkByDuration(
+          videoData.duration_seconds,
+          videoData.title
+        );
+        if (durationMatch) {
+          results.isDuplicate = true;
+          results.duplicateOf = results.duplicateOf || durationMatch._id;
+          if (!results.reasons.includes("duration")) {
+            results.reasons.push("duration");
+          }
+          results.matches.push({
+            type: "duration",
+            originalId: durationMatch._id,
+            originalTitle: durationMatch.title,
+            originalDuration: durationMatch.duration,
+          });
+        }
+      }
+
+      // 3. Check by file hash (if available)
+      if (videoData.fileHash) {
+        const fileMatch = await this.checkByFileHash(videoData.fileHash);
+        if (fileMatch) {
+          results.isDuplicate = true;
+          results.duplicateOf = results.duplicateOf || fileMatch._id;
+          if (!results.reasons.includes("file")) {
+            results.reasons.push("file");
+          }
+          results.matches.push({
+            type: "file",
+            originalId: fileMatch._id,
+            originalTitle: fileMatch.title,
+          });
+        }
+      }
+
+      // 4. Check by file_code (exact same video)
+      if (videoData.file_code) {
+        const codeMatch = await Video.findOne({ file_code: videoData.file_code });
+        if (codeMatch) {
+          results.isDuplicate = true;
+          results.duplicateOf = codeMatch._id;
+          if (!results.reasons.includes("file")) {
+            results.reasons.push("file");
+          }
+        }
+      }
+    } catch (error) {
+      console.error("⚠️ Duplicate check error:", error.message);
+    }
+
+    return results;
+  }
+
+  /**
+   * Check by normalized title
+   */
+  static async checkByTitle(title) {
+    if (!title) return null;
+
+    const normalized = title
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "")
+      .trim();
+
+    if (normalized.length < 5) return null; // Too short to match
+
+    // Exact normalized title match
+    const exactMatch = await Video.findOne({
+      titleNormalized: normalized,
+      isDuplicate: false,
+      status: { $ne: "duplicate" },
+    });
+
+    if (exactMatch) return exactMatch;
+
+    // Fuzzy match - titles that are very similar
+    // Find videos where 80%+ of the normalized title matches
+    const allVideos = await Video.find({
+      isDuplicate: false,
+      status: { $ne: "duplicate" },
+      titleNormalized: { $exists: true, $ne: "" },
+    })
+      .select("title titleNormalized _id")
+      .limit(1000);
+
+    for (const video of allVideos) {
+      if (!video.titleNormalized) continue;
+      const similarity = this.calculateSimilarity(normalized, video.titleNormalized);
+      if (similarity >= 0.85) {
+        return video;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Check by duration (same duration + similar title = likely duplicate)
+   */
+  static async checkByDuration(durationSeconds, title) {
+    if (!durationSeconds || durationSeconds <= 0) return null;
+
+    // Find videos with exact same duration (±2 seconds tolerance)
+    const matches = await Video.find({
+      duration_seconds: {
+        $gte: durationSeconds - 2,
+        $lte: durationSeconds + 2,
+      },
+      isDuplicate: false,
+      status: { $ne: "duplicate" },
+    })
+      .select("title titleNormalized duration duration_seconds _id")
+      .limit(50);
+
+    if (matches.length === 0) return null;
+
+    // If same duration AND similar title, it's likely a duplicate
+    if (title) {
+      const normalized = title.toLowerCase().replace(/[^a-z0-9]/g, "").trim();
+      for (const match of matches) {
+        if (!match.titleNormalized) continue;
+        const similarity = this.calculateSimilarity(normalized, match.titleNormalized);
+        if (similarity >= 0.5) {
+          return match;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Check by file hash
+   */
+  static async checkByFileHash(hash) {
+    if (!hash) return null;
+
+    return await Video.findOne({
+      fileHash: hash,
+      isDuplicate: false,
+      status: { $ne: "duplicate" },
+    });
+  }
+
+  /**
+   * Calculate string similarity (0-1)
+   * Uses Levenshtein distance based approach
+   */
+  static calculateSimilarity(str1, str2) {
+    if (!str1 || !str2) return 0;
+    if (str1 === str2) return 1;
+
+    const longer = str1.length > str2.length ? str1 : str2;
+    const shorter = str1.length > str2.length ? str2 : str1;
+
+    if (longer.length === 0) return 1;
+
+    // Quick check - if one contains the other
+    if (longer.includes(shorter) || shorter.includes(longer)) {
+      return shorter.length / longer.length;
+    }
+
+    // Levenshtein distance
+    const costs = [];
+    for (let i = 0; i <= shorter.length; i++) {
+      let lastValue = i;
+      for (let j = 0; j <= longer.length; j++) {
+        if (i === 0) {
+          costs[j] = j;
+        } else if (j > 0) {
+          let newValue = costs[j - 1];
+          if (shorter[i - 1] !== longer[j - 1]) {
+            newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1;
+          }
+          costs[j - 1] = lastValue;
+          lastValue = newValue;
+        }
+      }
+      if (i > 0) costs[longer.length] = lastValue;
+    }
+
+    return (longer.length - costs[longer.length]) / longer.length;
+  }
+
+  /**
+   * Scan entire database for duplicates (admin action)
+   */
+  static async scanAllDuplicates() {
+    console.log("🔍 Starting full duplicate scan...");
+
+    const videos = await Video.find({
+      isDuplicate: false,
+      status: { $ne: "duplicate" },
+    })
+      .sort({ uploadDate: 1 })
+      .select("title titleNormalized duration duration_seconds file_code fileHash _id");
+
+    let duplicatesFound = 0;
+    const processed = new Set();
+
+    for (let i = 0; i < videos.length; i++) {
+      if (processed.has(videos[i]._id.toString())) continue;
+
+      for (let j = i + 1; j < videos.length; j++) {
+        if (processed.has(videos[j]._id.toString())) continue;
+
+        const reasons = [];
+
+        // Check title similarity
+        if (videos[i].titleNormalized && videos[j].titleNormalized) {
+          const similarity = this.calculateSimilarity(
+            videos[i].titleNormalized,
+            videos[j].titleNormalized
+          );
+          if (similarity >= 0.85) {
+            reasons.push("title");
+          }
+        }
+
+        // Check duration match
+        if (
+          videos[i].duration_seconds > 0 &&
+          videos[j].duration_seconds > 0 &&
+          Math.abs(videos[i].duration_seconds - videos[j].duration_seconds) <= 2
+        ) {
+          reasons.push("duration");
+        }
+
+        // Check file hash
+        if (
+          videos[i].fileHash &&
+          videos[j].fileHash &&
+          videos[i].fileHash === videos[j].fileHash
+        ) {
+          reasons.push("file");
+        }
+
+        // If any match found, mark the newer one as duplicate
+        if (reasons.length > 0) {
+          await Video.findByIdAndUpdate(videos[j]._id, {
+            isDuplicate: true,
+            duplicateOf: videos[i]._id,
+            duplicateReasons: reasons,
+            status: "private",
+          });
+
+          processed.add(videos[j]._id.toString());
+          duplicatesFound++;
+          console.log(
+            `🔄 Duplicate found: "${videos[j].title}" → matches "${videos[i].title}" [${reasons.join(", ")}]`
+          );
+        }
+      }
+    }
+
+    console.log(`✅ Scan complete. Found ${duplicatesFound} duplicates.`);
+    return { duplicatesFound, totalScanned: videos.length };
+  }
+}
+
+module.exports = DuplicateDetector;
+
+backend/routes/duplicateRoutes.js
+
+const express = require("express");
+const router = express.Router();
+const jwt = require("jsonwebtoken");
+const Video = require("../models/Video");
+const DuplicateDetector = require("../utils/duplicateDetector");
+
+// Admin Auth
+const adminAuth = (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Access denied" });
+    }
+    const token = authHeader.split(" ")[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (!decoded.isAdmin) return res.status(401).json({ error: "Invalid token" });
+    req.admin = decoded;
+    next();
+  } catch (error) {
+    res.status(401).json({ error: "Authentication failed" });
+  }
+};
+
+// ==========================================
+// GET /api/duplicates - Get all duplicates grouped
+// ==========================================
+router.get("/", adminAuth, async (req, res) => {
+  try {
+    const { filter = "all", page = 1, limit = 50 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    let query = { isDuplicate: true };
+
+    if (filter === "title") {
+      query.duplicateReasons = { $in: ["title"] };
+    } else if (filter === "duration") {
+      query.duplicateReasons = { $in: ["duration"] };
+    } else if (filter === "file") {
+      query.duplicateReasons = { $in: ["file"] };
+    }
+
+    const [duplicates, total] = await Promise.all([
+      Video.find(query)
+        .populate("duplicateOf", "title thumbnail duration views status file_code")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit)),
+      Video.countDocuments(query),
+    ]);
+
+    // Stats
+    const [totalDuplicates, titleDups, durationDups, fileDups] = await Promise.all([
+      Video.countDocuments({ isDuplicate: true }),
+      Video.countDocuments({ isDuplicate: true, duplicateReasons: { $in: ["title"] } }),
+      Video.countDocuments({ isDuplicate: true, duplicateReasons: { $in: ["duration"] } }),
+      Video.countDocuments({ isDuplicate: true, duplicateReasons: { $in: ["file"] } }),
+    ]);
+
+    res.json({
+      success: true,
+      duplicates,
+      stats: {
+        total: totalDuplicates,
+        byTitle: titleDups,
+        byDuration: durationDups,
+        byFile: fileDups,
+      },
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (error) {
+    console.error("❌ Get duplicates error:", error.message);
+    res.status(500).json({ error: "Failed to get duplicates" });
+  }
+});
+
+// ==========================================
+// POST /api/duplicates/scan - Run full duplicate scan
+// ==========================================
+router.post("/scan", adminAuth, async (req, res) => {
+  try {
+    console.log("🔍 Admin triggered duplicate scan");
+    const result = await DuplicateDetector.scanAllDuplicates();
+
+    res.json({
+      success: true,
+      message: `Scan complete. Found ${result.duplicatesFound} duplicates out of ${result.totalScanned} videos.`,
+      ...result,
+    });
+  } catch (error) {
+    console.error("❌ Scan error:", error.message);
+    res.status(500).json({ error: "Scan failed" });
+  }
+});
+
+// ==========================================
+// POST /api/duplicates/check - Check single video
+// ==========================================
+router.post("/check", adminAuth, async (req, res) => {
+  try {
+    const { title, duration_seconds, fileHash, file_code } = req.body;
+
+    const result = await DuplicateDetector.checkDuplicate({
+      title,
+      duration_seconds,
+      fileHash,
+      file_code,
+    });
+
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(500).json({ error: "Check failed" });
+  }
+});
+
+// ==========================================
+// PUT /api/duplicates/:id/keep - Keep this video, delete original duplicate flag
+// ==========================================
+router.put("/:id/keep", adminAuth, async (req, res) => {
+  try {
+    const video = await Video.findById(req.params.id);
+    if (!video) return res.status(404).json({ error: "Video not found" });
+
+    video.isDuplicate = false;
+    video.duplicateOf = null;
+    video.duplicateReasons = [];
+    video.status = "public";
+    await video.save();
+
+    res.json({ success: true, message: "Video marked as unique and made public" });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to update" });
+  }
+});
+
+// ==========================================
+// PUT /api/duplicates/:id/make-public - Make duplicate public
+// ==========================================
+router.put("/:id/make-public", adminAuth, async (req, res) => {
+  try {
+    const video = await Video.findByIdAndUpdate(
+      req.params.id,
+      { status: "public", isDuplicate: false, duplicateOf: null, duplicateReasons: [] },
+      { new: true }
+    );
+    if (!video) return res.status(404).json({ error: "Video not found" });
+
+    res.json({ success: true, message: "Video is now public", video });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to update" });
+  }
+});
+
+// ==========================================
+// DELETE /api/duplicates/:id - Delete a duplicate
+// ==========================================
+router.delete("/:id", adminAuth, async (req, res) => {
+  try {
+    const video = await Video.findById(req.params.id);
+    if (!video) return res.status(404).json({ error: "Video not found" });
+
+    // Clean up cloudinary if exists
+    if (video.cloudinary_public_id) {
+      try {
+        const { deleteImage } = require("../config/cloudinary");
+        await deleteImage(video.cloudinary_public_id);
+      } catch (e) {}
+    }
+
+    await Video.findByIdAndDelete(req.params.id);
+    res.json({ success: true, message: "Duplicate deleted" });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to delete" });
+  }
+});
+
+// ==========================================
+// POST /api/duplicates/bulk-delete - Bulk delete duplicates
+// ==========================================
+router.post("/bulk-delete", adminAuth, async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!ids || !Array.isArray(ids)) {
+      return res.status(400).json({ error: "No IDs provided" });
+    }
+
+    await Video.deleteMany({ _id: { $in: ids } });
+    res.json({ success: true, message: `${ids.length} duplicates deleted` });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to delete" });
+  }
+});
+
+// ==========================================
+// POST /api/duplicates/clear-all - Clear all duplicate flags
+// ==========================================
+router.post("/clear-all", adminAuth, async (req, res) => {
+  try {
+    const result = await Video.updateMany(
+      { isDuplicate: true },
+      {
+        isDuplicate: false,
+        duplicateOf: null,
+        duplicateReasons: [],
+      }
+    );
+
+    res.json({
+      success: true,
+      message: `Cleared duplicate flags from ${result.modifiedCount} videos`,
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to clear" });
+  }
+});
+
+module.exports = router;
+
+
+frontend/src/pages/admin/DuplicateManager.jsx
+
+import React, { useState, useEffect, useCallback } from "react";
+import { adminAPI } from "../../services/api";
+import AdminLayout from "../../components/admin/AdminLayout";
+
+const DuplicateManager = () => {
+  const [duplicates, setDuplicates] = useState([]);
+  const [stats, setStats] = useState({ total: 0, byTitle: 0, byDuration: 0, byFile: 0 });
+  const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0 });
+  const [activeFilter, setActiveFilter] = useState("all");
+  const [loading, setLoading] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [actionLoading, setActionLoading] = useState({});
+  const [scanResult, setScanResult] = useState(null);
+
+  const fetchDuplicates = useCallback(async (page = 1, filter = activeFilter) => {
+    setLoading(true);
+    try {
+      const res = await adminAPI.getDuplicates({ filter, page, limit: 50 });
+      if (res.data.success) {
+        setDuplicates(res.data.duplicates);
+        setStats(res.data.stats);
+        setPagination(res.data.pagination);
+      }
+    } catch (error) {
+      console.error("Failed to fetch duplicates:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [activeFilter]);
+
+  useEffect(() => {
+    fetchDuplicates(1, activeFilter);
+  }, [activeFilter, fetchDuplicates]);
+
+  const handleScan = async () => {
+    if (scanning) return;
+    if (!window.confirm("Scan all videos for duplicates? This may take a while.")) return;
+    setScanning(true);
+    setScanResult(null);
+    try {
+      const res = await adminAPI.scanDuplicates();
+      if (res.data.success) {
+        setScanResult(res.data);
+        fetchDuplicates(1, activeFilter);
+      }
+    } catch (error) {
+      console.error("Scan failed:", error);
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const handleAction = async (action, id, title) => {
+    if (action === 'delete' && !window.confirm(`Delete "${title}"? This cannot be undone.`)) return;
+    setActionLoading(prev => ({ ...prev, [id]: action }));
+    try {
+      let res;
+      if (action === 'delete') res = await adminAPI.deleteDuplicate(id);
+      else if (action === 'keep') res = await adminAPI.keepDuplicate(id);
+      else if (action === 'public') res = await adminAPI.makePublicDuplicate(id);
+      
+      if (res?.data?.success) {
+        setDuplicates(prev => prev.filter(v => v._id !== id));
+        setStats(prev => ({ ...prev, total: prev.total - 1 }));
+      }
+    } catch (error) {
+      console.error(`${action} failed:`, error);
+    } finally {
+      setActionLoading(prev => ({ ...prev, [id]: null }));
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    if (!window.confirm(`Delete ${selectedIds.length} duplicates?`)) return;
+    setLoading(true);
+    try {
+      await adminAPI.bulkDeleteDuplicates(selectedIds);
+      setSelectedIds([]);
+      fetchDuplicates(pagination.page, activeFilter);
+    } catch (error) {
+      console.error("Bulk delete failed:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (!window.confirm("Clear all duplicate flags? (Videos won't be deleted)")) return;
+    setLoading(true);
+    try {
+      await adminAPI.clearAllDuplicates();
+      fetchDuplicates(1, activeFilter);
+    } catch (error) {
+      console.error("Clear failed:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleSelect = (id) => {
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(sid => sid !== id) : [...prev, id]);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.length === duplicates.length) setSelectedIds([]);
+    else setSelectedIds(duplicates.map(d => d._id));
+  };
+
+  const getThumbnail = (video) => {
+    if (!video) return '';
+    if (video.thumbnail && video.thumbnail.startsWith('http')) return video.thumbnail;
+    if (video.file_code) return `https://abyss.to/splash/${video.file_code}.jpg`;
+    return '';
+  };
+
+  const formatDuration = (seconds) => {
+    if (!seconds) return "N/A";
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    return `${m}:${String(s).padStart(2, "0")}`;
+  };
+
+  const reasonColors = {
+    title: 'bg-red-500/20 text-red-400 border-red-500/30',
+    duration: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+    file: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+    thumbnail: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+  };
+
+  const reasonLabels = {
+    title: 'Title Match',
+    duration: 'Duration Match',
+    file: 'File Match',
+    thumbnail: 'Thumbnail Match',
+  };
+
+  return (
+    <AdminLayout title="Duplicate Manager">
+      {/* Header Actions */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+        <p className="text-gray-400 text-sm">Manage duplicate videos detected during uploads</p>
+        <div className="flex gap-2">
+          <button
+            onClick={handleScan}
+            disabled={scanning}
+            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
+          >
+            {scanning ? (
+              <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Scanning...</>
+            ) : (
+              <>🔍 Scan for Duplicates</>
+            )}
+          </button>
+          {stats.total > 0 && (
+            <button onClick={handleClearAll} className="px-4 py-2.5 bg-dark-100 hover:bg-dark-300 text-gray-300 rounded-lg font-medium transition-colors">
+              🧹 Clear All Flags
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Scan Result */}
+      {scanResult && (
+        <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl text-blue-400 text-sm">
+          Found {scanResult.duplicatesFound} duplicates out of {scanResult.totalScanned} videos scanned.
+        </div>
+      )}
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        {[
+          { key: 'all', label: 'Total', value: stats.total, color: 'border-gray-500' },
+          { key: 'title', label: 'Title Match', value: stats.byTitle, color: 'border-red-500' },
+          { key: 'duration', label: 'Duration Match', value: stats.byDuration, color: 'border-yellow-500' },
+          { key: 'file', label: 'File Match', value: stats.byFile, color: 'border-purple-500' },
+        ].map(stat => (
+          <button
+            key={stat.key}
+            onClick={() => setActiveFilter(stat.key)}
+            className={`p-4 rounded-xl border-2 transition-all text-left ${
+              activeFilter === stat.key
+                ? `${stat.color} bg-dark-100`
+                : 'border-dark-100 bg-dark-200 hover:bg-dark-100'
+            }`}
+          >
+            <p className="text-2xl font-bold text-white">{stat.value}</p>
+            <p className="text-xs text-gray-400 mt-1">{stat.label}</p>
+          </button>
+        ))}
+      </div>
+
+      {/* Bulk Actions */}
+      {selectedIds.length > 0 && (
+        <div className="mb-4 flex items-center gap-4 p-4 bg-dark-100 rounded-xl">
+          <span className="text-gray-400">{selectedIds.length} selected</span>
+          <button onClick={handleBulkDelete} className="px-4 py-2 bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded-lg transition-colors text-sm">
+            🗑️ Delete Selected
+          </button>
+          <button onClick={() => setSelectedIds([])} className="px-4 py-2 bg-dark-200 text-gray-400 hover:text-white rounded-lg transition-colors text-sm">
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Duplicate List */}
+      <div className="space-y-4">
+        {loading ? (
+          <div className="text-center py-16">
+            <div className="w-8 h-8 border-3 border-primary-500/30 border-t-primary-500 rounded-full animate-spin mx-auto mb-4" />
+            <p className="text-gray-400">Loading duplicates...</p>
+          </div>
+        ) : duplicates.length === 0 ? (
+          <div className="text-center py-16 bg-dark-200 rounded-xl">
+            <div className="text-5xl mb-4">✨</div>
+            <h3 className="text-white text-lg font-semibold mb-2">No Duplicates Found</h3>
+            <p className="text-gray-400 text-sm">
+              {activeFilter !== 'all' ? `No ${activeFilter} match duplicates. Try "Total" filter.` : 'Your library is clean!'}
+            </p>
+          </div>
+        ) : (
+          <>
+            {/* Select All */}
+            <div className="flex items-center gap-3 px-2">
+              <input
+                type="checkbox"
+                checked={selectedIds.length === duplicates.length && duplicates.length > 0}
+                onChange={toggleSelectAll}
+                className="rounded"
+              />
+              <span className="text-gray-400 text-sm">Select All ({duplicates.length})</span>
+            </div>
+
+            {/* Side-by-Side Comparison Cards */}
+            {duplicates.map((video) => {
+              const original = video.duplicateOf;
+              const hasOriginal = original && typeof original === 'object';
+
+              return (
+                <div
+                  key={video._id}
+                  className={`bg-dark-200 rounded-xl border overflow-hidden transition-colors ${
+                    selectedIds.includes(video._id) ? 'border-primary-500' : 'border-dark-100'
+                  }`}
+                >
+                  {/* Top Bar: Checkbox + Reasons */}
+                  <div className="flex items-center justify-between p-4 bg-dark-300 border-b border-dark-100">
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(video._id)}
+                        onChange={() => toggleSelect(video._id)}
+                        className="rounded"
+                      />
+                      <span className="text-white font-medium text-sm">Duplicate Detected</span>
+                      <div className="flex gap-2">
+                        {video.duplicateReasons?.map(reason => (
+                          <span
+                            key={reason}
+                            className={`px-2.5 py-1 rounded-full text-xs font-medium border ${reasonColors[reason] || 'bg-gray-500/20 text-gray-400'}`}
+                          >
+                            {reasonLabels[reason] || reason}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Side-by-Side Comparison */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-dark-100">
+                    
+                    {/* LEFT: Duplicate (New Video) */}
+                    <div className="p-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="px-2.5 py-1 bg-red-500/20 text-red-400 rounded-full text-xs font-semibold">
+                          🔴 DUPLICATE
+                        </span>
+                        <span className="px-2.5 py-1 bg-gray-500/20 text-gray-400 rounded-full text-xs">
+                          🔒 Private
+                        </span>
+                      </div>
+                      
+                      <div className="flex gap-3">
+                        <div className="w-40 h-24 rounded-lg overflow-hidden bg-dark-100 flex-shrink-0">
+                          {getThumbnail(video) ? (
+                            <img src={getThumbnail(video)} alt={video.title} className="w-full h-full object-cover" onError={(e) => { e.target.style.display = 'none'; }} />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-2xl">🎬</div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h4 className="text-white font-medium text-sm truncate">{video.title}</h4>
+                          <div className="mt-2 space-y-1 text-xs text-gray-400">
+                            <p>📁 {video.file_code}</p>
+                            <p>⏱️ {video.duration || formatDuration(video.duration_seconds)}</p>
+                            <p>👁️ {video.views || 0} views</p>
+                            <p>📅 {new Date(video.createdAt).toLocaleDateString()}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Actions for Duplicate */}
+                      <div className="flex gap-2 mt-4">
+                        <button
+                          onClick={() => handleAction('keep', video._id)}
+                          disabled={!!actionLoading[video._id]}
+                          className="flex-1 px-3 py-2 bg-green-600/20 text-green-400 hover:bg-green-600/30 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+                        >
+                          {actionLoading[video._id] === 'keep' ? '...' : '✅ Keep as Unique'}
+                        </button>
+                        <button
+                          onClick={() => handleAction('public', video._id)}
+                          disabled={!!actionLoading[video._id]}
+                          className="flex-1 px-3 py-2 bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+                        >
+                          {actionLoading[video._id] === 'public' ? '...' : '🌐 Make Public'}
+                        </button>
+                        <button
+                          onClick={() => handleAction('delete', video._id, video.title)}
+                          disabled={!!actionLoading[video._id]}
+                          className="flex-1 px-3 py-2 bg-red-600/20 text-red-400 hover:bg-red-600/30 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+                        >
+                          {actionLoading[video._id] === 'delete' ? '...' : '🗑️ Delete'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* RIGHT: Original Video */}
+                    <div className="p-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="px-2.5 py-1 bg-green-500/20 text-green-400 rounded-full text-xs font-semibold">
+                          🟢 ORIGINAL
+                        </span>
+                        {hasOriginal && (
+                          <span className={`px-2.5 py-1 rounded-full text-xs ${
+                            original.status === 'public' ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'
+                          }`}>
+                            {original.status === 'public' ? '🌐 Public' : '🔒 ' + (original.status || 'Unknown')}
+                          </span>
+                        )}
+                      </div>
+
+                      {hasOriginal ? (
+                        <div className="flex gap-3">
+                          <div className="w-40 h-24 rounded-lg overflow-hidden bg-dark-100 flex-shrink-0">
+                            {getThumbnail(original) ? (
+                              <img src={getThumbnail(original)} alt={original.title} className="w-full h-full object-cover" onError={(e) => { e.target.style.display = 'none'; }} />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-2xl">🎬</div>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h4 className="text-white font-medium text-sm truncate">{original.title}</h4>
+                            <div className="mt-2 space-y-1 text-xs text-gray-400">
+                              <p>📁 {original.file_code}</p>
+                              <p>⏱️ {original.duration || 'N/A'}</p>
+                              <p>👁️ {original.views || 0} views</p>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center h-24 bg-dark-100 rounded-lg">
+                          <p className="text-gray-500 text-sm">Original video data not available</p>
+                        </div>
+                      )}
+
+                      {/* Actions for Original */}
+                      {hasOriginal && (
+                        <div className="flex gap-2 mt-4">
+                          <button
+                            onClick={() => handleAction('delete', original._id, original.title)}
+                            disabled={!!actionLoading[original._id]}
+                            className="flex-1 px-3 py-2 bg-red-600/20 text-red-400 hover:bg-red-600/30 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+                          >
+                            {actionLoading[original._id] === 'delete' ? '...' : '🗑️ Delete Original'}
+                          </button>
+                          <a
+                            href={`/watch/${original._id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex-1 px-3 py-2 bg-dark-100 text-gray-400 hover:text-white hover:bg-dark-300 rounded-lg text-xs font-medium transition-colors text-center"
+                          >
+                            👁️ View Original
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Bottom: Delete Both Option */}
+                  {hasOriginal && (
+                    <div className="px-4 py-3 bg-dark-300 border-t border-dark-100 flex justify-center">
+                      <button
+                        onClick={async () => {
+                          if (!window.confirm('Delete BOTH videos? This cannot be undone.')) return;
+                          setActionLoading(prev => ({ ...prev, [video._id]: 'delete', [original._id]: 'delete' }));
+                          try {
+                            await adminAPI.bulkDeleteDuplicates([video._id, original._id]);
+                            setDuplicates(prev => prev.filter(v => v._id !== video._id));
+                            setStats(prev => ({ ...prev, total: prev.total - 1 }));
+                          } catch (e) {
+                            console.error('Delete both failed:', e);
+                          } finally {
+                            setActionLoading(prev => ({ ...prev, [video._id]: null, [original._id]: null }));
+                          }
+                        }}
+                        className="px-4 py-2 bg-red-600/10 text-red-400 hover:bg-red-600/20 rounded-lg text-xs font-medium transition-colors"
+                      >
+                        🗑️ Delete Both Videos
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* Pagination */}
+            {pagination.pages > 1 && (
+              <div className="flex items-center justify-center gap-4 pt-4">
+                <button
+                  disabled={pagination.page <= 1}
+                  onClick={() => fetchDuplicates(pagination.page - 1)}
+                  className="px-4 py-2 bg-dark-100 text-gray-400 hover:text-white rounded-lg disabled:opacity-50 transition-colors"
+                >
+                  ← Prev
+                </button>
+                <span className="text-gray-400 text-sm">
+                  Page {pagination.page} of {pagination.pages}
+                </span>
+                <button
+                  disabled={pagination.page >= pagination.pages}
+                  onClick={() => fetchDuplicates(pagination.page + 1)}
+                  className="px-4 py-2 bg-dark-100 text-gray-400 hover:text-white rounded-lg disabled:opacity-50 transition-colors"
+                >
+                  Next →
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </AdminLayout>
+  );
+};
+
+export default DuplicateManager;
+
+frontend/src/pages/admin/DuplicateManager.css
+
+/* ==========================================
+   DUPLICATE MANAGER - PAGE LAYOUT
+   ========================================== */
+
+.dup-page-wrapper {
+  display: flex;
+  min-height: 100vh;
+  background: #0f0f0f;
+}
+
+.dup-main-content {
+  flex: 1;
+  margin-left: 256px;
+  padding: 24px;
+  position: relative;
+  min-height: 100vh;
+}
+
+/* ==========================================
+   NOTIFICATION
+   ========================================== */
+
+.dup-notification {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  padding: 14px 24px;
+  border-radius: 8px;
+  color: #fff;
+  font-weight: 600;
+  z-index: 9999;
+  animation: dupSlideIn 0.3s ease;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  font-size: 14px;
+}
+
+.dup-notification-success {
+  background: linear-gradient(135deg, #27ae60, #2ecc71);
+}
+
+.dup-notification-error {
+  background: linear-gradient(135deg, #c0392b, #e74c3c);
+}
+
+@keyframes dupSlideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* ==========================================
+   HEADER
+   ========================================== */
+
+.dup-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.dup-header h1 {
+  font-size: 28px;
+  color: #fff;
+  margin: 0;
+}
+
+.dup-subtitle {
+  color: #8e8e93;
+  margin: 4px 0 0;
+  font-size: 14px;
+}
+
+.dup-header-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ==========================================
+   BUTTONS
+   ========================================== */
+
+.dup-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+
+.dup-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.dup-btn-scan {
+  background: linear-gradient(135deg, #3498db, #2980b9);
+  color: #fff;
+}
+
+.dup-btn-scan:hover:not(:disabled) {
+  background: linear-gradient(135deg, #2980b9, #1f6dad);
+  transform: translateY(-1px);
+}
+
+.dup-btn-clear {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ccc;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.dup-btn-clear:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.dup-btn-danger {
+  background: linear-gradient(135deg, #e74c3c, #c0392b);
+  color: #fff;
+}
+
+.dup-btn-danger:hover:not(:disabled) {
+  background: linear-gradient(135deg, #c0392b, #a93226);
+}
+
+.dup-btn-secondary {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ccc;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.dup-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* ==========================================
+   SCAN RESULT
+   ========================================== */
+
+.dup-scan-result {
+  background: rgba(39, 174, 96, 0.15);
+  border: 1px solid rgba(39, 174, 96, 0.3);
+  border-radius: 8px;
+  padding: 14px 20px;
+  margin-bottom: 20px;
+  color: #2ecc71;
+  font-size: 14px;
+}
+
+/* ==========================================
+   STATS GRID
+   ========================================== */
+
+.dup-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.dup-stat-card {
+  background: #1e1e1e;
+  border: 2px solid #333;
+  border-radius: 12px;
+  padding: 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.dup-stat-card:hover {
+  border-color: #555;
+  transform: translateY(-2px);
+}
+
+.dup-stat-card.active {
+  border-color: #3498db;
+  background: rgba(52, 152, 219, 0.1);
+}
+
+.dup-stat-card.dup-stat-title.active {
+  border-color: #e74c3c;
+  background: rgba(231, 76, 60, 0.1);
+}
+
+.dup-stat-card.dup-stat-duration.active {
+  border-color: #f39c12;
+  background: rgba(243, 156, 18, 0.1);
+}
+
+.dup-stat-card.dup-stat-file.active {
+  border-color: #9b59b6;
+  background: rgba(155, 89, 182, 0.1);
+}
+
+.dup-stat-number {
+  font-size: 36px;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1;
+}
+
+.dup-stat-label {
+  font-size: 13px;
+  color: #8e8e93;
+  margin-top: 8px;
+}
+
+/* ==========================================
+   BULK ACTION BAR
+   ========================================== */
+
+.dup-bulk-bar {
+  background: linear-gradient(135deg, #2c3e50, #34495e);
+  border-radius: 8px;
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 16px;
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+/* ==========================================
+   LIST CONTAINER
+   ========================================== */
+
+.dup-list-container {
+  background: #1a1a1a;
+  border-radius: 12px;
+  border: 1px solid #2a2a2a;
+  overflow: hidden;
+}
+
+.dup-list-header {
+  padding: 12px 20px;
+  border-bottom: 1px solid #2a2a2a;
+  background: #1e1e1e;
+}
+
+.dup-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #ccc;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.dup-checkbox-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #3498db;
+  cursor: pointer;
+}
+
+/* ==========================================
+   LOADING & EMPTY STATES
+   ========================================== */
+
+.dup-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  color: #8e8e93;
+}
+
+.dup-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: dupSpin 0.6s linear infinite;
+  display: inline-block;
+}
+
+.dup-spinner-large {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  border-top-color: #3498db;
+  border-radius: 50%;
+  animation: dupSpin 0.8s linear infinite;
+  margin-bottom: 16px;
+}
+
+@keyframes dupSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.dup-empty {
+  text-align: center;
+  padding: 60px 20px;
+}
+
+.dup-empty-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.dup-empty h3 {
+  color: #fff;
+  font-size: 20px;
+  margin: 0 0 8px;
+}
+
+.dup-empty p {
+  color: #8e8e93;
+  font-size: 14px;
+  max-width: 400px;
+  margin: 0 auto;
+  line-height: 1.5;
+}
+
+/* ==========================================
+   VIDEO CARD
+   ========================================== */
+
+.dup-video-card {
+  display: flex;
+  align-items: flex-start;
+  padding: 16px 20px;
+  border-bottom: 1px solid #2a2a2a;
+  gap: 14px;
+  transition: background 0.2s ease;
+}
+
+.dup-video-card:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.dup-video-card.selected {
+  background: rgba(52, 152, 219, 0.08);
+  border-left: 3px solid #3498db;
+}
+
+.dup-video-card:last-child {
+  border-bottom: none;
+}
+
+.dup-video-select {
+  display: flex;
+  align-items: center;
+  padding-top: 12px;
+}
+
+.dup-video-select input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #3498db;
+  cursor: pointer;
+}
+
+/* ==========================================
+   THUMBNAIL
+   ========================================== */
+
+.dup-video-thumb {
+  position: relative;
+  width: 140px;
+  min-width: 140px;
+  height: 90px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #2a2a2a;
+  flex-shrink: 0;
+}
+
+.dup-video-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.dup-thumb-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  background: #2a2a2a;
+}
+
+.dup-duration-badge {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* ==========================================
+   VIDEO INFO
+   ========================================== */
+
+.dup-video-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.dup-video-title {
+  font-size: 15px;
+  color: #fff;
+  margin: 0 0 8px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dup-video-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  color: #8e8e93;
+  margin-bottom: 8px;
+}
+
+/* ==========================================
+   REASON BADGES
+   ========================================== */
+
+.dup-reasons {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  color: #8e8e93;
+  margin-bottom: 6px;
+}
+
+.dup-reasons strong {
+  margin-right: 4px;
+}
+
+.dup-reason-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+}
+
+/* ==========================================
+   STATUS BADGES
+   ========================================== */
+
+.dup-status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.dup-status-private {
+  background: rgba(231, 76, 60, 0.2);
+  color: #e74c3c;
+}
+
+.dup-status-public {
+  background: rgba(39, 174, 96, 0.2);
+  color: #27ae60;
+}
+
+.dup-status-duplicate {
+  background: rgba(243, 156, 18, 0.2);
+  color: #f39c12;
+}
+
+/* ==========================================
+   ORIGINAL REFERENCE
+   ========================================== */
+
+.dup-original-ref {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #8e8e93;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 6px 10px;
+  border-radius: 6px;
+  margin-top: 4px;
+}
+
+.dup-original-label {
+  color: #f39c12;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.dup-original-title {
+  color: #ccc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 300px;
+}
+
+/* ==========================================
+   ACTION BUTTONS
+   ========================================== */
+
+.dup-video-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.dup-action-btn {
+  padding: 7px 14px;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.dup-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dup-action-keep {
+  background: rgba(39, 174, 96, 0.15);
+  color: #2ecc71;
+  border: 1px solid rgba(39, 174, 96, 0.3);
+}
+
+.dup-action-keep:hover:not(:disabled) {
+  background: rgba(39, 174, 96, 0.25);
+}
+
+.dup-action-public {
+  background: rgba(52, 152, 219, 0.15);
+  color: #3498db;
+  border: 1px solid rgba(52, 152, 219, 0.3);
+}
+
+.dup-action-public:hover:not(:disabled) {
+  background: rgba(52, 152, 219, 0.25);
+}
+
+.dup-action-delete {
+  background: rgba(231, 76, 60, 0.15);
+  color: #e74c3c;
+  border: 1px solid rgba(231, 76, 60, 0.3);
+}
+
+.dup-action-delete:hover:not(:disabled) {
+  background: rgba(231, 76, 60, 0.25);
+}
+
+/* ==========================================
+   PAGINATION
+   ========================================== */
+
+.dup-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 16px 20px;
+  border-top: 1px solid #2a2a2a;
+}
+
+.dup-pagination button {
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid #333;
+  color: #fff;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.2s;
+}
+
+.dup-pagination button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.dup-pagination button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.dup-pagination span {
+  color: #8e8e93;
+  font-size: 13px;
+}
+
+/* ==========================================
+   RESPONSIVE
+   ========================================== */
+
+@media (max-width: 1024px) {
+  .dup-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .dup-main-content {
+    margin-left: 0;
+    padding: 16px;
+    padding-top: 60px;
+  }
+
+  .dup-header {
+    flex-direction: column;
+  }
+
+  .dup-header h1 {
+    font-size: 22px;
+  }
+
+  .dup-header-actions {
+    width: 100%;
+  }
+
+  .dup-btn {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .dup-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  .dup-stat-card {
+    padding: 14px;
+  }
+
+  .dup-stat-number {
+    font-size: 28px;
+  }
+
+  .dup-video-card {
+    flex-direction: column;
+    padding: 14px;
+  }
+
+  .dup-video-thumb {
+    width: 100%;
+    height: 160px;
+  }
+
+  .dup-video-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .dup-action-btn {
+    flex: 1;
+    text-align: center;
+  }
+
+  .dup-bulk-bar {
+    flex-direction: column;
+    text-align: center;
+    gap: 10px;
+  }
+
+  .dup-video-title {
+    white-space: normal;
+  }
+
+  .dup-original-title {
+    max-width: 150px;
+  }
+
+  .dup-video-select {
+    padding-top: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .dup-stats-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+
+  .dup-stat-card {
+    padding: 12px;
+  }
+
+  .dup-stat-number {
+    font-size: 24px;
+  }
+
+  .dup-stat-label {
+    font-size: 11px;
+  }
+
+  .dup-video-meta {
+    gap: 8px;
+    font-size: 11px;
+  }
+
+  .dup-action-btn {
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+}

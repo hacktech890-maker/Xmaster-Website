@@ -4,7 +4,7 @@ const jwt = require("jsonwebtoken");
 const Video = require("../models/Video");
 const DuplicateDetector = require("../utils/duplicateDetector");
 
-// Admin Auth
+// Admin Auth Middleware
 const adminAuth = (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -41,10 +41,11 @@ router.get("/", adminAuth, async (req, res) => {
 
     const [duplicates, total] = await Promise.all([
       Video.find(query)
-        .populate("duplicateOf", "title thumbnail duration views status file_code")
+        .populate("duplicateOf", "title thumbnail duration duration_seconds views status file_code")
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(parseInt(limit)),
+        .limit(parseInt(limit))
+        .lean(),
       Video.countDocuments(query),
     ]);
 
@@ -79,11 +80,11 @@ router.get("/", adminAuth, async (req, res) => {
 });
 
 // ==========================================
-// POST /api/duplicates/scan - Run full duplicate scan
+// POST /api/duplicates/scan - Run STRICT duplicate scan
 // ==========================================
 router.post("/scan", adminAuth, async (req, res) => {
   try {
-    console.log("🔍 Admin triggered duplicate scan");
+    console.log("🔍 Admin triggered STRICT duplicate scan");
     const result = await DuplicateDetector.scanAllDuplicates();
 
     res.json({
@@ -102,14 +103,12 @@ router.post("/scan", adminAuth, async (req, res) => {
 // ==========================================
 router.post("/check", adminAuth, async (req, res) => {
   try {
-    const { title, duration_seconds, fileHash, file_code } = req.body;
+    const { title, duration_seconds, fileHash, file_code, excludeId } = req.body;
 
-    const result = await DuplicateDetector.checkDuplicate({
-      title,
-      duration_seconds,
-      fileHash,
-      file_code,
-    });
+    const result = await DuplicateDetector.checkDuplicate(
+      { title, duration_seconds, fileHash, file_code },
+      excludeId
+    );
 
     res.json({ success: true, ...result });
   } catch (error) {
@@ -118,7 +117,7 @@ router.post("/check", adminAuth, async (req, res) => {
 });
 
 // ==========================================
-// PUT /api/duplicates/:id/keep - Keep this video, delete original duplicate flag
+// PUT /api/duplicates/:id/keep - Unmark as duplicate, make public
 // ==========================================
 router.put("/:id/keep", adminAuth, async (req, res) => {
   try {
@@ -144,7 +143,12 @@ router.put("/:id/make-public", adminAuth, async (req, res) => {
   try {
     const video = await Video.findByIdAndUpdate(
       req.params.id,
-      { status: "public", isDuplicate: false, duplicateOf: null, duplicateReasons: [] },
+      {
+        status: "public",
+        isDuplicate: false,
+        duplicateOf: null,
+        duplicateReasons: [],
+      },
       { new: true }
     );
     if (!video) return res.status(404).json({ error: "Video not found" });
@@ -156,6 +160,54 @@ router.put("/:id/make-public", adminAuth, async (req, res) => {
 });
 
 // ==========================================
+// POST /api/duplicates/publish-all - PUBLISH ALL DUPLICATES AT ONCE
+// ==========================================
+router.post("/publish-all", adminAuth, async (req, res) => {
+  try {
+    const { filter } = req.body; // Optional: only publish certain types
+
+    let query = { isDuplicate: true };
+
+    // Allow filtering by reason type
+    if (filter === "title") {
+      query.duplicateReasons = { $in: ["title"] };
+    } else if (filter === "duration") {
+      query.duplicateReasons = { $in: ["duration"] };
+    } else if (filter === "file") {
+      query.duplicateReasons = { $in: ["file"] };
+    }
+
+    const beforeCount = await Video.countDocuments(query);
+
+    const result = await Video.updateMany(query, {
+      $set: {
+        isDuplicate: false,
+        duplicateOf: null,
+        duplicateReasons: [],
+        status: "public",
+      },
+    });
+
+    const afterShowing = await Video.countDocuments({
+      status: "public",
+      isDuplicate: { $ne: true },
+    });
+
+    console.log(`✅ Published ${result.modifiedCount} duplicate videos`);
+
+    res.json({
+      success: true,
+      message: `Published ${result.modifiedCount} videos successfully`,
+      published: result.modifiedCount,
+      totalShowing: afterShowing,
+    });
+  } catch (error) {
+    console.error("❌ Publish all error:", error.message);
+    res.status(500).json({ error: "Failed to publish all" });
+  }
+});
+
+// ==========================================
 // DELETE /api/duplicates/:id - Delete a duplicate
 // ==========================================
 router.delete("/:id", adminAuth, async (req, res) => {
@@ -163,12 +215,13 @@ router.delete("/:id", adminAuth, async (req, res) => {
     const video = await Video.findById(req.params.id);
     if (!video) return res.status(404).json({ error: "Video not found" });
 
-    // Clean up cloudinary if exists
     if (video.cloudinary_public_id) {
       try {
         const { deleteImage } = require("../config/cloudinary");
         await deleteImage(video.cloudinary_public_id);
-      } catch (e) {}
+      } catch (e) {
+        console.error("⚠️ Cloudinary cleanup failed:", e.message);
+      }
     }
 
     await Video.findByIdAndDelete(req.params.id);
@@ -184,14 +237,50 @@ router.delete("/:id", adminAuth, async (req, res) => {
 router.post("/bulk-delete", adminAuth, async (req, res) => {
   try {
     const { ids } = req.body;
-    if (!ids || !Array.isArray(ids)) {
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ error: "No IDs provided" });
     }
 
-    await Video.deleteMany({ _id: { $in: ids } });
-    res.json({ success: true, message: `${ids.length} duplicates deleted` });
+    const result = await Video.deleteMany({ _id: { $in: ids } });
+    res.json({
+      success: true,
+      message: `${result.deletedCount} duplicates deleted`,
+      deleted: result.deletedCount,
+    });
   } catch (error) {
     res.status(500).json({ error: "Failed to delete" });
+  }
+});
+
+// ==========================================
+// POST /api/duplicates/bulk-publish - Bulk publish selected duplicates
+// ==========================================
+router.post("/bulk-publish", adminAuth, async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: "No IDs provided" });
+    }
+
+    const result = await Video.updateMany(
+      { _id: { $in: ids } },
+      {
+        $set: {
+          isDuplicate: false,
+          duplicateOf: null,
+          duplicateReasons: [],
+          status: "public",
+        },
+      }
+    );
+
+    res.json({
+      success: true,
+      message: `${result.modifiedCount} videos published`,
+      published: result.modifiedCount,
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to publish" });
   }
 });
 
@@ -203,15 +292,19 @@ router.post("/clear-all", adminAuth, async (req, res) => {
     const result = await Video.updateMany(
       { isDuplicate: true },
       {
-        isDuplicate: false,
-        duplicateOf: null,
-        duplicateReasons: [],
+        $set: {
+          isDuplicate: false,
+          duplicateOf: null,
+          duplicateReasons: [],
+          status: "public",
+        },
       }
     );
 
     res.json({
       success: true,
-      message: `Cleared duplicate flags from ${result.modifiedCount} videos`,
+      message: `Cleared duplicate flags from ${result.modifiedCount} videos and made them public`,
+      cleared: result.modifiedCount,
     });
   } catch (error) {
     res.status(500).json({ error: "Failed to clear" });
