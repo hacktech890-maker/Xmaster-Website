@@ -1,1712 +1,2574 @@
-backend/utils/duplicateDetector.js
-
-const Video = require("../models/Video");
-
-class DuplicateDetector {
-  /**
-   * Check if a video is a duplicate before saving
-   * Returns { isDuplicate: bool, duplicateOf: videoId, reasons: [] }
-   */
-  static async checkDuplicate(videoData) {
-    const results = {
-      isDuplicate: false,
-      duplicateOf: null,
-      reasons: [],
-      matches: [],
-    };
-
-    try {
-      // 1. Check by normalized title
-      const titleMatch = await this.checkByTitle(videoData.title);
-      if (titleMatch) {
-        results.isDuplicate = true;
-        results.duplicateOf = results.duplicateOf || titleMatch._id;
-        results.reasons.push("title");
-        results.matches.push({
-          type: "title",
-          originalId: titleMatch._id,
-          originalTitle: titleMatch.title,
-        });
-      }
-
-      // 2. Check by duration (if available and > 0)
-      if (videoData.duration_seconds && videoData.duration_seconds > 0) {
-        const durationMatch = await this.checkByDuration(
-          videoData.duration_seconds,
-          videoData.title
-        );
-        if (durationMatch) {
-          results.isDuplicate = true;
-          results.duplicateOf = results.duplicateOf || durationMatch._id;
-          if (!results.reasons.includes("duration")) {
-            results.reasons.push("duration");
-          }
-          results.matches.push({
-            type: "duration",
-            originalId: durationMatch._id,
-            originalTitle: durationMatch.title,
-            originalDuration: durationMatch.duration,
-          });
-        }
-      }
-
-      // 3. Check by file hash (if available)
-      if (videoData.fileHash) {
-        const fileMatch = await this.checkByFileHash(videoData.fileHash);
-        if (fileMatch) {
-          results.isDuplicate = true;
-          results.duplicateOf = results.duplicateOf || fileMatch._id;
-          if (!results.reasons.includes("file")) {
-            results.reasons.push("file");
-          }
-          results.matches.push({
-            type: "file",
-            originalId: fileMatch._id,
-            originalTitle: fileMatch.title,
-          });
-        }
-      }
-
-      // 4. Check by file_code (exact same video)
-      if (videoData.file_code) {
-        const codeMatch = await Video.findOne({ file_code: videoData.file_code });
-        if (codeMatch) {
-          results.isDuplicate = true;
-          results.duplicateOf = codeMatch._id;
-          if (!results.reasons.includes("file")) {
-            results.reasons.push("file");
-          }
-        }
-      }
-    } catch (error) {
-      console.error("⚠️ Duplicate check error:", error.message);
-    }
-
-    return results;
-  }
-
-  /**
-   * Check by normalized title
-   */
-  static async checkByTitle(title) {
-    if (!title) return null;
-
-    const normalized = title
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, "")
-      .trim();
-
-    if (normalized.length < 5) return null; // Too short to match
-
-    // Exact normalized title match
-    const exactMatch = await Video.findOne({
-      titleNormalized: normalized,
-      isDuplicate: false,
-      status: { $ne: "duplicate" },
-    });
-
-    if (exactMatch) return exactMatch;
-
-    // Fuzzy match - titles that are very similar
-    // Find videos where 80%+ of the normalized title matches
-    const allVideos = await Video.find({
-      isDuplicate: false,
-      status: { $ne: "duplicate" },
-      titleNormalized: { $exists: true, $ne: "" },
-    })
-      .select("title titleNormalized _id")
-      .limit(1000);
-
-    for (const video of allVideos) {
-      if (!video.titleNormalized) continue;
-      const similarity = this.calculateSimilarity(normalized, video.titleNormalized);
-      if (similarity >= 0.85) {
-        return video;
-      }
-    }
-
-    return null;
-  }
-
-  /**
-   * Check by duration (same duration + similar title = likely duplicate)
-   */
-  static async checkByDuration(durationSeconds, title) {
-    if (!durationSeconds || durationSeconds <= 0) return null;
-
-    // Find videos with exact same duration (±2 seconds tolerance)
-    const matches = await Video.find({
-      duration_seconds: {
-        $gte: durationSeconds - 2,
-        $lte: durationSeconds + 2,
-      },
-      isDuplicate: false,
-      status: { $ne: "duplicate" },
-    })
-      .select("title titleNormalized duration duration_seconds _id")
-      .limit(50);
-
-    if (matches.length === 0) return null;
-
-    // If same duration AND similar title, it's likely a duplicate
-    if (title) {
-      const normalized = title.toLowerCase().replace(/[^a-z0-9]/g, "").trim();
-      for (const match of matches) {
-        if (!match.titleNormalized) continue;
-        const similarity = this.calculateSimilarity(normalized, match.titleNormalized);
-        if (similarity >= 0.5) {
-          return match;
-        }
-      }
-    }
-
-    return null;
-  }
-
-  /**
-   * Check by file hash
-   */
-  static async checkByFileHash(hash) {
-    if (!hash) return null;
-
-    return await Video.findOne({
-      fileHash: hash,
-      isDuplicate: false,
-      status: { $ne: "duplicate" },
-    });
-  }
-
-  /**
-   * Calculate string similarity (0-1)
-   * Uses Levenshtein distance based approach
-   */
-  static calculateSimilarity(str1, str2) {
-    if (!str1 || !str2) return 0;
-    if (str1 === str2) return 1;
-
-    const longer = str1.length > str2.length ? str1 : str2;
-    const shorter = str1.length > str2.length ? str2 : str1;
-
-    if (longer.length === 0) return 1;
-
-    // Quick check - if one contains the other
-    if (longer.includes(shorter) || shorter.includes(longer)) {
-      return shorter.length / longer.length;
-    }
-
-    // Levenshtein distance
-    const costs = [];
-    for (let i = 0; i <= shorter.length; i++) {
-      let lastValue = i;
-      for (let j = 0; j <= longer.length; j++) {
-        if (i === 0) {
-          costs[j] = j;
-        } else if (j > 0) {
-          let newValue = costs[j - 1];
-          if (shorter[i - 1] !== longer[j - 1]) {
-            newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1;
-          }
-          costs[j - 1] = lastValue;
-          lastValue = newValue;
-        }
-      }
-      if (i > 0) costs[longer.length] = lastValue;
-    }
-
-    return (longer.length - costs[longer.length]) / longer.length;
-  }
-
-  /**
-   * Scan entire database for duplicates (admin action)
-   */
-  static async scanAllDuplicates() {
-    console.log("🔍 Starting full duplicate scan...");
-
-    const videos = await Video.find({
-      isDuplicate: false,
-      status: { $ne: "duplicate" },
-    })
-      .sort({ uploadDate: 1 })
-      .select("title titleNormalized duration duration_seconds file_code fileHash _id");
-
-    let duplicatesFound = 0;
-    const processed = new Set();
-
-    for (let i = 0; i < videos.length; i++) {
-      if (processed.has(videos[i]._id.toString())) continue;
-
-      for (let j = i + 1; j < videos.length; j++) {
-        if (processed.has(videos[j]._id.toString())) continue;
-
-        const reasons = [];
-
-        // Check title similarity
-        if (videos[i].titleNormalized && videos[j].titleNormalized) {
-          const similarity = this.calculateSimilarity(
-            videos[i].titleNormalized,
-            videos[j].titleNormalized
-          );
-          if (similarity >= 0.85) {
-            reasons.push("title");
-          }
-        }
-
-        // Check duration match
-        if (
-          videos[i].duration_seconds > 0 &&
-          videos[j].duration_seconds > 0 &&
-          Math.abs(videos[i].duration_seconds - videos[j].duration_seconds) <= 2
-        ) {
-          reasons.push("duration");
-        }
-
-        // Check file hash
-        if (
-          videos[i].fileHash &&
-          videos[j].fileHash &&
-          videos[i].fileHash === videos[j].fileHash
-        ) {
-          reasons.push("file");
-        }
-
-        // If any match found, mark the newer one as duplicate
-        if (reasons.length > 0) {
-          await Video.findByIdAndUpdate(videos[j]._id, {
-            isDuplicate: true,
-            duplicateOf: videos[i]._id,
-            duplicateReasons: reasons,
-            status: "private",
-          });
-
-          processed.add(videos[j]._id.toString());
-          duplicatesFound++;
-          console.log(
-            `🔄 Duplicate found: "${videos[j].title}" → matches "${videos[i].title}" [${reasons.join(", ")}]`
-          );
-        }
-      }
-    }
-
-    console.log(`✅ Scan complete. Found ${duplicatesFound} duplicates.`);
-    return { duplicatesFound, totalScanned: videos.length };
-  }
-}
-
-module.exports = DuplicateDetector;
-
-backend/routes/duplicateRoutes.js
+backend/server.js
 
 const express = require("express");
-const router = express.Router();
-const jwt = require("jsonwebtoken");
-const Video = require("../models/Video");
-const DuplicateDetector = require("../utils/duplicateDetector");
+const cors = require("cors");
+const mongoose = require("mongoose");
+const rateLimit = require("express-rate-limit");
+require("dotenv").config();
 
-// Admin Auth
-const adminAuth = (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({ error: "Access denied" });
+const app = express();
+
+// Trust proxy for deployment platforms like Render
+app.set("trust proxy", 1);
+
+// ============================================
+// CORS CONFIGURATION - VERY IMPORTANT!
+// ============================================
+const allowedOrigins = [
+  "https://xmaster.guru",
+  "https://www.xmaster.guru",
+  "https://xmaster-cj1.pages.dev",
+  "http://localhost:3000",
+  "http://localhost:3001",
+];
+
+// Add any origins from environment variable
+if (process.env.FRONTEND_URL) {
+  const envOrigins = process.env.FRONTEND_URL.split(",").map((url) => url.trim());
+
+  envOrigins.forEach((origin) => {
+    if (!allowedOrigins.includes(origin)) {
+      allowedOrigins.push(origin);
     }
-    const token = authHeader.split(" ")[1];
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    if (!decoded.isAdmin) return res.status(401).json({ error: "Invalid token" });
-    req.admin = decoded;
-    next();
-  } catch (error) {
-    res.status(401).json({ error: "Authentication failed" });
-  }
-};
+  });
+}
 
-// ==========================================
-// GET /api/duplicates - Get all duplicates grouped
-// ==========================================
-router.get("/", adminAuth, async (req, res) => {
-  try {
-    const { filter = "all", page = 1, limit = 50 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+console.log("✅ Allowed Origins:", allowedOrigins);
 
-    let query = { isDuplicate: true };
-
-    if (filter === "title") {
-      query.duplicateReasons = { $in: ["title"] };
-    } else if (filter === "duration") {
-      query.duplicateReasons = { $in: ["duration"] };
-    } else if (filter === "file") {
-      query.duplicateReasons = { $in: ["file"] };
-    }
-
-    const [duplicates, total] = await Promise.all([
-      Video.find(query)
-        .populate("duplicateOf", "title thumbnail duration views status file_code")
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(parseInt(limit)),
-      Video.countDocuments(query),
-    ]);
-
-    // Stats
-    const [totalDuplicates, titleDups, durationDups, fileDups] = await Promise.all([
-      Video.countDocuments({ isDuplicate: true }),
-      Video.countDocuments({ isDuplicate: true, duplicateReasons: { $in: ["title"] } }),
-      Video.countDocuments({ isDuplicate: true, duplicateReasons: { $in: ["duration"] } }),
-      Video.countDocuments({ isDuplicate: true, duplicateReasons: { $in: ["file"] } }),
-    ]);
-
-    res.json({
-      success: true,
-      duplicates,
-      stats: {
-        total: totalDuplicates,
-        byTitle: titleDups,
-        byDuration: durationDups,
-        byFile: fileDups,
-      },
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total,
-        pages: Math.ceil(total / parseInt(limit)),
-      },
-    });
-  } catch (error) {
-    console.error("❌ Get duplicates error:", error.message);
-    res.status(500).json({ error: "Failed to get duplicates" });
-  }
-});
-
-// ==========================================
-// POST /api/duplicates/scan - Run full duplicate scan
-// ==========================================
-router.post("/scan", adminAuth, async (req, res) => {
-  try {
-    console.log("🔍 Admin triggered duplicate scan");
-    const result = await DuplicateDetector.scanAllDuplicates();
-
-    res.json({
-      success: true,
-      message: `Scan complete. Found ${result.duplicatesFound} duplicates out of ${result.totalScanned} videos.`,
-      ...result,
-    });
-  } catch (error) {
-    console.error("❌ Scan error:", error.message);
-    res.status(500).json({ error: "Scan failed" });
-  }
-});
-
-// ==========================================
-// POST /api/duplicates/check - Check single video
-// ==========================================
-router.post("/check", adminAuth, async (req, res) => {
-  try {
-    const { title, duration_seconds, fileHash, file_code } = req.body;
-
-    const result = await DuplicateDetector.checkDuplicate({
-      title,
-      duration_seconds,
-      fileHash,
-      file_code,
-    });
-
-    res.json({ success: true, ...result });
-  } catch (error) {
-    res.status(500).json({ error: "Check failed" });
-  }
-});
-
-// ==========================================
-// PUT /api/duplicates/:id/keep - Keep this video, delete original duplicate flag
-// ==========================================
-router.put("/:id/keep", adminAuth, async (req, res) => {
-  try {
-    const video = await Video.findById(req.params.id);
-    if (!video) return res.status(404).json({ error: "Video not found" });
-
-    video.isDuplicate = false;
-    video.duplicateOf = null;
-    video.duplicateReasons = [];
-    video.status = "public";
-    await video.save();
-
-    res.json({ success: true, message: "Video marked as unique and made public" });
-  } catch (error) {
-    res.status(500).json({ error: "Failed to update" });
-  }
-});
-
-// ==========================================
-// PUT /api/duplicates/:id/make-public - Make duplicate public
-// ==========================================
-router.put("/:id/make-public", adminAuth, async (req, res) => {
-  try {
-    const video = await Video.findByIdAndUpdate(
-      req.params.id,
-      { status: "public", isDuplicate: false, duplicateOf: null, duplicateReasons: [] },
-      { new: true }
-    );
-    if (!video) return res.status(404).json({ error: "Video not found" });
-
-    res.json({ success: true, message: "Video is now public", video });
-  } catch (error) {
-    res.status(500).json({ error: "Failed to update" });
-  }
-});
-
-// ==========================================
-// DELETE /api/duplicates/:id - Delete a duplicate
-// ==========================================
-router.delete("/:id", adminAuth, async (req, res) => {
-  try {
-    const video = await Video.findById(req.params.id);
-    if (!video) return res.status(404).json({ error: "Video not found" });
-
-    // Clean up cloudinary if exists
-    if (video.cloudinary_public_id) {
-      try {
-        const { deleteImage } = require("../config/cloudinary");
-        await deleteImage(video.cloudinary_public_id);
-      } catch (e) {}
-    }
-
-    await Video.findByIdAndDelete(req.params.id);
-    res.json({ success: true, message: "Duplicate deleted" });
-  } catch (error) {
-    res.status(500).json({ error: "Failed to delete" });
-  }
-});
-
-// ==========================================
-// POST /api/duplicates/bulk-delete - Bulk delete duplicates
-// ==========================================
-router.post("/bulk-delete", adminAuth, async (req, res) => {
-  try {
-    const { ids } = req.body;
-    if (!ids || !Array.isArray(ids)) {
-      return res.status(400).json({ error: "No IDs provided" });
-    }
-
-    await Video.deleteMany({ _id: { $in: ids } });
-    res.json({ success: true, message: `${ids.length} duplicates deleted` });
-  } catch (error) {
-    res.status(500).json({ error: "Failed to delete" });
-  }
-});
-
-// ==========================================
-// POST /api/duplicates/clear-all - Clear all duplicate flags
-// ==========================================
-router.post("/clear-all", adminAuth, async (req, res) => {
-  try {
-    const result = await Video.updateMany(
-      { isDuplicate: true },
-      {
-        isDuplicate: false,
-        duplicateOf: null,
-        duplicateReasons: [],
+// ============================================
+// CORS Middleware
+// ============================================
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // Allow requests with no origin (like mobile apps, curl, Postman)
+      if (!origin) {
+        return callback(null, true);
       }
-    );
+
+      // Check if origin is allowed
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      // Block unauthorized origins
+      console.log("⚠️ CORS blocked origin:", origin);
+      return callback(new Error("Not allowed by CORS"));
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+      "Accept",
+      "Origin",
+    ],
+    exposedHeaders: ["Content-Range", "X-Content-Range"],
+    maxAge: 86400, // 24 hours
+  })
+);
+
+// Handle preflight requests for all routes
+app.options(
+  "*",
+  cors({
+    origin: allowedOrigins,
+    credentials: true,
+  })
+);
+
+// ============================================
+// MIDDLEWARE
+// ============================================
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+
+// ============================================
+// RATE LIMITING
+// ============================================
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 1000,
+  message: { error: "Too many requests, please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use("/api/", limiter);
+
+// ============================================
+// MONGODB CONNECTION
+// ============================================
+mongoose
+  .connect(process.env.MONGODB_URI)
+  .then(() => console.log("✅ MongoDB Connected Successfully"))
+  .catch((err) => console.error("❌ MongoDB Connection Error:", err));
+
+// ============================================
+// IMPORT ROUTES
+// ============================================
+const adminRoutes = require("./routes/adminRoutes");
+const videoRoutes = require("./routes/videoRoutes");
+const uploadRoutes = require("./routes/uploadRoutes");
+const categoryRoutes = require("./routes/categoryRoutes");
+const adRoutes = require("./routes/adRoutes");
+const searchRoutes = require("./routes/searchRoutes");
+const publicRoutes = require("./routes/publicRoutes");
+const commentRoutes = require("./routes/commentRoutes");
+const duplicateRoutes = require("./routes/duplicateRoutes");
+
+// ============================================
+// USE ROUTES
+// ============================================
+app.use("/api/admin", adminRoutes);
+app.use("/api/videos", videoRoutes);
+app.use("/api/upload", uploadRoutes);
+app.use("/api/categories", categoryRoutes);
+app.use("/api/ads", adRoutes);
+app.use("/api/search", searchRoutes);
+app.use("/api/public", publicRoutes);
+app.use("/api/comments", commentRoutes);
+app.use("/api/duplicates", duplicateRoutes);
+
+// ============================================
+// HEALTH CHECK ROUTES
+// ============================================
+app.get("/", (req, res) => {
+  res.json({
+    message: "XMASTER API is running!",
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    cors: "enabled",
+    allowedOrigins: allowedOrigins,
+  });
+});
+
+app.get("/api/health", (req, res) => {
+  res.json({
+    status: "ok",
+    mongodb: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
+    cors: "enabled",
+  });
+});
+
+// ============================================
+// 404 HANDLER
+// ============================================
+app.use((req, res) => {
+  res.status(404).json({ error: "Route not found", path: req.path });
+});
+
+// ============================================
+// ERROR HANDLER
+// ============================================
+app.use((err, req, res, next) => {
+  console.error("❌ Error:", err);
+
+  res.status(err.status || 500).json({
+    error: err.message || "Internal Server Error",
+  });
+});
+
+// ============================================
+// START SERVER
+// ============================================
+const PORT = process.env.PORT || 5000;
+
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📍 Environment: ${process.env.NODE_ENV || "development"}`);
+  console.log(`🌐 CORS enabled for: ${allowedOrigins.join(", ")}`);
+});
+
+
+backend/routes/shareRoutes.js
+
+const express = require('express');
+const router = express.Router();
+const mongoose = require('mongoose');
+const Video = require('../models/Video');
+
+// GET /api/search
+router.get('/', async (req, res) => {
+  try {
+    const { q = '', page = 1, limit = 40, sort = 'relevance', category = '' } = req.query;
+
+    if (!q.trim()) {
+      return res.json({ success: true, videos: [], pagination: { page: 1, limit: 20, total: 0, pages: 0 } });
+    }
+
+    const query = {
+      status: 'public',
+      isDuplicate: { $ne: true },
+      $or: [
+        { title: { $regex: q, $options: 'i' } },
+        { description: { $regex: q, $options: 'i' } },
+        { tags: { $in: [new RegExp(q, 'i')] } }
+      ]
+    };
+
+    // Category filter using ObjectId
+    if (category && mongoose.Types.ObjectId.isValid(category)) {
+      query.$and = query.$and || [];
+      query.$and.push({
+        $or: [
+          { category: new mongoose.Types.ObjectId(category) },
+          { categories: new mongoose.Types.ObjectId(category) }
+        ]
+      });
+    }
+
+    let sortOption = {};
+    switch (sort) {
+      case 'newest': sortOption = { uploadDate: -1 }; break;
+      case 'oldest': sortOption = { uploadDate: 1 }; break;
+      case 'views': sortOption = { views: -1 }; break;
+      default: sortOption = { views: -1, uploadDate: -1 };
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const [videos, total] = await Promise.all([
+      Video.find(query)
+        .populate('category', 'name slug color icon')
+        .populate('categories', 'name slug color icon')
+        .sort(sortOption)
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      Video.countDocuments(query)
+    ]);
 
     res.json({
       success: true,
-      message: `Cleared duplicate flags from ${result.modifiedCount} videos`,
+      query: q,
+      videos,
+      pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / parseInt(limit)) }
     });
   } catch (error) {
-    res.status(500).json({ error: "Failed to clear" });
+    console.error('Search Error:', error);
+    res.status(500).json({ error: 'Search failed' });
+  }
+});
+
+// GET /api/search/suggestions
+router.get('/suggestions', async (req, res) => {
+  try {
+    const { q = '', limit = 5 } = req.query;
+    if (!q.trim() || q.length < 2) {
+      return res.json({ success: true, suggestions: [] });
+    }
+
+    const videos = await Video.find({ status: 'public', title: { $regex: q, $options: 'i' } })
+      .select('title')
+      .limit(parseInt(limit));
+
+    res.json({ success: true, suggestions: videos.map(v => v.title) });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to get suggestions' });
+  }
+});
+
+// GET /api/search/tags/:tag
+router.get('/tags/:tag', async (req, res) => {
+  try {
+    const { page = 1, limit = 40, sort = 'newest' } = req.query;
+    const tag = req.params.tag.toLowerCase();
+
+    let sortOption = {};
+    switch (sort) {
+      case 'oldest': sortOption = { uploadDate: 1 }; break;
+      case 'views': sortOption = { views: -1 }; break;
+      default: sortOption = { uploadDate: -1 };
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const query = { status: 'public', isDuplicate: { $ne: true }, tags: tag };
+
+    const [videos, total] = await Promise.all([
+      Video.find(query)
+        .populate('category', 'name slug color icon')
+        .populate('categories', 'name slug color icon')
+        .sort(sortOption)
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      Video.countDocuments(query)
+    ]);
+
+    res.json({
+      success: true,
+      tag,
+      videos,
+      pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / parseInt(limit)) }
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Tag search failed' });
+  }
+});
+
+// GET /api/search/popular-tags
+router.get('/popular-tags', async (req, res) => {
+  try {
+    const { limit = 20 } = req.query;
+    const tags = await Video.aggregate([
+      { $match: { status: 'public', isDuplicate: { $ne: true } } },
+      { $unwind: '$tags' },
+      { $group: { _id: '$tags', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: parseInt(limit) }
+    ]);
+
+    res.json({ success: true, tags: tags.map(t => ({ tag: t._id, count: t.count })) });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to get popular tags' });
   }
 });
 
 module.exports = router;
 
+backend/routes/publicRoutes.js
 
-frontend/src/pages/admin/DuplicateManager.jsx
+// backend/routes/publicRoutes.js
+const express = require('express');
+const router = express.Router();
+const axios = require('axios');
+const Video = require('../models/Video');
+const Category = require('../models/Category');
 
-import React, { useState, useEffect, useCallback } from "react";
-import { adminAPI } from "../../services/api";
-import AdminLayout from "../../components/admin/AdminLayout";
+// ==========================================
+// CONFIGURATION
+// ==========================================
+const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME || 'dzjw6z7fy';
+const SITE_NAME = 'Xmaster';
+const DEFAULT_DESCRIPTION = 'Watch Videos Online on Xmaster';
 
-const DuplicateManager = () => {
-  const [duplicates, setDuplicates] = useState([]);
-  const [stats, setStats] = useState({ total: 0, byTitle: 0, byDuration: 0, byFile: 0 });
-  const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0 });
-  const [activeFilter, setActiveFilter] = useState("all");
-  const [loading, setLoading] = useState(false);
-  const [scanning, setScanning] = useState(false);
-  const [selectedIds, setSelectedIds] = useState([]);
-  const [actionLoading, setActionLoading] = useState({});
-  const [scanResult, setScanResult] = useState(null);
+// ==========================================
+// HELPERS
+// ==========================================
 
-  const fetchDuplicates = useCallback(async (page = 1, filter = activeFilter) => {
-    setLoading(true);
-    try {
-      const res = await adminAPI.getDuplicates({ filter, page, limit: 50 });
-      if (res.data.success) {
-        setDuplicates(res.data.duplicates);
-        setStats(res.data.stats);
-        setPagination(res.data.pagination);
-      }
-    } catch (error) {
-      console.error("Failed to fetch duplicates:", error);
-    } finally {
-      setLoading(false);
+function getFrontendUrl() {
+  var raw = process.env.FRONTEND_URL || 'https://xmaster.guru';
+  if (raw.indexOf(',') !== -1) {
+    raw = raw.split(',')[0].trim();
+  }
+  return raw.replace(/\/+$/, '');
+}
+
+function getBackendUrl() {
+  var raw = process.env.BACKEND_URL || 'https://api.xmaster.guru';
+  return raw.replace(/\/+$/, '');
+}
+
+/**
+ * Build the BEST possible thumbnail URL for Telegram
+ * 
+ * ALWAYS use the proxy endpoint because:
+ * 1. Guarantees correct Content-Type header (image/jpeg)
+ * 2. No redirects (Telegram hates redirects)
+ * 3. Guaranteed HTTPS
+ * 4. URL ends with .jpg (Telegram likes this)
+ * 5. Serves a big enough image for large preview card
+ * 6. Single consistent URL format for all videos
+ */
+function getTelegramOptimizedThumbnail(video) {
+  var backendUrl = getBackendUrl();
+  return backendUrl + '/api/public/thumb/' + video._id + '.jpg';
+}
+
+/**
+ * Get the SOURCE thumbnail URL from Cloudinary or other sources
+ * Used internally by the proxy endpoint
+ */
+function getSourceThumbnailUrl(video) {
+  if (video.cloudinary_public_id) {
+    return 'https://res.cloudinary.com/' + CLOUDINARY_CLOUD_NAME +
+      '/image/upload/w_1280,h_720,c_fill,q_90,f_jpg/' +
+      video.cloudinary_public_id + '.jpg';
+  }
+  if (video.thumbnailUrl && video.thumbnailUrl.startsWith('http')) {
+    if (video.thumbnailUrl.indexOf('cloudinary') !== -1) {
+      return video.thumbnailUrl.replace(
+        '/upload/',
+        '/upload/w_1280,h_720,c_fill,q_90,f_jpg/'
+      );
     }
-  }, [activeFilter]);
+    return video.thumbnailUrl;
+  }
+  if (video.thumbnail && video.thumbnail.startsWith('http')) {
+    if (video.thumbnail.indexOf('cloudinary') !== -1) {
+      return video.thumbnail.replace(
+        '/upload/',
+        '/upload/w_1280,h_720,c_fill,q_90,f_jpg/'
+      );
+    }
+    return video.thumbnail;
+  }
+  if (video.file_code) {
+    return 'https://abyss.to/splash/' + video.file_code + '.jpg';
+  }
+  return '';
+}
 
+/**
+ * Detect social media crawler bots
+ */
+function isCrawlerBot(userAgent) {
+  if (!userAgent) return false;
+  var ua = userAgent.toLowerCase();
+  var bots = [
+    'telegrambot',
+    'twitterbot',
+    'facebookexternalhit',
+    'facebot',
+    'whatsapp',
+    'linkedinbot',
+    'slackbot',
+    'discordbot',
+    'skypeuripreview',
+    'viber',
+    'vkshare',
+    'pinterest',
+    'embedly',
+    'quora link preview',
+    'redditbot',
+    'applebot',
+    'bingpreview',
+    'googlebot',
+    'yandexbot',
+    'baiduspider',
+    'seznambot',
+  ];
+  for (var i = 0; i < bots.length; i++) {
+    if (ua.indexOf(bots[i]) !== -1) return true;
+  }
+  return false;
+}
+
+/**
+ * Detect specifically Telegram bot
+ */
+function isTelegramBot(userAgent) {
+  if (!userAgent) return false;
+  return userAgent.toLowerCase().indexOf('telegrambot') !== -1;
+}
+
+/**
+ * Escape string for safe HTML attribute insertion
+ */
+function escapeHtml(str) {
+  if (!str) return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+/**
+ * Clean and truncate description
+ */
+function cleanDescription(video) {
+  var desc = video.description || '';
+  if (!desc || desc.trim().length < 10) {
+    desc = 'Watch ' + (video.title || 'this video') + ' on ' + SITE_NAME;
+  }
+  desc = desc.replace(/<[^>]*>/g, '');
+  if (desc.length > 200) {
+    desc = desc.substring(0, 197) + '...';
+  }
+  return desc;
+}
+
+/**
+ * Format view count
+ */
+function formatViews(views) {
+  if (!views || views === 0) return '0';
+  if (views >= 1000000) return (views / 1000000).toFixed(1) + 'M';
+  if (views >= 1000) return (views / 1000).toFixed(1) + 'K';
+  return views.toString();
+}
+
+// ==========================================
+// SHARE PAGE - THE CRITICAL ENDPOINT
+// ==========================================
+
+router.get('/share/:id', async (req, res) => {
+  try {
+    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.redirect(getFrontendUrl());
+    }
+
+    var video = await Video.findById(req.params.id);
+    if (!video) {
+      return res.redirect(getFrontendUrl());
+    }
+
+    var frontendUrl = getFrontendUrl();
+    var videoPageUrl = frontendUrl + '/watch/' + video._id;
+    if (video.slug) {
+      videoPageUrl += '/' + encodeURIComponent(video.slug);
+    }
+
+    var thumbnail = getTelegramOptimizedThumbnail(video);
+    var title = escapeHtml(video.title || 'Video');
+    var description = escapeHtml(cleanDescription(video));
+    var views = video.views || 0;
+    var duration = video.duration || '';
+    var userAgent = req.headers['user-agent'] || '';
+    var botRequest = isCrawlerBot(userAgent);
+
+    // Share page URL (self-referencing for og:url)
+    var sharePageUrl = getBackendUrl() + '/api/public/share/' + video._id;
+
+    // ==========================================
+    // BUILD HTML RESPONSE
+    // ==========================================
+    var html = '<!DOCTYPE html>\n';
+    html += '<html lang="en" prefix="og: http://ogp.me/ns#">\n';
+    html += '<head>\n';
+    html += '<meta charset="utf-8" />\n';
+    html += '<meta name="viewport" content="width=device-width, initial-scale=1" />\n';
+    html += '<title>' + title + ' - ' + SITE_NAME + '</title>\n\n';
+
+    // ==========================================
+    // OPEN GRAPH TAGS (Critical for Telegram)
+    // ==========================================
+    html += '<!-- OpenGraph Meta Tags -->\n';
+    html += '<meta property="og:type" content="article" />\n';
+    html += '<meta property="og:title" content="' + title + '" />\n';
+    html += '<meta property="og:description" content="' + description + '" />\n';
+
+    // og:url MUST point to THIS share page (not the React SPA)
+    html += '<meta property="og:url" content="' + sharePageUrl + '" />\n';
+    html += '<meta property="og:site_name" content="' + SITE_NAME + '" />\n';
+    html += '<meta property="og:locale" content="en_US" />\n';
+
+    // ==========================================
+    // IMAGE TAGS (Telegram thumbnail)
+    // Uses proxy URL → guaranteed big image, correct headers
+    // ==========================================
+    if (thumbnail) {
+      html += '\n<!-- Image Tags (Telegram-optimized via proxy) -->\n';
+      html += '<meta property="og:image" content="' + thumbnail + '" />\n';
+      html += '<meta property="og:image:secure_url" content="' + thumbnail + '" />\n';
+      html += '<meta property="og:image:type" content="image/jpeg" />\n';
+      html += '<meta property="og:image:width" content="1280" />\n';
+      html += '<meta property="og:image:height" content="720" />\n';
+      html += '<meta property="og:image:alt" content="' + title + '" />\n';
+    }
+
+    // ==========================================
+    // TWITTER CARD TAGS
+    // ==========================================
+    html += '\n<!-- Twitter Card Tags -->\n';
+    html += '<meta name="twitter:card" content="summary_large_image" />\n';
+    html += '<meta name="twitter:title" content="' + title + '" />\n';
+    html += '<meta name="twitter:description" content="' + description + '" />\n';
+    if (thumbnail) {
+      html += '<meta name="twitter:image" content="' + thumbnail + '" />\n';
+      html += '<meta name="twitter:image:src" content="' + thumbnail + '" />\n';
+    }
+
+    // ==========================================
+    // ADDITIONAL SEO META TAGS
+    // ==========================================
+    html += '\n<!-- Additional Meta -->\n';
+    html += '<meta name="description" content="' + description + '" />\n';
+    html += '<link rel="canonical" href="' + sharePageUrl + '" />\n';
+    if (thumbnail) {
+      html += '<link rel="image_src" href="' + thumbnail + '" />\n';
+    }
+
+    html += '<meta name="robots" content="index, follow" />\n';
+
+    // ==========================================
+    // RESPONSE BASED ON REQUESTER TYPE
+    // ==========================================
+    if (botRequest) {
+      html += '</head>\n';
+      html += '<body>\n';
+      html += '<h1>' + title + '</h1>\n';
+      if (thumbnail) {
+        html += '<img src="' + thumbnail + '" alt="' + title + '" width="1280" height="720" />\n';
+      }
+      html += '<p>' + description + '</p>\n';
+      if (duration) {
+        html += '<p>Duration: ' + duration + '</p>\n';
+      }
+      html += '<p>Views: ' + formatViews(views) + '</p>\n';
+      html += '<a href="' + videoPageUrl + '">Watch on ' + SITE_NAME + '</a>\n';
+      html += '</body>\n';
+      html += '</html>';
+    } else {
+      html += '<meta http-equiv="refresh" content="0;url=' + videoPageUrl + '" />\n';
+      html += '<style>\n';
+      html += '* { margin: 0; padding: 0; box-sizing: border-box; }\n';
+      html += 'body { background: #0f0f0f; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }\n';
+      html += '.card { text-align: center; max-width: 400px; width: 100%; }\n';
+      html += '.thumb { width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: 12px; margin-bottom: 16px; background: #1a1a1a; }\n';
+      html += '.title { font-size: 16px; font-weight: 600; margin-bottom: 8px; line-height: 1.4; }\n';
+      html += '.meta { color: #888; font-size: 13px; margin-bottom: 16px; }\n';
+      html += '.btn { display: inline-block; padding: 12px 32px; background: #3b82f6; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px; }\n';
+      html += '.btn:hover { background: #2563eb; }\n';
+      html += '.loading { color: #666; font-size: 12px; margin-top: 12px; }\n';
+      html += '@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }\n';
+      html += '.loading { animation: pulse 1.5s ease-in-out infinite; }\n';
+      html += '</style>\n';
+      html += '</head>\n';
+      html += '<body>\n';
+      html += '<div class="card">\n';
+      if (thumbnail) {
+        html += '<img class="thumb" src="' + thumbnail + '" alt="' + title + '" onerror="this.style.display=\'none\'" />\n';
+      }
+      html += '<div class="title">' + title + '</div>\n';
+      html += '<div class="meta">';
+      if (duration) html += duration + ' &bull; ';
+      html += formatViews(views) + ' views</div>\n';
+      html += '<a class="btn" href="' + videoPageUrl + '">&#9654; Watch Video</a>\n';
+      html += '<div class="loading">Redirecting to ' + SITE_NAME + '...</div>\n';
+      html += '</div>\n';
+      html += '<script>window.location.replace("' + videoPageUrl + '");</script>\n';
+      html += '</body>\n';
+      html += '</html>';
+    }
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.status(200).send(html);
+
+  } catch (error) {
+    console.error('Share page error:', error);
+    res.redirect(getFrontendUrl());
+  }
+});
+
+
+// ==========================================
+// THUMBNAIL PROXY ENDPOINT
+// ==========================================
+// Serves the actual image to Telegram
+// Guarantees: correct headers, big image, no redirects
+// URL: /api/public/thumb/{videoId}.jpg
+// ==========================================
+
+router.get('/thumb/:idWithExt', async (req, res) => {
+  try {
+    var videoId = req.params.idWithExt.replace(/\.\w+$/, '');
+
+    if (!videoId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(404).send('Not found');
+    }
+
+    var video = await Video.findById(videoId).lean();
+    if (!video) return res.status(404).send('Not found');
+
+    var thumbnailUrl = getSourceThumbnailUrl(video);
+
+    if (!thumbnailUrl) {
+      return res.status(404).send('No thumbnail');
+    }
+
+    // Fetch the image from source
+    var imageResponse = await axios.get(thumbnailUrl, {
+      responseType: 'arraybuffer',
+      timeout: 15000,
+      maxRedirects: 5,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; XmasterBot/1.0)',
+        'Accept': 'image/*',
+      },
+    });
+
+    var imageBuffer = Buffer.from(imageResponse.data);
+
+    // Set all headers Telegram needs
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Content-Length', imageBuffer.length);
+    res.setHeader('Cache-Control', 'public, max-age=604800');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.status(200).send(imageBuffer);
+
+  } catch (error) {
+    console.error('Thumb proxy error:', error.message);
+
+    // Try fallback: original thumbnail without transforms
+    try {
+      var fallbackId = req.params.idWithExt.replace(/\.\w+$/, '');
+      var video2 = await Video.findById(fallbackId).lean();
+      if (video2) {
+        var fallbackUrl = '';
+        if (video2.thumbnail && video2.thumbnail.startsWith('http')) {
+          fallbackUrl = video2.thumbnail;
+        } else if (video2.file_code) {
+          fallbackUrl = 'https://abyss.to/splash/' + video2.file_code + '.jpg';
+        }
+        if (fallbackUrl) {
+          var fallbackResponse = await axios.get(fallbackUrl, {
+            responseType: 'arraybuffer',
+            timeout: 10000,
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (compatible; XmasterBot/1.0)',
+            },
+          });
+          var fallbackBuffer = Buffer.from(fallbackResponse.data);
+          res.setHeader('Content-Type', 'image/jpeg');
+          res.setHeader('Content-Length', fallbackBuffer.length);
+          res.setHeader('Cache-Control', 'public, max-age=604800');
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          return res.status(200).send(fallbackBuffer);
+        }
+      }
+    } catch (e2) {
+      console.error('Thumb fallback error:', e2.message);
+    }
+
+    // Last resort: 1x1 transparent GIF
+    var fallback = Buffer.from(
+      'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+      'base64'
+    );
+    res.setHeader('Content-Type', 'image/gif');
+    res.status(200).send(fallback);
+  }
+});
+
+
+// ==========================================
+// SHARE TRACKING ENDPOINT
+// ==========================================
+
+router.post('/share/:id/track', async (req, res) => {
+  try {
+    var videoId = req.params.id;
+    if (!videoId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ error: 'Invalid video ID' });
+    }
+
+    var platform = req.body.platform || 'unknown';
+    var validPlatforms = ['telegram', 'whatsapp', 'facebook', 'twitter', 'copy', 'native', 'unknown'];
+    if (validPlatforms.indexOf(platform) === -1) {
+      platform = 'unknown';
+    }
+
+    var updateQuery = {
+      $inc: {
+        shares: 1,
+      },
+    };
+    updateQuery.$inc['sharePlatforms.' + platform] = 1;
+
+    await Video.findByIdAndUpdate(videoId, updateQuery);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Share tracking error:', error);
+    res.status(500).json({ error: 'Failed to track share' });
+  }
+});
+
+
+// ==========================================
+// OG DEBUG ENDPOINT
+// ==========================================
+
+router.get('/share/:id/debug', async (req, res) => {
+  try {
+    if (!req.params.id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ error: 'Invalid ID' });
+    }
+
+    var video = await Video.findById(req.params.id).lean();
+    if (!video) {
+      return res.status(404).json({ error: 'Video not found' });
+    }
+
+    var frontendUrl = getFrontendUrl();
+    var videoPageUrl = frontendUrl + '/watch/' + video._id;
+    if (video.slug) {
+      videoPageUrl += '/' + video.slug;
+    }
+
+    var thumbnail = getTelegramOptimizedThumbnail(video);
+    var sourceThumbnail = getSourceThumbnailUrl(video);
+
+    // Test proxy thumbnail accessibility
+    var proxyStatus = 'unknown';
+    var proxyContentType = 'unknown';
+    var proxySize = 'unknown';
+    try {
+      var testResponse = await axios.head(thumbnail, {
+        timeout: 10000,
+        maxRedirects: 0,
+      });
+      proxyStatus = testResponse.status;
+      proxyContentType = testResponse.headers['content-type'] || 'not set';
+      proxySize = testResponse.headers['content-length'] || 'not set';
+    } catch (e) {
+      proxyStatus = 'ERROR: ' + e.message;
+    }
+
+    // Test source thumbnail accessibility
+    var sourceStatus = 'unknown';
+    var sourceSize = 'unknown';
+    try {
+      var sourceResponse = await axios.head(sourceThumbnail, {
+        timeout: 5000,
+        maxRedirects: 5,
+      });
+      sourceStatus = sourceResponse.status;
+      sourceSize = sourceResponse.headers['content-length'] || 'not set';
+    } catch (e) {
+      sourceStatus = 'ERROR: ' + e.message;
+    }
+
+    res.json({
+      success: true,
+      debug: {
+        videoId: video._id,
+        title: video.title,
+        description: cleanDescription(video),
+        slug: video.slug,
+        videoPageUrl: videoPageUrl,
+        shareUrl: getBackendUrl() + '/api/public/share/' + video._id,
+        thumbnail: {
+          proxy: thumbnail,
+          source: sourceThumbnail,
+          raw_thumbnail: video.thumbnail || null,
+          raw_thumbnailUrl: video.thumbnailUrl || null,
+          cloudinary_public_id: video.cloudinary_public_id || null,
+          file_code: video.file_code || null,
+          proxyStatus: proxyStatus,
+          proxyContentType: proxyContentType,
+          proxySize: proxySize,
+          sourceStatus: sourceStatus,
+          sourceSize: sourceSize,
+        },
+        telegramTest: {
+          shareLink: 'https://t.me/share/url?url=' + encodeURIComponent(getBackendUrl() + '/api/public/share/' + video._id),
+          webpageBotLink: 'Send this URL to @WebpageBot on Telegram: ' + getBackendUrl() + '/api/public/share/' + video._id,
+          cacheBustTest: getBackendUrl() + '/api/public/share/' + video._id + '?v=' + Date.now(),
+        },
+        checks: {
+          hasTitle: !!video.title,
+          hasThumbnail: !!thumbnail,
+          thumbnailIsHttps: thumbnail ? thumbnail.startsWith('https://') : false,
+          thumbnailEndsWithJpg: thumbnail ? thumbnail.endsWith('.jpg') : false,
+          hasCloudinaryId: !!video.cloudinary_public_id,
+          proxyWorking: proxyStatus === 200,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('Debug error:', error);
+    res.status(500).json({ error: 'Debug failed', message: error.message });
+  }
+});
+
+
+// ==========================================
+// HOME DATA - RANDOMIZED
+// ==========================================
+router.get('/home', async (req, res) => {
+  try {
+    var query = { status: 'public', isDuplicate: { $ne: true } };
+
+    const featuredVideos = await Video.aggregate([
+      { $match: { ...query, featured: true } },
+      { $sample: { size: 6 } },
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'category',
+          foreignField: '_id',
+          as: 'categoryData'
+        }
+      },
+      {
+        $addFields: {
+          category: { $arrayElemAt: ['$categoryData', 0] }
+        }
+      },
+      { $project: { categoryData: 0 } }
+    ]);
+
+    // ✅ FIX: Changed from .limit(12) to .limit(40)
+    const latestVideos = await Video.find(query)
+      .sort({ uploadDate: -1 })
+      .limit(40)
+      .populate('category', 'name slug');
+
+    const trendingVideos = await Video.aggregate([
+      { $match: query },
+      { $sort: { views: -1 } },
+      { $limit: 50 },
+      { $sample: { size: 12 } },
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'category',
+          foreignField: '_id',
+          as: 'categoryData'
+        }
+      },
+      {
+        $addFields: {
+          category: { $arrayElemAt: ['$categoryData', 0] }
+        }
+      },
+      { $project: { categoryData: 0 } }
+    ]);
+
+    const categories = await Category.find({ isActive: true }).sort({ order: 1 }).limit(10);
+
+    // ✅ FIX: Also return total count so frontend knows how many exist
+    const totalVideos = await Video.countDocuments(query);
+
+    res.json({
+      success: true,
+      data: {
+        featuredVideos,
+        latestVideos,
+        trendingVideos,
+        categories,
+        totalVideos  // ✅ Added
+      }
+    });
+  } catch (error) {
+    console.error('Home Data Error:', error);
+    res.status(500).json({ error: 'Failed to get home data' });
+  }
+});
+
+
+// ==========================================
+// STATS
+// ==========================================
+router.get('/stats', async (req, res) => {
+  try {
+    var query = { status: 'public', isDuplicate: { $ne: true } };
+
+    const [videoCount, totalViews, categoryCount] = await Promise.all([
+      Video.countDocuments(query),
+      Video.aggregate([{ $match: query }, { $group: { _id: null, total: { $sum: '$views' } } }]),
+      Category.countDocuments({ isActive: true }),
+    ]);
+
+    res.json({
+      success: true,
+      stats: {
+        videos: videoCount,
+        views: totalViews[0]?.total || 0,
+        categories: categoryCount,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to get stats' });
+  }
+});
+
+
+// ==========================================
+// DYNAMIC SITEMAP
+// ==========================================
+// ==========================================
+// DYNAMIC SITEMAP - ENHANCED WITH VIDEO MARKUP
+// ==========================================
+router.get('/sitemap.xml', async (req, res) => {
+  try {
+    var frontendUrl = getFrontendUrl();
+    var today = new Date().toISOString().split('T')[0];
+
+    // Get total video count
+    var totalVideos = await Video.countDocuments({
+      status: 'public',
+      isDuplicate: { $ne: true }
+    });
+
+    // If more than 5000 videos, serve a sitemap index
+    if (totalVideos > 5000) {
+      var totalSitemaps = Math.ceil(totalVideos / 5000);
+      var sitemapIndex = '<?xml version="1.0" encoding="UTF-8"?>\n';
+      sitemapIndex += '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
+
+      // Static pages sitemap
+      sitemapIndex += '  <sitemap>\n';
+      sitemapIndex += '    <loc>' + getBackendUrl() + '/api/public/sitemap-static.xml</loc>\n';
+      sitemapIndex += '    <lastmod>' + today + '</lastmod>\n';
+      sitemapIndex += '  </sitemap>\n';
+
+      // Video sitemaps (paginated)
+      for (var i = 0; i < totalSitemaps; i++) {
+        sitemapIndex += '  <sitemap>\n';
+        sitemapIndex += '    <loc>' + getBackendUrl() + '/api/public/sitemap-videos-' + (i + 1) + '.xml</loc>\n';
+        sitemapIndex += '    <lastmod>' + today + '</lastmod>\n';
+        sitemapIndex += '  </sitemap>\n';
+      }
+
+      sitemapIndex += '</sitemapindex>';
+
+      res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      return res.status(200).send(sitemapIndex);
+    }
+
+    // If 5000 or fewer videos, serve single sitemap
+    var videos = await Video.find({
+      status: 'public',
+      isDuplicate: { $ne: true }
+    })
+      .sort({ uploadDate: -1 })
+      .limit(5000)
+      .select('_id slug title description thumbnail thumbnailUrl cloudinary_public_id uploadDate duration views tags')
+      .lean();
+
+    var categories = await Category.find({ isActive: true })
+      .select('slug name updatedAt')
+      .lean();
+
+    var xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+    xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"\n';
+    xml += '        xmlns:video="http://www.google.com/schemas/sitemap-video/1.1"\n';
+    xml += '        xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n';
+
+    // Homepage
+    xml += '  <url>\n';
+    xml += '    <loc>' + frontendUrl + '</loc>\n';
+    xml += '    <lastmod>' + today + '</lastmod>\n';
+    xml += '    <changefreq>daily</changefreq>\n';
+    xml += '    <priority>1.0</priority>\n';
+    xml += '  </url>\n';
+
+    // Trending
+    xml += '  <url>\n';
+    xml += '    <loc>' + frontendUrl + '/trending</loc>\n';
+    xml += '    <lastmod>' + today + '</lastmod>\n';
+    xml += '    <changefreq>daily</changefreq>\n';
+    xml += '    <priority>0.8</priority>\n';
+    xml += '  </url>\n';
+
+    // Search
+    xml += '  <url>\n';
+    xml += '    <loc>' + frontendUrl + '/search</loc>\n';
+    xml += '    <lastmod>' + today + '</lastmod>\n';
+    xml += '    <changefreq>daily</changefreq>\n';
+    xml += '    <priority>0.7</priority>\n';
+    xml += '  </url>\n';
+
+    // Categories
+    for (var c = 0; c < categories.length; c++) {
+      var catLastmod = categories[c].updatedAt
+        ? new Date(categories[c].updatedAt).toISOString().split('T')[0]
+        : today;
+      xml += '  <url>\n';
+      xml += '    <loc>' + frontendUrl + '/category/' + encodeURIComponent(categories[c].slug) + '</loc>\n';
+      xml += '    <lastmod>' + catLastmod + '</lastmod>\n';
+      xml += '    <changefreq>weekly</changefreq>\n';
+      xml += '    <priority>0.7</priority>\n';
+      xml += '  </url>\n';
+    }
+
+    // Videos with video sitemap markup
+    for (var v = 0; v < videos.length; v++) {
+      var video = videos[v];
+      var videoUrl = frontendUrl + '/watch/' + video._id;
+      if (video.slug) {
+        videoUrl += '/' + encodeURIComponent(video.slug);
+      }
+      var lastmod = video.uploadDate
+        ? new Date(video.uploadDate).toISOString().split('T')[0]
+        : '';
+
+      // Get thumbnail URL
+      var thumbUrl = '';
+      if (video.cloudinary_public_id) {
+        thumbUrl = 'https://res.cloudinary.com/' + CLOUDINARY_CLOUD_NAME +
+          '/image/upload/w_1280,h_720,c_fill,q_80,f_jpg/' +
+          video.cloudinary_public_id + '.jpg';
+      } else if (video.thumbnailUrl && video.thumbnailUrl.startsWith('http')) {
+        thumbUrl = video.thumbnailUrl;
+      } else if (video.thumbnail && video.thumbnail.startsWith('http')) {
+        thumbUrl = video.thumbnail;
+      }
+
+      // Escape XML special characters
+      var safeTitle = (video.title || 'Video')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+
+      var safeDesc = (video.description || video.title || 'Watch this video on Xmaster')
+        .replace(/<[^>]*>/g, '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+      if (safeDesc.length > 2048) {
+        safeDesc = safeDesc.substring(0, 2045) + '...';
+      }
+
+      xml += '  <url>\n';
+      xml += '    <loc>' + videoUrl + '</loc>\n';
+      if (lastmod) {
+        xml += '    <lastmod>' + lastmod + '</lastmod>\n';
+      }
+      xml += '    <changefreq>monthly</changefreq>\n';
+      xml += '    <priority>0.6</priority>\n';
+
+      // Video sitemap extension
+      if (thumbUrl) {
+        xml += '    <video:video>\n';
+        xml += '      <video:thumbnail_loc>' + thumbUrl + '</video:thumbnail_loc>\n';
+        xml += '      <video:title>' + safeTitle + '</video:title>\n';
+        xml += '      <video:description>' + safeDesc + '</video:description>\n';
+        xml += '      <video:player_loc allow_embed="yes">https://short.icu/' + (video.file_code || '') + '</video:player_loc>\n';
+        if (video.duration && video.duration !== '00:00') {
+          var dParts = video.duration.split(':').map(Number);
+          var durationSec = 0;
+          if (dParts.length === 3) durationSec = dParts[0] * 3600 + dParts[1] * 60 + dParts[2];
+          else if (dParts.length === 2) durationSec = dParts[0] * 60 + dParts[1];
+          if (durationSec > 0) {
+            xml += '      <video:duration>' + durationSec + '</video:duration>\n';
+          }
+        }
+        if (lastmod) {
+          xml += '      <video:publication_date>' + lastmod + '</video:publication_date>\n';
+        }
+        if (video.views) {
+          xml += '      <video:view_count>' + video.views + '</video:view_count>\n';
+        }
+        xml += '      <video:family_friendly>no</video:family_friendly>\n';
+        xml += '      <video:live>no</video:live>\n';
+
+        // Add tags (max 32 per Google spec)
+        if (video.tags && video.tags.length > 0) {
+          var maxTags = Math.min(video.tags.length, 32);
+          for (var t = 0; t < maxTags; t++) {
+            var safeTag = video.tags[t]
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;');
+            xml += '      <video:tag>' + safeTag + '</video:tag>\n';
+          }
+        }
+        xml += '    </video:video>\n';
+      }
+
+      // Image sitemap extension
+      if (thumbUrl) {
+        xml += '    <image:image>\n';
+        xml += '      <image:loc>' + thumbUrl + '</image:loc>\n';
+        xml += '      <image:title>' + safeTitle + '</image:title>\n';
+        xml += '    </image:image>\n';
+      }
+
+      xml += '  </url>\n';
+    }
+
+    xml += '</urlset>';
+
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.status(200).send(xml);
+  } catch (error) {
+    console.error('Sitemap error:', error);
+    res.status(500).send('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>');
+  }
+});
+
+
+// ==========================================
+// STATIC PAGES SITEMAP (for sitemap index)
+// ==========================================
+router.get('/sitemap-static.xml', async (req, res) => {
+  try {
+    var frontendUrl = getFrontendUrl();
+    var today = new Date().toISOString().split('T')[0];
+    var categories = await Category.find({ isActive: true }).select('slug updatedAt').lean();
+
+    var xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+    xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
+
+    xml += '  <url>\n';
+    xml += '    <loc>' + frontendUrl + '</loc>\n';
+    xml += '    <lastmod>' + today + '</lastmod>\n';
+    xml += '    <changefreq>daily</changefreq>\n';
+    xml += '    <priority>1.0</priority>\n';
+    xml += '  </url>\n';
+
+    xml += '  <url>\n';
+    xml += '    <loc>' + frontendUrl + '/trending</loc>\n';
+    xml += '    <lastmod>' + today + '</lastmod>\n';
+    xml += '    <changefreq>daily</changefreq>\n';
+    xml += '    <priority>0.8</priority>\n';
+    xml += '  </url>\n';
+
+    xml += '  <url>\n';
+    xml += '    <loc>' + frontendUrl + '/search</loc>\n';
+    xml += '    <lastmod>' + today + '</lastmod>\n';
+    xml += '    <changefreq>daily</changefreq>\n';
+    xml += '    <priority>0.7</priority>\n';
+    xml += '  </url>\n';
+
+    for (var c = 0; c < categories.length; c++) {
+      var catLastmod = categories[c].updatedAt
+        ? new Date(categories[c].updatedAt).toISOString().split('T')[0]
+        : today;
+      xml += '  <url>\n';
+      xml += '    <loc>' + frontendUrl + '/category/' + encodeURIComponent(categories[c].slug) + '</loc>\n';
+      xml += '    <lastmod>' + catLastmod + '</lastmod>\n';
+      xml += '    <changefreq>weekly</changefreq>\n';
+      xml += '    <priority>0.7</priority>\n';
+      xml += '  </url>\n';
+    }
+
+    xml += '</urlset>';
+
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.status(200).send(xml);
+  } catch (error) {
+    console.error('Static sitemap error:', error);
+    res.status(500).send('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>');
+  }
+});
+
+
+// ==========================================
+// PAGINATED VIDEO SITEMAPS (for sitemap index)
+// ==========================================
+router.get('/sitemap-videos-:page.xml', async (req, res) => {
+  try {
+    var page = parseInt(req.params.page) || 1;
+    var perPage = 5000;
+    var skip = (page - 1) * perPage;
+    var frontendUrl = getFrontendUrl();
+
+    var videos = await Video.find({
+      status: 'public',
+      isDuplicate: { $ne: true }
+    })
+      .sort({ uploadDate: -1 })
+      .skip(skip)
+      .limit(perPage)
+      .select('_id slug title description thumbnail thumbnailUrl cloudinary_public_id uploadDate duration views tags file_code')
+      .lean();
+
+    var xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+    xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"\n';
+    xml += '        xmlns:video="http://www.google.com/schemas/sitemap-video/1.1">\n';
+
+    for (var v = 0; v < videos.length; v++) {
+      var video = videos[v];
+      var videoUrl = frontendUrl + '/watch/' + video._id;
+      if (video.slug) {
+        videoUrl += '/' + encodeURIComponent(video.slug);
+      }
+      var lastmod = video.uploadDate
+        ? new Date(video.uploadDate).toISOString().split('T')[0]
+        : '';
+
+      var thumbUrl = '';
+      if (video.cloudinary_public_id) {
+        thumbUrl = 'https://res.cloudinary.com/' + CLOUDINARY_CLOUD_NAME +
+          '/image/upload/w_1280,h_720,c_fill,q_80,f_jpg/' +
+          video.cloudinary_public_id + '.jpg';
+      } else if (video.thumbnailUrl && video.thumbnailUrl.startsWith('http')) {
+        thumbUrl = video.thumbnailUrl;
+      } else if (video.thumbnail && video.thumbnail.startsWith('http')) {
+        thumbUrl = video.thumbnail;
+      }
+
+      var safeTitle = (video.title || 'Video')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+      var safeDesc = (video.description || video.title || '')
+        .replace(/<[^>]*>/g, '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      if (safeDesc.length > 2048) safeDesc = safeDesc.substring(0, 2045) + '...';
+
+      xml += '  <url>\n';
+      xml += '    <loc>' + videoUrl + '</loc>\n';
+      if (lastmod) xml += '    <lastmod>' + lastmod + '</lastmod>\n';
+      xml += '    <changefreq>monthly</changefreq>\n';
+      xml += '    <priority>0.6</priority>\n';
+
+      if (thumbUrl) {
+        xml += '    <video:video>\n';
+        xml += '      <video:thumbnail_loc>' + thumbUrl + '</video:thumbnail_loc>\n';
+        xml += '      <video:title>' + safeTitle + '</video:title>\n';
+        xml += '      <video:description>' + (safeDesc || safeTitle) + '</video:description>\n';
+        xml += '      <video:player_loc allow_embed="yes">https://short.icu/' + (video.file_code || '') + '</video:player_loc>\n';
+        if (video.duration && video.duration !== '00:00') {
+          var dParts = video.duration.split(':').map(Number);
+          var dSec = 0;
+          if (dParts.length === 3) dSec = dParts[0] * 3600 + dParts[1] * 60 + dParts[2];
+          else if (dParts.length === 2) dSec = dParts[0] * 60 + dParts[1];
+          if (dSec > 0) xml += '      <video:duration>' + dSec + '</video:duration>\n';
+        }
+        if (lastmod) xml += '      <video:publication_date>' + lastmod + '</video:publication_date>\n';
+        if (video.views) xml += '      <video:view_count>' + video.views + '</video:view_count>\n';
+        xml += '      <video:family_friendly>no</video:family_friendly>\n';
+        xml += '      <video:live>no</video:live>\n';
+        if (video.tags && video.tags.length > 0) {
+          var maxTags = Math.min(video.tags.length, 32);
+          for (var t = 0; t < maxTags; t++) {
+            xml += '      <video:tag>' + video.tags[t].replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</video:tag>\n';
+          }
+        }
+        xml += '    </video:video>\n';
+      }
+
+      xml += '  </url>\n';
+    }
+
+    xml += '</urlset>';
+
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.status(200).send(xml);
+  } catch (error) {
+    console.error('Video sitemap error:', error);
+    res.status(500).send('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>');
+  }
+});
+
+
+// ==========================================
+// ROBOTS.TXT (served from backend for API domain)
+// ==========================================
+router.get('/robots.txt', (req, res) => {
+  var frontendUrl = getFrontendUrl();
+  var backendUrl = getBackendUrl();
+
+  var robots = '# Xmaster Robots.txt\n';
+  robots += '# https://xmaster.guru\n\n';
+  robots += 'User-agent: *\n';
+  robots += 'Allow: /api/public/share/\n';
+  robots += 'Allow: /api/public/sitemap.xml\n';
+  robots += 'Disallow: /api/\n\n';
+  robots += 'Sitemap: ' + frontendUrl + '/sitemap.xml\n';
+  robots += 'Sitemap: ' + backendUrl + '/api/public/sitemap.xml\n';
+
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.status(200).send(robots);
+});
+
+module.exports = router;
+
+backend/middleware/ogRenderer.js
+
+// backend/middleware/ogRenderer.js
+
+const Video = require('../models/Video');
+
+// Comprehensive bot detection - covers Telegram, WhatsApp, Facebook, Twitter, Discord, etc.
+const BOT_USER_AGENTS = [
+  'TelegramBot',
+  'telegrambot',
+  'Telegram',
+  'WhatsApp',
+  'facebookexternalhit',
+  'Facebot',
+  'Twitterbot',
+  'LinkedInBot',
+  'Slackbot',
+  'Discordbot',
+  'vkShare',
+  'Viber',
+  'Googlebot',
+  'bingbot',
+  'Applebot',
+  'PinterestBot',
+  'redditbot',
+  'Embedly',
+  'Quora Link Preview',
+  'Showyoubot',
+  'outbrain',
+  'W3C_Validator',
+  'rogerbot',
+  'Yahoo! Slurp',
+  'Baiduspider',
+  'DuckDuckBot',
+  'Sogou',
+  'ia_archiver',
+  'curl',          // useful for testing
+  'wget',
+  'Postman',
+];
+
+function isBotRequest(userAgent) {
+  if (!userAgent) return false;
+  return BOT_USER_AGENTS.some(bot => 
+    userAgent.toLowerCase().includes(bot.toLowerCase())
+  );
+}
+
+// Ensure Cloudinary URL is optimized for Telegram
+function optimizeThumbnailForTelegram(cloudinaryUrl) {
+  if (!cloudinaryUrl) return '';
+  
+  // If it's a Cloudinary URL, apply transformations for Telegram compatibility
+  // Telegram requirements:
+  // - MUST be JPEG or PNG (no WebP for preview)
+  // - Recommended: 1200x630 pixels (1.91:1 ratio)
+  // - MUST be under 5MB
+  // - MUST be served over HTTPS
+  // - MUST NOT redirect (direct URL)
+  // - MUST return proper Content-Type header
+  
+  if (cloudinaryUrl.includes('cloudinary.com')) {
+    // Insert Cloudinary transformations for optimal Telegram preview
+    // c_fill = crop to fill, w_1200, h_630 = dimensions, f_jpg = force JPEG, q_85 = quality
+    const transformed = cloudinaryUrl.replace(
+      '/upload/',
+      '/upload/c_fill,w_1200,h_630,f_jpg,q_85/'
+    );
+    return transformed;
+  }
+  
+  return cloudinaryUrl;
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function truncateDescription(text, maxLength = 200) {
+  if (!text) return '';
+  if (text.length <= maxLength) return text;
+  return text.substring(0, maxLength).trim() + '...';
+}
+
+async function ogRenderer(req, res, next) {
+  const userAgent = req.headers['user-agent'] || '';
+  
+  // Only intercept for bot requests to video watch pages
+  // Match patterns like /watch/:id or /video/:id
+  const watchMatch = req.path.match(/^\/(watch|video)\/([a-zA-Z0-9_-]+)/);
+  
+  if (!watchMatch || !isBotRequest(userAgent)) {
+    return next(); // Not a bot or not a video page, continue normally
+  }
+  
+  const videoId = watchMatch[2];
+  
+  try {
+    const video = await Video.findById(videoId).lean();
+    
+    if (!video) {
+      return next(); // Video not found, serve normal page
+    }
+    
+    const siteUrl = process.env.SITE_URL || 'https://yourdomain.com';
+    const siteName = process.env.SITE_NAME || 'XMaster';
+    
+    const title = escapeHtml(video.title || 'Untitled Video');
+    const description = escapeHtml(
+      truncateDescription(video.description || `Watch ${video.title} on ${siteName}`)
+    );
+    const videoUrl = `${siteUrl}/watch/${video._id}`;
+    const thumbnailUrl = optimizeThumbnailForTelegram(
+      video.thumbnailUrl || video.thumbnail || ''
+    );
+    
+    // Duration formatting for video meta
+    const duration = video.duration || 0;
+    const durationISO = `PT${Math.floor(duration / 60)}M${duration % 60}S`;
+    
+    // Build the complete HTML response for bots
+    const html = `<!DOCTYPE html>
+<html lang="en" prefix="og: http://ogp.me/ns#">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <!-- Primary Meta Tags -->
+    <title>${title} - ${siteName}</title>
+    <meta name="title" content="${title} - ${siteName}">
+    <meta name="description" content="${description}">
+    
+    <!-- Open Graph / Facebook / Telegram -->
+    <meta property="og:type" content="video.other">
+    <meta property="og:site_name" content="${siteName}">
+    <meta property="og:url" content="${videoUrl}">
+    <meta property="og:title" content="${title}">
+    <meta property="og:description" content="${description}">
+    <meta property="og:image" content="${thumbnailUrl}">
+    <meta property="og:image:secure_url" content="${thumbnailUrl}">
+    <meta property="og:image:type" content="image/jpeg">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="${title}">
+    <meta property="og:locale" content="en_US">
+    
+    <!-- Video specific OG tags -->
+    <meta property="og:video:duration" content="${duration}">
+    <meta property="video:duration" content="${durationISO}">
+    
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:url" content="${videoUrl}">
+    <meta name="twitter:title" content="${title}">
+    <meta name="twitter:description" content="${description}">
+    <meta name="twitter:image" content="${thumbnailUrl}">
+    <meta name="twitter:image:alt" content="${title}">
+    
+    <!-- Telegram Specific -->
+    <meta name="telegram:channel" content="@yourchannel">
+    
+    <!-- Additional SEO -->
+    <link rel="canonical" href="${videoUrl}">
+    <meta name="robots" content="index, follow">
+    
+    <!-- Schema.org JSON-LD for rich results -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "VideoObject",
+        "name": "${title}",
+        "description": "${description}",
+        "thumbnailUrl": "${thumbnailUrl}",
+        "uploadDate": "${video.createdAt || new Date().toISOString()}",
+        "duration": "${durationISO}",
+        "contentUrl": "${videoUrl}",
+        "embedUrl": "${videoUrl}",
+        "interactionStatistic": {
+            "@type": "InteractionCounter",
+            "interactionType": { "@type": "WatchAction" },
+            "userInteractionCount": ${video.views || 0}
+        }
+    }
+    </script>
+    
+    <!-- Redirect real users (non-bots) to the SPA -->
+    <noscript>
+        <meta http-equiv="refresh" content="0;url=${videoUrl}">
+    </noscript>
+</head>
+<body>
+    <!-- Minimal content for crawlers -->
+    <article>
+        <h1>${title}</h1>
+        <p>${description}</p>
+        <img src="${thumbnailUrl}" alt="${title}" width="1200" height="630">
+        <a href="${videoUrl}">Watch Video</a>
+    </article>
+</body>
+</html>`;
+
+    // Set proper headers for bot responses
+    res.set({
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'public, max-age=3600, s-maxage=3600',
+      'X-Robots-Tag': 'index, follow',
+    });
+    
+    return res.status(200).send(html);
+    
+  } catch (error) {
+    console.error('OG Renderer Error:', error.message);
+    return next(); // On error, fall through to normal serving
+  }
+}
+
+module.exports = { ogRenderer, isBotRequest, optimizeThumbnailForTelegram };
+
+
+backend/models/Video.js
+
+const mongoose = require("mongoose");
+
+const videoSchema = new mongoose.Schema(
+  {
+    file_code: {
+      type: String,
+      required: true,
+      unique: true,
+      index: true,
+    },
+
+    embed_code: {
+      type: String,
+      default: "",
+    },
+
+    title: {
+      type: String,
+      required: true,
+      trim: true,
+      maxlength: 200,
+    },
+
+    slug: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
+
+    description: {
+      type: String,
+      default: "",
+      maxlength: 5000,
+    },
+
+    // ============================
+    // THUMBNAIL FIELDS
+    // ============================
+    thumbnail: {
+      type: String,
+      default: "",
+    },
+
+    thumbnailUrl: {
+      type: String,
+      default: "",
+    },
+
+    cloudinary_public_id: {
+      type: String,
+      default: "",
+    },
+
+    duration: {
+      type: String,
+      default: "00:00",
+    },
+
+    duration_seconds: {
+      type: Number,
+      default: 0,
+    },
+
+    // ============================
+    // CATEGORY FIELDS (UPDATED)
+    // ============================
+    // Primary category (ObjectId reference)
+    category: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Category",
+      default: null,
+      index: true,
+    },
+
+    // Multiple categories support
+    categories: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Category",
+    }],
+
+    tags: [
+      {
+        type: String,
+        lowercase: true,
+        trim: true,
+      },
+    ],
+
+    views: {
+      type: Number,
+      default: 0,
+      index: true,
+    },
+
+    likes: {
+      type: Number,
+      default: 0,
+    },
+
+    dislikes: {
+      type: Number,
+      default: 0,
+    },
+
+    // ============================
+    // SHARE TRACKING
+    // ============================
+    shares: {
+      type: Number,
+      default: 0,
+      index: true,
+    },
+
+    sharePlatforms: {
+      telegram: { type: Number, default: 0 },
+      whatsapp: { type: Number, default: 0 },
+      facebook: { type: Number, default: 0 },
+      twitter: { type: Number, default: 0 },
+      copy: { type: Number, default: 0 },
+      native: { type: Number, default: 0 },
+      unknown: { type: Number, default: 0 },
+    },
+
+    sharedOnTG: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
+    sharedOnTGDate: {
+      type: Date,
+      default: null,
+    },
+
+    status: {
+      type: String,
+      enum: ["public", "private", "unlisted", "processing", "duplicate"],
+      default: "public",
+      index: true,
+    },
+
+    featured: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
+    // ==========================================
+    // DUPLICATE DETECTION FIELDS
+    // ==========================================
+    isDuplicate: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
+    duplicateOf: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Video",
+      default: null,
+    },
+
+    duplicateReasons: [
+      {
+        type: String,
+        enum: ["title", "duration", "file", "thumbnail"],
+      },
+    ],
+
+    titleNormalized: {
+      type: String,
+      default: "",
+      index: true,
+    },
+
+    fileHash: {
+      type: String,
+      default: "",
+      index: true,
+    },
+
+    uploadDate: {
+      type: Date,
+      default: Date.now,
+      index: true,
+    },
+  },
+  {
+    timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
+  }
+);
+
+// ==========================================
+// VIRTUALS
+// ==========================================
+videoSchema.virtual("bestThumbnail").get(function () {
+  return this.thumbnailUrl || this.thumbnail || "";
+});
+
+// ==========================================
+// Pre-save
+// ==========================================
+videoSchema.pre("save", function (next) {
+  // Generate slug
+  if (this.title && !this.slug) {
+    this.slug =
+      this.title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "") +
+      "-" +
+      this.file_code.substring(0, 8);
+  }
+
+  // Generate embed URL
+  if (this.file_code && !this.embed_code) {
+    this.embed_code = `https://short.icu/${this.file_code}`;
+  }
+
+  // Normalize title for duplicate detection
+  if (this.title) {
+    this.titleNormalized = this.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "")
+      .trim();
+  }
+
+  // Parse duration string to seconds
+  if (this.duration && this.duration !== "00:00") {
+    const parts = this.duration.split(":").map(Number);
+    if (parts.length === 3) {
+      this.duration_seconds = parts[0] * 3600 + parts[1] * 60 + parts[2];
+    } else if (parts.length === 2) {
+      this.duration_seconds = parts[0] * 60 + parts[1];
+    }
+  }
+
+  // Sync categories array with primary category
+  if (this.category && (!this.categories || this.categories.length === 0)) {
+    this.categories = [this.category];
+  }
+  if (this.categories && this.categories.length > 0 && !this.category) {
+    this.category = this.categories[0];
+  }
+
+  next();
+});
+
+// ==========================================
+// Pre-remove
+// ==========================================
+videoSchema.pre("deleteOne", { document: true, query: false }, async function () {
+  if (this.cloudinary_public_id) {
+    try {
+      const { deleteImage } = require("../config/cloudinary");
+      await deleteImage(this.cloudinary_public_id);
+    } catch (err) {
+      console.error("⚠️ Failed to delete Cloudinary image:", err.message);
+    }
+  }
+});
+
+// ==========================================
+// Indexes
+// ==========================================
+videoSchema.index({ title: "text", tags: "text", description: "text" });
+videoSchema.index({ shares: -1 });
+videoSchema.index({ "sharePlatforms.telegram": -1 });
+videoSchema.index({ categories: 1 });
+
+module.exports = mongoose.model("Video", videoSchema);
+
+
+frontend/src/components/video/ShareButton.jsx
+
+// frontend/src/components/video/ShareButton.jsx
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { FiShare2, FiX, FiCopy, FiCheck, FiExternalLink } from 'react-icons/fi';
+
+// ==========================================
+// CONSTANTS
+// ==========================================
+const API_BASE = process.env.REACT_APP_API_URL || 'https://api.xmaster.guru/api';
+
+const PLACEHOLDER =
+  "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIwIiBoZWlnaHQ9IjE4MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjMWUxZTFlIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNiIgZmlsbD0iIzY2NiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPk5vIFRodW1ibmFpbDwvdGV4dD48L3N2Zz4=";
+
+// ==========================================
+// ICONS
+// ==========================================
+const TelegramIcon = () => (
+  <svg viewBox="0 0 24 24" className="w-6 h-6" fill="currentColor">
+    <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.96 6.504-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
+  </svg>
+);
+
+const WhatsAppIcon = () => (
+  <svg viewBox="0 0 24 24" className="w-6 h-6" fill="currentColor">
+    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+  </svg>
+);
+
+const FacebookIcon = () => (
+  <svg viewBox="0 0 24 24" className="w-6 h-6" fill="currentColor">
+    <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
+  </svg>
+);
+
+const TwitterIcon = () => (
+  <svg viewBox="0 0 24 24" className="w-6 h-6" fill="currentColor">
+    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+  </svg>
+);
+
+// ==========================================
+// HELPERS
+// ==========================================
+
+const getThumbnail = (video) => {
+  if (!video) return PLACEHOLDER;
+  const thumb = video.thumbnail;
+  if (thumb && thumb.startsWith('http')) return thumb;
+  if (thumb && thumb.length > 3) return `https://abyss.to/splash/${thumb}.jpg`;
+  if (video.file_code) return `https://abyss.to/splash/${video.file_code}.jpg`;
+  return PLACEHOLDER;
+};
+
+const formatViews = (views) => {
+  if (!views) return '0';
+  if (views >= 1000000) return (views / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (views >= 1000) return (views / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+  return views.toString();
+};
+
+/**
+ * Track share event
+ */
+const trackShare = async (videoId, platform) => {
+  try {
+    await fetch(`${API_BASE}/public/share/${videoId}/track`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ platform }),
+    });
+  } catch (e) {
+    // Silent fail - tracking is non-critical
+  }
+};
+
+// ==========================================
+// SHARE MODAL COMPONENT
+// ==========================================
+
+const ShareModal = ({ video, isOpen, onClose }) => {
+  const [copied, setCopied] = useState(false);
+  const [shareSuccess, setShareSuccess] = useState('');
+  const modalRef = useRef(null);
+
+  // Close on ESC
   useEffect(() => {
-    fetchDuplicates(1, activeFilter);
-  }, [activeFilter, fetchDuplicates]);
+    const handleEsc = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    if (isOpen) {
+      document.addEventListener('keydown', handleEsc);
+      document.body.style.overflow = 'hidden';
+    }
+    return () => {
+      document.removeEventListener('keydown', handleEsc);
+      document.body.style.overflow = '';
+    };
+  }, [isOpen, onClose]);
 
-  const handleScan = async () => {
-    if (scanning) return;
-    if (!window.confirm("Scan all videos for duplicates? This may take a while.")) return;
-    setScanning(true);
-    setScanResult(null);
+  if (!isOpen || !video) return null;
+
+  const thumbnail = getThumbnail(video);
+
+  // THE KEY URL: Share URL points to backend SSR page (has OG tags)
+  const shareUrl = `${API_BASE}/public/share/${video._id}`;
+
+  // Video page URL (where user actually watches)
+  const videoPageUrl = `${window.location.origin}/watch/${video._id}${
+    video.slug ? '/' + video.slug : ''
+  }`;
+
+  const shareTitle = video.title || 'Watch this video';
+  const shareText = `${shareTitle}`;
+
+  // ==========================================
+  // SHARE HANDLERS
+  // ==========================================
+
+  const handleTelegramShare = () => {
+    trackShare(video._id, 'telegram');
+    // Use shareUrl (backend SSR page) so Telegram fetches OG tags
+    const url = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareText)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+    setShareSuccess('Telegram');
+    setTimeout(() => setShareSuccess(''), 2000);
+  };
+
+  const handleWhatsAppShare = () => {
+    trackShare(video._id, 'whatsapp');
+    const url = `https://wa.me/?text=${encodeURIComponent(shareText + '\n\n' + shareUrl)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+    setShareSuccess('WhatsApp');
+    setTimeout(() => setShareSuccess(''), 2000);
+  };
+
+  const handleFacebookShare = () => {
+    trackShare(video._id, 'facebook');
+    const url = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`;
+    window.open(url, '_blank', 'noopener,noreferrer,width=600,height=400');
+    setShareSuccess('Facebook');
+    setTimeout(() => setShareSuccess(''), 2000);
+  };
+
+  const handleTwitterShare = () => {
+    trackShare(video._id, 'twitter');
+    const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`;
+    window.open(url, '_blank', 'noopener,noreferrer,width=600,height=400');
+    setShareSuccess('Twitter');
+    setTimeout(() => setShareSuccess(''), 2000);
+  };
+
+  const handleNativeShare = async () => {
+    if (!navigator.share) return;
     try {
-      const res = await adminAPI.scanDuplicates();
-      if (res.data.success) {
-        setScanResult(res.data);
-        fetchDuplicates(1, activeFilter);
+      trackShare(video._id, 'native');
+      await navigator.share({
+        title: shareTitle,
+        text: shareText,
+        url: shareUrl,
+      });
+      setShareSuccess('Shared!');
+      setTimeout(() => {
+        setShareSuccess('');
+        onClose();
+      }, 1500);
+    } catch (e) {
+      // User cancelled - that's fine
+      if (e.name !== 'AbortError') {
+        console.error('Share failed:', e);
       }
-    } catch (error) {
-      console.error("Scan failed:", error);
-    } finally {
-      setScanning(false);
     }
   };
 
-  const handleAction = async (action, id, title) => {
-    if (action === 'delete' && !window.confirm(`Delete "${title}"? This cannot be undone.`)) return;
-    setActionLoading(prev => ({ ...prev, [id]: action }));
+  const handleCopyLink = async () => {
     try {
-      let res;
-      if (action === 'delete') res = await adminAPI.deleteDuplicate(id);
-      else if (action === 'keep') res = await adminAPI.keepDuplicate(id);
-      else if (action === 'public') res = await adminAPI.makePublicDuplicate(id);
-      
-      if (res?.data?.success) {
-        setDuplicates(prev => prev.filter(v => v._id !== id));
-        setStats(prev => ({ ...prev, total: prev.total - 1 }));
-      }
-    } catch (error) {
-      console.error(`${action} failed:`, error);
-    } finally {
-      setActionLoading(prev => ({ ...prev, [id]: null }));
+      // Copy the direct video page URL (nicer for users)
+      await navigator.clipboard.writeText(videoPageUrl);
+    } catch (e) {
+      // Fallback for older browsers
+      const input = document.createElement('input');
+      input.value = videoPageUrl;
+      input.style.position = 'fixed';
+      input.style.opacity = '0';
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
     }
+    trackShare(video._id, 'copy');
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
   };
 
-  const handleBulkDelete = async () => {
-    if (selectedIds.length === 0) return;
-    if (!window.confirm(`Delete ${selectedIds.length} duplicates?`)) return;
-    setLoading(true);
+  const handleCopyShareLink = async () => {
+    // Copy the share URL (with OG tags) - for power users
     try {
-      await adminAPI.bulkDeleteDuplicates(selectedIds);
-      setSelectedIds([]);
-      fetchDuplicates(pagination.page, activeFilter);
-    } catch (error) {
-      console.error("Bulk delete failed:", error);
-    } finally {
-      setLoading(false);
+      await navigator.clipboard.writeText(shareUrl);
+    } catch (e) {
+      const input = document.createElement('input');
+      input.value = shareUrl;
+      input.style.position = 'fixed';
+      input.style.opacity = '0';
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
     }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
   };
 
-  const handleClearAll = async () => {
-    if (!window.confirm("Clear all duplicate flags? (Videos won't be deleted)")) return;
-    setLoading(true);
-    try {
-      await adminAPI.clearAllDuplicates();
-      fetchDuplicates(1, activeFilter);
-    } catch (error) {
-      console.error("Clear failed:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const toggleSelect = (id) => {
-    setSelectedIds(prev => prev.includes(id) ? prev.filter(sid => sid !== id) : [...prev, id]);
-  };
-
-  const toggleSelectAll = () => {
-    if (selectedIds.length === duplicates.length) setSelectedIds([]);
-    else setSelectedIds(duplicates.map(d => d._id));
-  };
-
-  const getThumbnail = (video) => {
-    if (!video) return '';
-    if (video.thumbnail && video.thumbnail.startsWith('http')) return video.thumbnail;
-    if (video.file_code) return `https://abyss.to/splash/${video.file_code}.jpg`;
-    return '';
-  };
-
-  const formatDuration = (seconds) => {
-    if (!seconds) return "N/A";
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = seconds % 60;
-    if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-    return `${m}:${String(s).padStart(2, "0")}`;
-  };
-
-  const reasonColors = {
-    title: 'bg-red-500/20 text-red-400 border-red-500/30',
-    duration: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-    file: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
-    thumbnail: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-  };
-
-  const reasonLabels = {
-    title: 'Title Match',
-    duration: 'Duration Match',
-    file: 'File Match',
-    thumbnail: 'Thumbnail Match',
-  };
+  // Share platform configs
+  const platforms = [
+    {
+      name: 'Telegram',
+      icon: <TelegramIcon />,
+      color: 'bg-[#0088cc] hover:bg-[#0077b5]',
+      shadow: 'shadow-[0_4px_15px_rgba(0,136,204,0.3)]',
+      onClick: handleTelegramShare,
+      priority: true,
+    },
+    {
+      name: 'WhatsApp',
+      icon: <WhatsAppIcon />,
+      color: 'bg-[#25D366] hover:bg-[#20bd5a]',
+      shadow: 'shadow-[0_4px_15px_rgba(37,211,102,0.3)]',
+      onClick: handleWhatsAppShare,
+    },
+    {
+      name: 'Facebook',
+      icon: <FacebookIcon />,
+      color: 'bg-[#1877F2] hover:bg-[#1565d8]',
+      shadow: 'shadow-[0_4px_15px_rgba(24,119,242,0.3)]',
+      onClick: handleFacebookShare,
+    },
+    {
+      name: 'Twitter / X',
+      icon: <TwitterIcon />,
+      color: 'bg-black hover:bg-gray-800',
+      shadow: 'shadow-[0_4px_15px_rgba(0,0,0,0.3)]',
+      onClick: handleTwitterShare,
+    },
+  ];
 
   return (
-    <AdminLayout title="Duplicate Manager">
-      {/* Header Actions */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
-        <p className="text-gray-400 text-sm">Manage duplicate videos detected during uploads</p>
-        <div className="flex gap-2">
+    <div
+      className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center"
+      onClick={onClose}
+    >
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm transition-opacity" />
+
+      {/* Modal */}
+      <div
+        ref={modalRef}
+        className="relative w-full sm:w-[440px] max-h-[90vh] overflow-y-auto bg-white dark:bg-[#1a1a2e] rounded-t-2xl sm:rounded-2xl shadow-2xl animate-share-slide-up"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-gray-700/50">
+          <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+            <FiShare2 className="w-5 h-5 text-blue-500" />
+            Share Video
+          </h3>
           <button
-            onClick={handleScan}
-            disabled={scanning}
-            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
+            onClick={onClose}
+            className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
+            aria-label="Close"
           >
-            {scanning ? (
-              <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Scanning...</>
-            ) : (
-              <>🔍 Scan for Duplicates</>
+            <FiX className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+          </button>
+        </div>
+
+        {/* Video Preview */}
+        <div className="flex gap-3 p-4 bg-gray-50 dark:bg-white/5">
+          <div className="w-28 h-[72px] rounded-lg overflow-hidden bg-gray-200 dark:bg-gray-700 flex-shrink-0 relative">
+            <img
+              src={thumbnail}
+              alt={video.title}
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                e.target.src = PLACEHOLDER;
+              }}
+            />
+            {video.duration && video.duration !== '00:00' && (
+              <span className="absolute bottom-1 right-1 px-1 py-0.5 bg-black/80 text-white text-[9px] font-medium rounded">
+                {video.duration}
+              </span>
             )}
-          </button>
-          {stats.total > 0 && (
-            <button onClick={handleClearAll} className="px-4 py-2.5 bg-dark-100 hover:bg-dark-300 text-gray-300 rounded-lg font-medium transition-colors">
-              🧹 Clear All Flags
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Scan Result */}
-      {scanResult && (
-        <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl text-blue-400 text-sm">
-          Found {scanResult.duplicatesFound} duplicates out of {scanResult.totalScanned} videos scanned.
-        </div>
-      )}
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-        {[
-          { key: 'all', label: 'Total', value: stats.total, color: 'border-gray-500' },
-          { key: 'title', label: 'Title Match', value: stats.byTitle, color: 'border-red-500' },
-          { key: 'duration', label: 'Duration Match', value: stats.byDuration, color: 'border-yellow-500' },
-          { key: 'file', label: 'File Match', value: stats.byFile, color: 'border-purple-500' },
-        ].map(stat => (
-          <button
-            key={stat.key}
-            onClick={() => setActiveFilter(stat.key)}
-            className={`p-4 rounded-xl border-2 transition-all text-left ${
-              activeFilter === stat.key
-                ? `${stat.color} bg-dark-100`
-                : 'border-dark-100 bg-dark-200 hover:bg-dark-100'
-            }`}
-          >
-            <p className="text-2xl font-bold text-white">{stat.value}</p>
-            <p className="text-xs text-gray-400 mt-1">{stat.label}</p>
-          </button>
-        ))}
-      </div>
-
-      {/* Bulk Actions */}
-      {selectedIds.length > 0 && (
-        <div className="mb-4 flex items-center gap-4 p-4 bg-dark-100 rounded-xl">
-          <span className="text-gray-400">{selectedIds.length} selected</span>
-          <button onClick={handleBulkDelete} className="px-4 py-2 bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded-lg transition-colors text-sm">
-            🗑️ Delete Selected
-          </button>
-          <button onClick={() => setSelectedIds([])} className="px-4 py-2 bg-dark-200 text-gray-400 hover:text-white rounded-lg transition-colors text-sm">
-            Cancel
-          </button>
-        </div>
-      )}
-
-      {/* Duplicate List */}
-      <div className="space-y-4">
-        {loading ? (
-          <div className="text-center py-16">
-            <div className="w-8 h-8 border-3 border-primary-500/30 border-t-primary-500 rounded-full animate-spin mx-auto mb-4" />
-            <p className="text-gray-400">Loading duplicates...</p>
           </div>
-        ) : duplicates.length === 0 ? (
-          <div className="text-center py-16 bg-dark-200 rounded-xl">
-            <div className="text-5xl mb-4">✨</div>
-            <h3 className="text-white text-lg font-semibold mb-2">No Duplicates Found</h3>
-            <p className="text-gray-400 text-sm">
-              {activeFilter !== 'all' ? `No ${activeFilter} match duplicates. Try "Total" filter.` : 'Your library is clean!'}
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-gray-900 dark:text-white line-clamp-2 leading-snug">
+              {video.title}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
+              {formatViews(video.views || 0)} views
+              {video.duration && video.duration !== '00:00' && ` • ${video.duration}`}
             </p>
           </div>
-        ) : (
-          <>
-            {/* Select All */}
-            <div className="flex items-center gap-3 px-2">
-              <input
-                type="checkbox"
-                checked={selectedIds.length === duplicates.length && duplicates.length > 0}
-                onChange={toggleSelectAll}
-                className="rounded"
-              />
-              <span className="text-gray-400 text-sm">Select All ({duplicates.length})</span>
-            </div>
+        </div>
 
-            {/* Side-by-Side Comparison Cards */}
-            {duplicates.map((video) => {
-              const original = video.duplicateOf;
-              const hasOriginal = original && typeof original === 'object';
-
-              return (
-                <div
-                  key={video._id}
-                  className={`bg-dark-200 rounded-xl border overflow-hidden transition-colors ${
-                    selectedIds.includes(video._id) ? 'border-primary-500' : 'border-dark-100'
-                  }`}
-                >
-                  {/* Top Bar: Checkbox + Reasons */}
-                  <div className="flex items-center justify-between p-4 bg-dark-300 border-b border-dark-100">
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.includes(video._id)}
-                        onChange={() => toggleSelect(video._id)}
-                        className="rounded"
-                      />
-                      <span className="text-white font-medium text-sm">Duplicate Detected</span>
-                      <div className="flex gap-2">
-                        {video.duplicateReasons?.map(reason => (
-                          <span
-                            key={reason}
-                            className={`px-2.5 py-1 rounded-full text-xs font-medium border ${reasonColors[reason] || 'bg-gray-500/20 text-gray-400'}`}
-                          >
-                            {reasonLabels[reason] || reason}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Side-by-Side Comparison */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-dark-100">
-                    
-                    {/* LEFT: Duplicate (New Video) */}
-                    <div className="p-4">
-                      <div className="flex items-center gap-2 mb-3">
-                        <span className="px-2.5 py-1 bg-red-500/20 text-red-400 rounded-full text-xs font-semibold">
-                          🔴 DUPLICATE
-                        </span>
-                        <span className="px-2.5 py-1 bg-gray-500/20 text-gray-400 rounded-full text-xs">
-                          🔒 Private
-                        </span>
-                      </div>
-                      
-                      <div className="flex gap-3">
-                        <div className="w-40 h-24 rounded-lg overflow-hidden bg-dark-100 flex-shrink-0">
-                          {getThumbnail(video) ? (
-                            <img src={getThumbnail(video)} alt={video.title} className="w-full h-full object-cover" onError={(e) => { e.target.style.display = 'none'; }} />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-2xl">🎬</div>
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <h4 className="text-white font-medium text-sm truncate">{video.title}</h4>
-                          <div className="mt-2 space-y-1 text-xs text-gray-400">
-                            <p>📁 {video.file_code}</p>
-                            <p>⏱️ {video.duration || formatDuration(video.duration_seconds)}</p>
-                            <p>👁️ {video.views || 0} views</p>
-                            <p>📅 {new Date(video.createdAt).toLocaleDateString()}</p>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Actions for Duplicate */}
-                      <div className="flex gap-2 mt-4">
-                        <button
-                          onClick={() => handleAction('keep', video._id)}
-                          disabled={!!actionLoading[video._id]}
-                          className="flex-1 px-3 py-2 bg-green-600/20 text-green-400 hover:bg-green-600/30 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
-                        >
-                          {actionLoading[video._id] === 'keep' ? '...' : '✅ Keep as Unique'}
-                        </button>
-                        <button
-                          onClick={() => handleAction('public', video._id)}
-                          disabled={!!actionLoading[video._id]}
-                          className="flex-1 px-3 py-2 bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
-                        >
-                          {actionLoading[video._id] === 'public' ? '...' : '🌐 Make Public'}
-                        </button>
-                        <button
-                          onClick={() => handleAction('delete', video._id, video.title)}
-                          disabled={!!actionLoading[video._id]}
-                          className="flex-1 px-3 py-2 bg-red-600/20 text-red-400 hover:bg-red-600/30 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
-                        >
-                          {actionLoading[video._id] === 'delete' ? '...' : '🗑️ Delete'}
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* RIGHT: Original Video */}
-                    <div className="p-4">
-                      <div className="flex items-center gap-2 mb-3">
-                        <span className="px-2.5 py-1 bg-green-500/20 text-green-400 rounded-full text-xs font-semibold">
-                          🟢 ORIGINAL
-                        </span>
-                        {hasOriginal && (
-                          <span className={`px-2.5 py-1 rounded-full text-xs ${
-                            original.status === 'public' ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'
-                          }`}>
-                            {original.status === 'public' ? '🌐 Public' : '🔒 ' + (original.status || 'Unknown')}
-                          </span>
-                        )}
-                      </div>
-
-                      {hasOriginal ? (
-                        <div className="flex gap-3">
-                          <div className="w-40 h-24 rounded-lg overflow-hidden bg-dark-100 flex-shrink-0">
-                            {getThumbnail(original) ? (
-                              <img src={getThumbnail(original)} alt={original.title} className="w-full h-full object-cover" onError={(e) => { e.target.style.display = 'none'; }} />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center text-2xl">🎬</div>
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <h4 className="text-white font-medium text-sm truncate">{original.title}</h4>
-                            <div className="mt-2 space-y-1 text-xs text-gray-400">
-                              <p>📁 {original.file_code}</p>
-                              <p>⏱️ {original.duration || 'N/A'}</p>
-                              <p>👁️ {original.views || 0} views</p>
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-center h-24 bg-dark-100 rounded-lg">
-                          <p className="text-gray-500 text-sm">Original video data not available</p>
-                        </div>
-                      )}
-
-                      {/* Actions for Original */}
-                      {hasOriginal && (
-                        <div className="flex gap-2 mt-4">
-                          <button
-                            onClick={() => handleAction('delete', original._id, original.title)}
-                            disabled={!!actionLoading[original._id]}
-                            className="flex-1 px-3 py-2 bg-red-600/20 text-red-400 hover:bg-red-600/30 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
-                          >
-                            {actionLoading[original._id] === 'delete' ? '...' : '🗑️ Delete Original'}
-                          </button>
-                          <a
-                            href={`/watch/${original._id}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex-1 px-3 py-2 bg-dark-100 text-gray-400 hover:text-white hover:bg-dark-300 rounded-lg text-xs font-medium transition-colors text-center"
-                          >
-                            👁️ View Original
-                          </a>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Bottom: Delete Both Option */}
-                  {hasOriginal && (
-                    <div className="px-4 py-3 bg-dark-300 border-t border-dark-100 flex justify-center">
-                      <button
-                        onClick={async () => {
-                          if (!window.confirm('Delete BOTH videos? This cannot be undone.')) return;
-                          setActionLoading(prev => ({ ...prev, [video._id]: 'delete', [original._id]: 'delete' }));
-                          try {
-                            await adminAPI.bulkDeleteDuplicates([video._id, original._id]);
-                            setDuplicates(prev => prev.filter(v => v._id !== video._id));
-                            setStats(prev => ({ ...prev, total: prev.total - 1 }));
-                          } catch (e) {
-                            console.error('Delete both failed:', e);
-                          } finally {
-                            setActionLoading(prev => ({ ...prev, [video._id]: null, [original._id]: null }));
-                          }
-                        }}
-                        className="px-4 py-2 bg-red-600/10 text-red-400 hover:bg-red-600/20 rounded-lg text-xs font-medium transition-colors"
-                      >
-                        🗑️ Delete Both Videos
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-
-            {/* Pagination */}
-            {pagination.pages > 1 && (
-              <div className="flex items-center justify-center gap-4 pt-4">
-                <button
-                  disabled={pagination.page <= 1}
-                  onClick={() => fetchDuplicates(pagination.page - 1)}
-                  className="px-4 py-2 bg-dark-100 text-gray-400 hover:text-white rounded-lg disabled:opacity-50 transition-colors"
-                >
-                  ← Prev
-                </button>
-                <span className="text-gray-400 text-sm">
-                  Page {pagination.page} of {pagination.pages}
-                </span>
-                <button
-                  disabled={pagination.page >= pagination.pages}
-                  onClick={() => fetchDuplicates(pagination.page + 1)}
-                  className="px-4 py-2 bg-dark-100 text-gray-400 hover:text-white rounded-lg disabled:opacity-50 transition-colors"
-                >
-                  Next →
-                </button>
-              </div>
-            )}
-          </>
+        {/* Success Message */}
+        {shareSuccess && (
+          <div className="mx-4 mt-3 px-4 py-2.5 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl flex items-center gap-2 animate-fade-in">
+            <FiCheck className="w-4 h-4 text-green-600 dark:text-green-400" />
+            <span className="text-sm font-medium text-green-700 dark:text-green-400">
+              {shareSuccess === 'Shared!' ? 'Shared successfully!' : `Opening ${shareSuccess}...`}
+            </span>
+          </div>
         )}
+
+        {/* Share Platforms */}
+        <div className="p-4">
+          <div className="grid grid-cols-4 gap-3 mb-5">
+            {platforms.map((platform) => (
+              <button
+                key={platform.name}
+                onClick={platform.onClick}
+                className="flex flex-col items-center gap-2 group focus:outline-none"
+                aria-label={`Share to ${platform.name}`}
+              >
+                <div
+                  className={`
+                    w-14 h-14 rounded-full flex items-center justify-center text-white 
+                    ${platform.color} ${platform.shadow}
+                    transform transition-all duration-200 
+                    group-hover:scale-110 group-active:scale-95
+                    ${platform.priority ? 'ring-2 ring-offset-2 ring-blue-400 dark:ring-offset-[#1a1a2e]' : ''}
+                  `}
+                >
+                  {platform.icon}
+                </div>
+                <span className="text-[11px] text-gray-600 dark:text-gray-400 font-medium leading-tight text-center">
+                  {platform.name}
+                </span>
+                {platform.priority && (
+                  <span className="text-[9px] text-blue-500 font-semibold -mt-1">
+                    ★ BEST
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* Native Share Button (Mobile) */}
+          {navigator.share && (
+            <button
+              onClick={handleNativeShare}
+              className="w-full py-3 mb-4 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl font-semibold hover:from-blue-700 hover:to-blue-800 transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-500/25 active:scale-[0.98]"
+            >
+              <FiExternalLink className="w-5 h-5" />
+              More Share Options
+            </button>
+          )}
+
+          {/* Copy Link */}
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              Video Link
+            </label>
+            <div className="flex items-center gap-2 p-2 bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-gray-700/50 rounded-xl">
+              <input
+                type="text"
+                readOnly
+                value={videoPageUrl}
+                className="flex-1 bg-transparent text-sm text-gray-700 dark:text-gray-300 outline-none truncate px-2 font-mono"
+                onClick={(e) => e.target.select()}
+              />
+              <button
+                onClick={handleCopyLink}
+                className={`
+                  flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all whitespace-nowrap
+                  ${
+                    copied
+                      ? 'bg-green-500 text-white shadow-lg shadow-green-500/25'
+                      : 'bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-500/25'
+                  }
+                `}
+              >
+                {copied ? (
+                  <>
+                    <FiCheck className="w-4 h-4" />
+                    Copied!
+                  </>
+                ) : (
+                  <>
+                    <FiCopy className="w-4 h-4" />
+                    Copy
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Tip for Telegram */}
+          <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-800/30 rounded-xl">
+            <p className="text-xs text-blue-700 dark:text-blue-400 leading-relaxed">
+              <strong>💡 Tip:</strong> For the best preview with thumbnail on Telegram, use the
+              Telegram share button above. The link will show a rich preview card with the video
+              thumbnail.
+            </p>
+          </div>
+        </div>
+
+        {/* Bottom safe area for mobile */}
+        <div className="h-2 sm:h-0" />
       </div>
-    </AdminLayout>
+
+      {/* Animations */}
+      <style>{`
+        @keyframes share-slide-up {
+          from {
+            transform: translateY(100%);
+            opacity: 0;
+          }
+          to {
+            transform: translateY(0);
+            opacity: 1;
+          }
+        }
+        .animate-share-slide-up {
+          animation: share-slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        @keyframes fade-in {
+          from { opacity: 0; transform: translateY(-4px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in {
+          animation: fade-in 0.2s ease-out;
+        }
+      `}</style>
+    </div>
   );
 };
 
-export default DuplicateManager;
-
-frontend/src/pages/admin/DuplicateManager.css
-
-/* ==========================================
-   DUPLICATE MANAGER - PAGE LAYOUT
-   ========================================== */
-
-.dup-page-wrapper {
-  display: flex;
-  min-height: 100vh;
-  background: #0f0f0f;
-}
-
-.dup-main-content {
-  flex: 1;
-  margin-left: 256px;
-  padding: 24px;
-  position: relative;
-  min-height: 100vh;
-}
-
-/* ==========================================
-   NOTIFICATION
-   ========================================== */
-
-.dup-notification {
-  position: fixed;
-  top: 20px;
-  right: 20px;
-  padding: 14px 24px;
-  border-radius: 8px;
-  color: #fff;
-  font-weight: 600;
-  z-index: 9999;
-  animation: dupSlideIn 0.3s ease;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-  font-size: 14px;
-}
-
-.dup-notification-success {
-  background: linear-gradient(135deg, #27ae60, #2ecc71);
-}
-
-.dup-notification-error {
-  background: linear-gradient(135deg, #c0392b, #e74c3c);
-}
-
-@keyframes dupSlideIn {
-  from {
-    transform: translateX(100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-/* ==========================================
-   HEADER
-   ========================================== */
-
-.dup-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 24px;
-  flex-wrap: wrap;
-  gap: 16px;
-}
-
-.dup-header h1 {
-  font-size: 28px;
-  color: #fff;
-  margin: 0;
-}
-
-.dup-subtitle {
-  color: #8e8e93;
-  margin: 4px 0 0;
-  font-size: 14px;
-}
-
-.dup-header-actions {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-/* ==========================================
-   BUTTONS
-   ========================================== */
-
-.dup-btn {
-  padding: 10px 20px;
-  border: none;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  transition: all 0.2s ease;
-}
-
-.dup-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.dup-btn-scan {
-  background: linear-gradient(135deg, #3498db, #2980b9);
-  color: #fff;
-}
-
-.dup-btn-scan:hover:not(:disabled) {
-  background: linear-gradient(135deg, #2980b9, #1f6dad);
-  transform: translateY(-1px);
-}
-
-.dup-btn-clear {
-  background: rgba(255, 255, 255, 0.1);
-  color: #ccc;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-}
-
-.dup-btn-clear:hover {
-  background: rgba(255, 255, 255, 0.15);
-}
-
-.dup-btn-danger {
-  background: linear-gradient(135deg, #e74c3c, #c0392b);
-  color: #fff;
-}
-
-.dup-btn-danger:hover:not(:disabled) {
-  background: linear-gradient(135deg, #c0392b, #a93226);
-}
-
-.dup-btn-secondary {
-  background: rgba(255, 255, 255, 0.1);
-  color: #ccc;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-}
-
-.dup-btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.15);
-}
-
-/* ==========================================
-   SCAN RESULT
-   ========================================== */
-
-.dup-scan-result {
-  background: rgba(39, 174, 96, 0.15);
-  border: 1px solid rgba(39, 174, 96, 0.3);
-  border-radius: 8px;
-  padding: 14px 20px;
-  margin-bottom: 20px;
-  color: #2ecc71;
-  font-size: 14px;
-}
-
-/* ==========================================
-   STATS GRID
-   ========================================== */
-
-.dup-stats-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-  margin-bottom: 24px;
-}
-
-.dup-stat-card {
-  background: #1e1e1e;
-  border: 2px solid #333;
-  border-radius: 12px;
-  padding: 20px;
-  text-align: center;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.dup-stat-card:hover {
-  border-color: #555;
-  transform: translateY(-2px);
-}
-
-.dup-stat-card.active {
-  border-color: #3498db;
-  background: rgba(52, 152, 219, 0.1);
-}
-
-.dup-stat-card.dup-stat-title.active {
-  border-color: #e74c3c;
-  background: rgba(231, 76, 60, 0.1);
-}
-
-.dup-stat-card.dup-stat-duration.active {
-  border-color: #f39c12;
-  background: rgba(243, 156, 18, 0.1);
-}
-
-.dup-stat-card.dup-stat-file.active {
-  border-color: #9b59b6;
-  background: rgba(155, 89, 182, 0.1);
-}
-
-.dup-stat-number {
-  font-size: 36px;
-  font-weight: 700;
-  color: #fff;
-  line-height: 1;
-}
-
-.dup-stat-label {
-  font-size: 13px;
-  color: #8e8e93;
-  margin-top: 8px;
-}
-
-/* ==========================================
-   BULK ACTION BAR
-   ========================================== */
-
-.dup-bulk-bar {
-  background: linear-gradient(135deg, #2c3e50, #34495e);
-  border-radius: 8px;
-  padding: 12px 20px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-bottom: 16px;
-  color: #fff;
-  font-weight: 600;
-  font-size: 14px;
-}
-
-/* ==========================================
-   LIST CONTAINER
-   ========================================== */
-
-.dup-list-container {
-  background: #1a1a1a;
-  border-radius: 12px;
-  border: 1px solid #2a2a2a;
-  overflow: hidden;
-}
-
-.dup-list-header {
-  padding: 12px 20px;
-  border-bottom: 1px solid #2a2a2a;
-  background: #1e1e1e;
-}
-
-.dup-checkbox-label {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: #ccc;
-  font-size: 14px;
-  cursor: pointer;
-}
-
-.dup-checkbox-label input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  accent-color: #3498db;
-  cursor: pointer;
-}
-
-/* ==========================================
-   LOADING & EMPTY STATES
-   ========================================== */
-
-.dup-loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 60px 20px;
-  color: #8e8e93;
-}
-
-.dup-spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: dupSpin 0.6s linear infinite;
-  display: inline-block;
-}
-
-.dup-spinner-large {
-  width: 40px;
-  height: 40px;
-  border: 3px solid rgba(255, 255, 255, 0.1);
-  border-top-color: #3498db;
-  border-radius: 50%;
-  animation: dupSpin 0.8s linear infinite;
-  margin-bottom: 16px;
-}
-
-@keyframes dupSpin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.dup-empty {
-  text-align: center;
-  padding: 60px 20px;
-}
-
-.dup-empty-icon {
-  font-size: 48px;
-  margin-bottom: 16px;
-}
-
-.dup-empty h3 {
-  color: #fff;
-  font-size: 20px;
-  margin: 0 0 8px;
-}
-
-.dup-empty p {
-  color: #8e8e93;
-  font-size: 14px;
-  max-width: 400px;
-  margin: 0 auto;
-  line-height: 1.5;
-}
-
-/* ==========================================
-   VIDEO CARD
-   ========================================== */
-
-.dup-video-card {
-  display: flex;
-  align-items: flex-start;
-  padding: 16px 20px;
-  border-bottom: 1px solid #2a2a2a;
-  gap: 14px;
-  transition: background 0.2s ease;
-}
-
-.dup-video-card:hover {
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.dup-video-card.selected {
-  background: rgba(52, 152, 219, 0.08);
-  border-left: 3px solid #3498db;
-}
-
-.dup-video-card:last-child {
-  border-bottom: none;
-}
-
-.dup-video-select {
-  display: flex;
-  align-items: center;
-  padding-top: 12px;
-}
-
-.dup-video-select input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  accent-color: #3498db;
-  cursor: pointer;
-}
-
-/* ==========================================
-   THUMBNAIL
-   ========================================== */
-
-.dup-video-thumb {
-  position: relative;
-  width: 140px;
-  min-width: 140px;
-  height: 90px;
-  border-radius: 8px;
-  overflow: hidden;
-  background: #2a2a2a;
-  flex-shrink: 0;
-}
-
-.dup-video-thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.dup-thumb-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 32px;
-  background: #2a2a2a;
-}
-
-.dup-duration-badge {
-  position: absolute;
-  bottom: 4px;
-  right: 4px;
-  background: rgba(0, 0, 0, 0.85);
-  color: #fff;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-/* ==========================================
-   VIDEO INFO
-   ========================================== */
-
-.dup-video-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.dup-video-title {
-  font-size: 15px;
-  color: #fff;
-  margin: 0 0 8px;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dup-video-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  font-size: 12px;
-  color: #8e8e93;
-  margin-bottom: 8px;
-}
-
-/* ==========================================
-   REASON BADGES
-   ========================================== */
-
-.dup-reasons {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  font-size: 12px;
-  color: #8e8e93;
-  margin-bottom: 6px;
-}
-
-.dup-reasons strong {
-  margin-right: 4px;
-}
-
-.dup-reason-badge {
-  display: inline-block;
-  padding: 3px 10px;
-  border-radius: 12px;
-  font-size: 11px;
-  font-weight: 600;
-  color: #fff;
-}
-
-/* ==========================================
-   STATUS BADGES
-   ========================================== */
-
-.dup-status-badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.dup-status-private {
-  background: rgba(231, 76, 60, 0.2);
-  color: #e74c3c;
-}
-
-.dup-status-public {
-  background: rgba(39, 174, 96, 0.2);
-  color: #27ae60;
-}
-
-.dup-status-duplicate {
-  background: rgba(243, 156, 18, 0.2);
-  color: #f39c12;
-}
-
-/* ==========================================
-   ORIGINAL REFERENCE
-   ========================================== */
-
-.dup-original-ref {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: #8e8e93;
-  background: rgba(255, 255, 255, 0.04);
-  padding: 6px 10px;
-  border-radius: 6px;
-  margin-top: 4px;
-}
-
-.dup-original-label {
-  color: #f39c12;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.dup-original-title {
-  color: #ccc;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 300px;
-}
-
-/* ==========================================
-   ACTION BUTTONS
-   ========================================== */
-
-.dup-video-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.dup-action-btn {
-  padding: 7px 14px;
-  border: none;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  white-space: nowrap;
-}
-
-.dup-action-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.dup-action-keep {
-  background: rgba(39, 174, 96, 0.15);
-  color: #2ecc71;
-  border: 1px solid rgba(39, 174, 96, 0.3);
-}
-
-.dup-action-keep:hover:not(:disabled) {
-  background: rgba(39, 174, 96, 0.25);
-}
-
-.dup-action-public {
-  background: rgba(52, 152, 219, 0.15);
-  color: #3498db;
-  border: 1px solid rgba(52, 152, 219, 0.3);
-}
-
-.dup-action-public:hover:not(:disabled) {
-  background: rgba(52, 152, 219, 0.25);
-}
-
-.dup-action-delete {
-  background: rgba(231, 76, 60, 0.15);
-  color: #e74c3c;
-  border: 1px solid rgba(231, 76, 60, 0.3);
-}
-
-.dup-action-delete:hover:not(:disabled) {
-  background: rgba(231, 76, 60, 0.25);
-}
-
-/* ==========================================
-   PAGINATION
-   ========================================== */
-
-.dup-pagination {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  padding: 16px 20px;
-  border-top: 1px solid #2a2a2a;
-}
-
-.dup-pagination button {
-  padding: 8px 16px;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid #333;
-  color: #fff;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 13px;
-  transition: background 0.2s;
-}
-
-.dup-pagination button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.dup-pagination button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.15);
-}
-
-.dup-pagination span {
-  color: #8e8e93;
-  font-size: 13px;
-}
-
-/* ==========================================
-   RESPONSIVE
-   ========================================== */
-
-@media (max-width: 1024px) {
-  .dup-stats-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-@media (max-width: 768px) {
-  .dup-main-content {
-    margin-left: 0;
-    padding: 16px;
-    padding-top: 60px;
+// ==========================================
+// SHARE BUTTON (Exported Component)
+// ==========================================
+
+const ShareButton = ({ video, className = '', variant = 'default' }) => {
+  const [showModal, setShowModal] = useState(false);
+
+  const handleClick = useCallback(() => {
+    setShowModal(true);
+  }, []);
+
+  const handleClose = useCallback(() => {
+    setShowModal(false);
+  }, []);
+
+  if (variant === 'icon-only') {
+    return (
+      <>
+        <button
+          onClick={handleClick}
+          className={`p-2 rounded-full hover:bg-gray-100 dark:hover:bg-white/10 transition-colors ${className}`}
+          aria-label="Share video"
+          title="Share"
+        >
+          <FiShare2 className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+        </button>
+        <ShareModal video={video} isOpen={showModal} onClose={handleClose} />
+      </>
+    );
   }
 
-  .dup-header {
-    flex-direction: column;
+  if (variant === 'compact') {
+    return (
+      <>
+        <button
+          onClick={handleClick}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-dark-100 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-dark-200 transition-all ${className}`}
+        >
+          <FiShare2 className="w-3.5 h-3.5" />
+          Share
+        </button>
+        <ShareModal video={video} isOpen={showModal} onClose={handleClose} />
+      </>
+    );
   }
 
-  .dup-header h1 {
-    font-size: 22px;
-  }
+  // Default variant
+  return (
+    <>
+      <button
+        onClick={handleClick}
+        className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium bg-gray-100 dark:bg-dark-100 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-dark-200 transition-all ${className}`}
+      >
+        <FiShare2 className="w-4 h-4" />
+        <span className="hidden sm:inline">Share</span>
+      </button>
+      <ShareModal video={video} isOpen={showModal} onClose={handleClose} />
+    </>
+  );
+};
 
-  .dup-header-actions {
-    width: 100%;
-  }
+export default ShareButton;
+export { ShareModal };
 
-  .dup-btn {
-    flex: 1;
-    justify-content: center;
-  }
+frontend/src/services/api.js
 
-  .dup-stats-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 8px;
-  }
+import axios from 'axios';
 
-  .dup-stat-card {
-    padding: 14px;
-  }
+const API_URL = process.env.REACT_APP_API_URL || "https://api.xmaster.guru/api";
 
-  .dup-stat-number {
-    font-size: 28px;
-  }
+const api = axios.create({
+  baseURL: API_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
 
-  .dup-video-card {
-    flex-direction: column;
-    padding: 14px;
-  }
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('adminToken');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
 
-  .dup-video-thumb {
-    width: 100%;
-    height: 160px;
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('adminToken');
+      if (window.location.pathname.startsWith('/admin')) {
+        window.location.href = '/xmaster-admin';
+      }
+    }
+    return Promise.reject(error);
   }
+);
 
-  .dup-video-actions {
-    flex-direction: row;
-    flex-wrap: wrap;
-    width: 100%;
-  }
+// ==================== PUBLIC API ====================
+export const publicAPI = {
+  getHomeData: () => api.get('/public/home'),
+  getVideos: (params) => api.get('/videos', { params }),
+  getVideo: (id) => api.get(`/videos/${id}`),
+  getLatestVideos: (limit = 12) => api.get('/videos/latest', { params: { limit } }),
+  getTrendingVideos: (limit = 12, period = '7d') =>
+    api.get('/videos/trending', { params: { limit, period } }),
+  getFeaturedVideos: (limit = 6) => api.get('/videos/featured', { params: { limit } }),
 
-  .dup-action-btn {
-    flex: 1;
-    text-align: center;
-  }
+  // UPDATED: Added seed parameter for random results on each call
+  getRelatedVideos: (id, limit = 10) =>
+    api.get(`/videos/${id}/related`, { params: { limit, seed: Date.now() } }),
 
-  .dup-bulk-bar {
-    flex-direction: column;
-    text-align: center;
-    gap: 10px;
-  }
+  getRandomVideos: (limit = 10, exclude = '') =>
+    api.get('/videos/random', { params: { limit, exclude } }),
 
-  .dup-video-title {
-    white-space: normal;
-  }
+  recordView: (id, sessionId) => api.post(`/videos/${id}/view`, { sessionId }),
+  likeVideo: (id) => api.post(`/videos/${id}/like`),
+  dislikeVideo: (id) => api.post(`/videos/${id}/dislike`),
+  reportVideo: (id, data) => api.post(`/videos/${id}/report`, data),
+  getCategories: () => api.get('/categories'),
+  getCategory: (slug) => api.get(`/categories/${slug}`),
+  getCategoryVideos: (slug, params) => api.get(`/categories/${slug}/videos`, { params }),
+  searchVideos: (params) => api.get('/search', { params }),
+  getSearchSuggestions: (q) => api.get('/search/suggestions', { params: { q } }),
+  searchByTag: (tag, params) => api.get(`/search/tags/${tag}`, { params }),
+  getPopularTags: (limit = 20) => api.get('/search/popular-tags', { params: { limit } }),
+  getAds: (device = 'desktop') => api.get('/ads', { params: { device } }),
+  getAdByPlacement: (placement, device = 'desktop') =>
+    api.get(`/ads/placement/${placement}`, { params: { device } }),
+  recordAdImpression: (id) => api.post(`/ads/${id}/impression`),
+  recordAdClick: (id) => api.post(`/ads/${id}/click`),
+  getPublicStats: () => api.get('/public/stats'),
+  getPublicComments: (page = 1, limit = 20) =>
+    api.get('/comments/public', { params: { page, limit } }),
+  submitComment: (data) => api.post('/comments', data),
+  trackShare: (id, platform) => api.post(`/public/share/${id}/track`, { platform }),
+  getShareDebug: (id) => api.get(`/public/share/${id}/debug`),
+  bulkCreateCategories: (data) => api.post('/categories/bulk-create', data),
+};
 
-  .dup-original-title {
-    max-width: 150px;
-  }
+// ==================== ADMIN API ====================
+export const adminAPI = {
+  // Auth
+  login: (password, username = 'admin') =>
+    api.post('/admin/login', { password, username }),
+  verifyToken: () => api.post('/admin/verify'),
+  changePassword: (currentPassword, newPassword) =>
+    api.post('/admin/change-password', { currentPassword, newPassword }),
 
-  .dup-video-select {
-    padding-top: 0;
-  }
-}
+  // Dashboard
+  getDashboard: () => api.get('/admin/dashboard'),
 
-@media (max-width: 480px) {
-  .dup-stats-grid {
-    grid-template-columns: 1fr 1fr;
-    gap: 6px;
-  }
+  // Videos
+  getVideos: (params) => api.get('/admin/videos', { params }),
+  getVideo: (id) => api.get(`/admin/videos/${id}`),
+  updateVideo: (id, data) => api.put(`/admin/videos/${id}`, data),
+  deleteVideo: (id) => api.delete(`/admin/videos/${id}`),
+  bulkDeleteVideos: (ids) => api.post('/admin/videos/bulk-delete', { ids }),
+  toggleFeatured: (id) => api.put(`/admin/videos/${id}/feature`),
+  updateVideoStatus: (id, status) => api.put(`/admin/videos/${id}/status`, { status }),
 
-  .dup-stat-card {
-    padding: 12px;
-  }
+  // Bulk Operations
+  bulkUpdateTitles: (updates) => api.post('/admin/videos/bulk-update-titles', { updates }),
+  bulkUpdateTags: (updates) => api.post('/admin/videos/bulk-update-tags', { updates }),
+  bulkShareLinks: (data) => api.post('/admin/videos/bulk-share-links', data),
+  bulkUpdateStatus: (data) => api.post('/admin/videos/bulk-update-status', data),
+  exportVideos: (params) => api.get('/admin/videos/export', { params }),
+  exportVideosCSV: (ids) => api.get('/admin/videos/export', {
+    params: { format: 'csv', ids: ids ? ids.join(',') : undefined },
+    responseType: 'blob',
+  }),
 
-  .dup-stat-number {
-    font-size: 24px;
-  }
+  // Upload
+  uploadVideo: (formData, onProgress) =>
+    api.post('/upload/single', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: (e) => {
+        if (onProgress) {
+          const percent = Math.round((e.loaded * 100) / e.total);
+          onProgress(percent, e.loaded, e.total);
+        }
+      },
+    }),
+  addByFileCode: (data) => api.post('/upload/file-code', data),
+  bulkAddFileCodes: (videos) => api.post('/upload/bulk-file-codes', { videos }),
+  uploadThumbnail: (formData) =>
+    api.post('/upload/thumbnail', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+  remoteUpload: (url, title, category, tags) =>
+    api.post('/upload/url', { url, title, category, tags }),
+  getAbyssFiles: (page = 1, limit = 50) =>
+    api.get('/upload/abyss-files', { params: { page, limit } }),
+  getAccountInfo: () => api.get('/upload/account-info'),
 
-  .dup-stat-label {
-    font-size: 11px;
-  }
+  // Categories
+  createCategory: (data) => api.post('/categories', data),
+  updateCategory: (id, data) => api.put(`/categories/${id}`, data),
+  deleteCategory: (id) => api.delete(`/categories/${id}`),
+  bulkCreateCategories: (data) => api.post('/categories/bulk-create', data),
+  reorderCategories: (order) => api.put('/categories/admin/reorder', { order }),
 
-  .dup-video-meta {
-    gap: 8px;
-    font-size: 11px;
-  }
+  // Ads
+  getAllAds: () => api.get('/ads/admin/all'),
+  getAdPlacements: () => api.get('/ads/admin/placements'),
+  createAd: (data) => api.post('/ads', data),
+  updateAd: (id, data) => api.put(`/ads/${id}`, data),
+  deleteAd: (id) => api.delete(`/ads/${id}`),
+  toggleAd: (id) => api.put(`/ads/${id}/toggle`),
 
-  .dup-action-btn {
-    padding: 6px 10px;
-    font-size: 11px;
-  }
-}
+  // Analytics
+  getAnalyticsDashboard: () => api.get('/analytics/dashboard'),
+  getViewAnalytics: (period = '7d') => api.get('/analytics/views', { params: { period } }),
+  getTopVideos: (limit = 10, period = '7d') =>
+    api.get('/analytics/top-videos', { params: { limit, period } }),
+  getCategoryAnalytics: () => api.get('/analytics/categories'),
+  getAdAnalytics: () => api.get('/analytics/ads'),
+
+  // Reports
+  getReports: (params) => api.get('/analytics/reports', { params }),
+  updateReport: (id, data) => api.put(`/analytics/reports/${id}`, data),
+
+  // Comments
+  getComments: (params) => api.get('/comments/admin', { params }),
+  toggleCommentVisibility: (id) => api.put(`/comments/${id}/toggle-visibility`),
+  markCommentRead: (id) => api.put(`/comments/${id}/read`),
+  addCommentNote: (id, note) => api.put(`/comments/${id}/note`, { note }),
+  deleteComment: (id) => api.delete(`/comments/${id}`),
+  bulkDeleteComments: (ids) => api.post('/comments/bulk-delete', { ids }),
+
+  // Duplicates
+  getDuplicates: (params) => api.get('/duplicates', { params }),
+  scanDuplicates: () => api.post('/duplicates/scan'),
+  checkDuplicate: (data) => api.post('/duplicates/check', data),
+  keepDuplicate: (id) => api.put(`/duplicates/${id}/keep`),
+  makePublicDuplicate: (id) => api.put(`/duplicates/${id}/make-public`),
+  deleteDuplicate: (id) => api.delete(`/duplicates/${id}`),
+  bulkDeleteDuplicates: (ids) => api.post('/duplicates/bulk-delete', { ids }),
+  clearAllDuplicates: () => api.post('/duplicates/clear-all'),
+  publishAllDuplicates: (filter) => api.post('/duplicates/publish-all', { filter }),
+bulkPublishDuplicates: (ids) => api.post('/duplicates/bulk-publish', { ids }),
+};
+
+export default api;
+
+
+backend/.env.example
+
+# Abyss.to API Configuration (REQUIRED)
+ABYSS_API_KEY=2ce5472bb6faa900b747eeaf65012a18
+ABYSS_API_BASE_URL=https://api.abyss.to
+
+# Server Configuration
+PORT=5000
+NODE_ENV=production
+
+# Frontend URL (for CORS) - PRODUCTION
+# For multiple origins, separate with commas
+# Example: https://your-app.netlify.app,http://localhost:3000
+FRONTEND_URL=https://your-app.netlify.app,http://localhost:3000
+
+# Database Configuration (if using real database instead of in-memory)
+# MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/video-platform
+# DATABASE_URL=postgres://username:password@host:port/database

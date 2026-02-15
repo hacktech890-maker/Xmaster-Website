@@ -209,15 +209,12 @@ router.get('/share/:id', async (req, res) => {
     html += '<meta property="og:type" content="article" />\n';
     html += '<meta property="og:title" content="' + title + '" />\n';
     html += '<meta property="og:description" content="' + description + '" />\n';
-
-    // og:url MUST point to THIS share page (not the React SPA)
     html += '<meta property="og:url" content="' + sharePageUrl + '" />\n';
     html += '<meta property="og:site_name" content="' + SITE_NAME + '" />\n';
     html += '<meta property="og:locale" content="en_US" />\n';
 
     // ==========================================
     // IMAGE TAGS (Telegram thumbnail)
-    // Uses proxy URL → guaranteed big image, correct headers
     // ==========================================
     if (thumbnail) {
       html += '\n<!-- Image Tags (Telegram-optimized via proxy) -->\n';
@@ -250,13 +247,13 @@ router.get('/share/:id', async (req, res) => {
     if (thumbnail) {
       html += '<link rel="image_src" href="' + thumbnail + '" />\n';
     }
-
     html += '<meta name="robots" content="index, follow" />\n';
 
     // ==========================================
     // RESPONSE BASED ON REQUESTER TYPE
     // ==========================================
     if (botRequest) {
+      // === BOT RESPONSE (unchanged - Telegram reads OG tags from this) ===
       html += '</head>\n';
       html += '<body>\n';
       html += '<h1>' + title + '</h1>\n';
@@ -272,7 +269,10 @@ router.get('/share/:id', async (req, res) => {
       html += '</body>\n';
       html += '</html>';
     } else {
-      html += '<meta http-equiv="refresh" content="0;url=' + videoPageUrl + '" />\n';
+      // === HUMAN USER RESPONSE - FORCE EXTERNAL BROWSER ===
+      // NO meta http-equiv="refresh" — we use JS to detect in-app browsers
+      // and force opening in Chrome/Safari/default browser
+
       html += '<style>\n';
       html += '* { margin: 0; padding: 0; box-sizing: border-box; }\n';
       html += 'body { background: #0f0f0f; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }\n';
@@ -280,15 +280,30 @@ router.get('/share/:id', async (req, res) => {
       html += '.thumb { width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: 12px; margin-bottom: 16px; background: #1a1a1a; }\n';
       html += '.title { font-size: 16px; font-weight: 600; margin-bottom: 8px; line-height: 1.4; }\n';
       html += '.meta { color: #888; font-size: 13px; margin-bottom: 16px; }\n';
-      html += '.btn { display: inline-block; padding: 12px 32px; background: #3b82f6; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px; }\n';
+      html += '.btn { display: inline-block; padding: 14px 32px; background: #3b82f6; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px; margin-bottom: 12px; }\n';
       html += '.btn:hover { background: #2563eb; }\n';
+      html += '.btn-external { background: #e50914; display: inline-block; padding: 14px 32px; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px; margin-bottom: 12px; }\n';
+      html += '.btn-external:hover { background: #b20710; }\n';
       html += '.loading { color: #666; font-size: 12px; margin-top: 12px; }\n';
+      html += '.tip { color: #999; font-size: 11px; margin-top: 16px; padding: 12px; background: #1a1a1a; border-radius: 8px; line-height: 1.5; }\n';
+      html += '.hidden { display: none; }\n';
       html += '@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }\n';
       html += '.loading { animation: pulse 1.5s ease-in-out infinite; }\n';
+      html += '@keyframes spin { to { transform: rotate(360deg); } }\n';
+      html += '.spinner { width: 32px; height: 32px; border: 3px solid rgba(255,255,255,0.1); border-top-color: #3b82f6; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px; }\n';
       html += '</style>\n';
       html += '</head>\n';
       html += '<body>\n';
       html += '<div class="card">\n';
+
+      // Spinner shown while JS tries to redirect
+      html += '<div id="loading-state">\n';
+      html += '<div class="spinner"></div>\n';
+      html += '<div class="loading">Opening in browser...</div>\n';
+      html += '</div>\n';
+
+      // Fallback UI shown if auto-redirect doesn't work
+      html += '<div id="fallback-state" class="hidden">\n';
       if (thumbnail) {
         html += '<img class="thumb" src="' + thumbnail + '" alt="' + title + '" onerror="this.style.display=\'none\'" />\n';
       }
@@ -296,10 +311,127 @@ router.get('/share/:id', async (req, res) => {
       html += '<div class="meta">';
       if (duration) html += duration + ' &bull; ';
       html += formatViews(views) + ' views</div>\n';
+
+      // Two buttons: one tries external browser, one is direct link
+      html += '<a id="external-btn" class="btn-external" href="' + videoPageUrl + '">&#9654; Open in Browser</a><br/>\n';
       html += '<a class="btn" href="' + videoPageUrl + '">&#9654; Watch Video</a>\n';
-      html += '<div class="loading">Redirecting to ' + SITE_NAME + '...</div>\n';
+
+      html += '<div class="tip">\n';
+      html += '<strong>💡 Tip:</strong> If the video opens inside Telegram, tap the <strong>⋮</strong> menu (top right) and select <strong>"Open in Chrome"</strong> or <strong>"Open in Browser"</strong>.\n';
       html += '</div>\n';
-      html += '<script>window.location.replace("' + videoPageUrl + '");</script>\n';
+      html += '</div>\n';
+
+      html += '</div>\n';
+
+      // ==========================================
+      // JAVASCRIPT: EXTERNAL BROWSER REDIRECT
+      // ==========================================
+      html += '<script>\n';
+      html += '(function() {\n';
+      html += '  var targetUrl = "' + videoPageUrl + '";\n';
+      html += '  var ua = navigator.userAgent || "";\n';
+      html += '  var loadingEl = document.getElementById("loading-state");\n';
+      html += '  var fallbackEl = document.getElementById("fallback-state");\n';
+      html += '  var externalBtn = document.getElementById("external-btn");\n';
+      html += '\n';
+      html += '  // Detect in-app browsers\n';
+      html += '  function isInAppBrowser() {\n';
+      html += '    var patterns = [\n';
+      html += '      /Telegram/i, /TelegramBot/i,\n';
+      html += '      /FBAN/i, /FBAV/i, /FB_IAB/i,\n';
+      html += '      /Instagram/i,\n';
+      html += '      /Twitter/i,\n';
+      html += '      /Line\\//i,\n';
+      html += '      /Snapchat/i,\n';
+      html += '      /Viber/i,\n';
+      html += '      /WhatsApp/i,\n';
+      html += '      /MicroMessenger/i,\n';  // WeChat
+      html += '      /QQBrowser/i\n';
+      html += '    ];\n';
+      html += '    for (var i = 0; i < patterns.length; i++) {\n';
+      html += '      if (patterns[i].test(ua)) return true;\n';
+      html += '    }\n';
+      html += '    return false;\n';
+      html += '  }\n';
+      html += '\n';
+      html += '  var isAndroid = /Android/i.test(ua);\n';
+      html += '  var isIOS = /iPhone|iPad|iPod/i.test(ua);\n';
+      html += '  var inApp = isInAppBrowser();\n';
+      html += '\n';
+      html += '  // Show fallback UI after timeout\n';
+      html += '  function showFallback() {\n';
+      html += '    if (loadingEl) loadingEl.className = "hidden";\n';
+      html += '    if (fallbackEl) fallbackEl.className = "";\n';
+      html += '  }\n';
+      html += '\n';
+      html += '  if (!inApp) {\n';
+      html += '    // Already in a real browser — just redirect immediately\n';
+      html += '    window.location.replace(targetUrl);\n';
+      html += '    return;\n';
+      html += '  }\n';
+      html += '\n';
+      html += '  // === IN-APP BROWSER DETECTED ===\n';
+      html += '\n';
+      html += '  if (isAndroid) {\n';
+      html += '    // Method 1: Android Intent — opens in Chrome or default browser\n';
+      html += '    var intentUrl = "intent://" + targetUrl.replace(/^https?:\\/\\//, "")\n';
+      html += '      + "#Intent"\n';
+      html += '      + ";scheme=https"\n';
+      html += '      + ";package=com.android.chrome"\n';
+      html += '      + ";S.browser_fallback_url=" + encodeURIComponent(targetUrl)\n';
+      html += '      + ";end;";\n';
+      html += '\n';
+      html += '    window.location.href = intentUrl;\n';
+      html += '\n';
+      html += '    // Method 2: Fallback — try generic browser intent after delay\n';
+      html += '    setTimeout(function() {\n';
+      html += '      var genericIntent = "intent://" + targetUrl.replace(/^https?:\\/\\//, "")\n';
+      html += '        + "#Intent"\n';
+      html += '        + ";scheme=https"\n';
+      html += '        + ";action=android.intent.action.VIEW"\n';
+      html += '        + ";S.browser_fallback_url=" + encodeURIComponent(targetUrl)\n';
+      html += '        + ";end;";\n';
+      html += '      window.location.href = genericIntent;\n';
+      html += '    }, 1000);\n';
+      html += '\n';
+      html += '    // Method 3: Show fallback UI if nothing worked\n';
+      html += '    setTimeout(showFallback, 2000);\n';
+      html += '\n';
+      html += '  } else if (isIOS) {\n';
+      html += '    // iOS: Try x-safari-https scheme to force Safari\n';
+      html += '    var safariUrl = "x-safari-https://" + targetUrl.replace(/^https?:\\/\\//, "");\n';
+      html += '    window.location.href = safariUrl;\n';
+      html += '\n';
+      html += '    // Fallback: try window.open\n';
+      html += '    setTimeout(function() {\n';
+      html += '      window.open(targetUrl, "_blank");\n';
+      html += '    }, 800);\n';
+      html += '\n';
+      html += '    // Show fallback UI if nothing worked\n';
+      html += '    setTimeout(showFallback, 1500);\n';
+      html += '\n';
+      html += '  } else {\n';
+      html += '    // Desktop or unknown — try direct redirect, show fallback\n';
+      html += '    window.location.replace(targetUrl);\n';
+      html += '    setTimeout(showFallback, 1000);\n';
+      html += '  }\n';
+      html += '\n';
+      html += '  // Update the external button with intent URL on Android\n';
+      html += '  if (isAndroid && externalBtn) {\n';
+      html += '    externalBtn.addEventListener("click", function(e) {\n';
+      html += '      e.preventDefault();\n';
+      html += '      var clickIntent = "intent://" + targetUrl.replace(/^https?:\\/\\//, "")\n';
+      html += '        + "#Intent"\n';
+      html += '        + ";scheme=https"\n';
+      html += '        + ";package=com.android.chrome"\n';
+      html += '        + ";S.browser_fallback_url=" + encodeURIComponent(targetUrl)\n';
+      html += '        + ";end;";\n';
+      html += '      window.location.href = clickIntent;\n';
+      html += '    });\n';
+      html += '  }\n';
+      html += '\n';
+      html += '})();\n';
+      html += '</script>\n';
       html += '</body>\n';
       html += '</html>';
     }
