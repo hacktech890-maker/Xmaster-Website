@@ -188,12 +188,8 @@ router.get('/share/:id', async (req, res) => {
     var duration = video.duration || '';
     var userAgent = req.headers['user-agent'] || '';
     var botRequest = isCrawlerBot(userAgent);
-
     var sharePageUrl = getBackendUrl() + '/api/public/share/' + video._id;
 
-    // ==========================================
-    // BUILD HTML RESPONSE
-    // ==========================================
     var html = '<!DOCTYPE html>\n';
     html += '<html lang="en" prefix="og: http://ogp.me/ns#">\n';
     html += '<head>\n';
@@ -201,17 +197,13 @@ router.get('/share/:id', async (req, res) => {
     html += '<meta name="viewport" content="width=device-width, initial-scale=1" />\n';
     html += '<title>' + title + ' - ' + SITE_NAME + '</title>\n\n';
 
-    // ==========================================
-    // OG TAGS — SAME FOR BOTH BOT AND HUMAN
-    // This ensures Telegram preview always works
-    // ==========================================
+    // OG tags - same for bot and human
     html += '<meta property="og:type" content="article" />\n';
     html += '<meta property="og:title" content="' + title + '" />\n';
     html += '<meta property="og:description" content="' + description + '" />\n';
     html += '<meta property="og:url" content="' + sharePageUrl + '" />\n';
     html += '<meta property="og:site_name" content="' + SITE_NAME + '" />\n';
     html += '<meta property="og:locale" content="en_US" />\n';
-
     if (thumbnail) {
       html += '<meta property="og:image" content="' + thumbnail + '" />\n';
       html += '<meta property="og:image:secure_url" content="' + thumbnail + '" />\n';
@@ -220,14 +212,12 @@ router.get('/share/:id', async (req, res) => {
       html += '<meta property="og:image:height" content="720" />\n';
       html += '<meta property="og:image:alt" content="' + title + '" />\n';
     }
-
     html += '<meta name="twitter:card" content="summary_large_image" />\n';
     html += '<meta name="twitter:title" content="' + title + '" />\n';
     html += '<meta name="twitter:description" content="' + description + '" />\n';
     if (thumbnail) {
       html += '<meta name="twitter:image" content="' + thumbnail + '" />\n';
     }
-
     html += '<meta name="description" content="' + description + '" />\n';
     html += '<link rel="canonical" href="' + sharePageUrl + '" />\n';
     if (thumbnail) {
@@ -235,12 +225,8 @@ router.get('/share/:id', async (req, res) => {
     }
     html += '<meta name="robots" content="index, follow" />\n';
 
-    // ==========================================
-    // FOR BOTS: Simple semantic HTML, no redirect
-    // ==========================================
     if (botRequest) {
-      html += '</head>\n';
-      html += '<body>\n';
+      html += '</head>\n<body>\n';
       html += '<h1>' + title + '</h1>\n';
       if (thumbnail) {
         html += '<img src="' + thumbnail + '" alt="' + title + '" width="1280" height="720" />\n';
@@ -250,23 +236,11 @@ router.get('/share/:id', async (req, res) => {
       html += '<p>Views: ' + formatViews(views) + '</p>\n';
       html += '<a href="' + videoPageUrl + '">Watch on ' + SITE_NAME + '</a>\n';
       html += '</body></html>';
-
     } else {
-      // ==========================================
-      // FOR HUMANS: Landing page with prominent 
-      // "Open in Browser" button — NO auto redirect
-      // ==========================================
-      // WHY: Telegram's in-app browser intercepts all
-      // redirects (JS, meta refresh, location.replace).
-      // The ONLY way to open external browser is for 
-      // the USER to tap the ⋮ menu → "Open in Browser"
-      // OR we give them a clear landing page that makes
-      // them WANT to open externally.
-
       html += '<style>\n';
       html += '* { margin: 0; padding: 0; box-sizing: border-box; }\n';
       html += 'body { background: #0a0a0f; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; min-height: 100vh; display: flex; flex-direction: column; }\n';
-      html += '.container { flex: 1; display: flex; align-items: center; justify-content: center; padding: 20px; }\n';
+      html += '.container { flex: 1; display: flex; align-items: center; justify-content: center; padding: 16px; }\n';
       html += '.card { max-width: 420px; width: 100%; }\n';
       html += '.thumb-wrap { position: relative; width: 100%; border-radius: 16px; overflow: hidden; margin-bottom: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }\n';
       html += '.thumb { width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block; }\n';
@@ -274,27 +248,47 @@ router.get('/share/:id', async (req, res) => {
       html += '.play-btn { width: 72px; height: 72px; background: rgba(255,255,255,0.95); border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 20px rgba(0,0,0,0.4); }\n';
       html += '.play-btn svg { width: 32px; height: 32px; margin-left: 4px; }\n';
       html += '.duration-badge { position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.85); color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }\n';
-      html += '.title { font-size: 18px; font-weight: 700; line-height: 1.4; margin-bottom: 8px; }\n';
-      html += '.meta { color: #888; font-size: 13px; margin-bottom: 24px; }\n';
-      html += '.open-btn { display: block; width: 100%; padding: 16px; background: linear-gradient(135deg, #e50914, #b20710); color: #fff; text-decoration: none; border-radius: 12px; font-weight: 700; font-size: 17px; text-align: center; letter-spacing: 0.3px; box-shadow: 0 4px 20px rgba(229,9,20,0.4); transition: transform 0.15s, box-shadow 0.15s; }\n';
-      html += '.open-btn:active { transform: scale(0.98); }\n';
-      html += '.open-btn svg { width: 20px; height: 20px; vertical-align: middle; margin-right: 8px; }\n';
-      html += '.secondary-btn { display: block; width: 100%; padding: 14px; background: rgba(255,255,255,0.08); color: #fff; text-decoration: none; border-radius: 12px; font-weight: 600; font-size: 15px; text-align: center; margin-top: 12px; border: 1px solid rgba(255,255,255,0.1); transition: background 0.15s; }\n';
-      html += '.secondary-btn:active { background: rgba(255,255,255,0.15); }\n';
-      html += '.tip-box { margin-top: 20px; padding: 14px 16px; background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.2); border-radius: 12px; }\n';
-      html += '.tip-box p { font-size: 12px; color: #93bbfc; line-height: 1.6; }\n';
-      html += '.tip-box strong { color: #60a5fa; }\n';
-      html += '.steps { margin-top: 20px; }\n';
-      html += '.step { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; }\n';
-      html += '.step-num { width: 28px; height: 28px; background: rgba(229,9,20,0.15); color: #e50914; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; flex-shrink: 0; }\n';
-      html += '.step-text { font-size: 13px; color: #bbb; line-height: 1.5; padding-top: 3px; }\n';
-      html += '.site-badge { text-align: center; padding: 16px; color: #444; font-size: 11px; }\n';
+      html += '.title { font-size: 18px; font-weight: 700; line-height: 1.4; margin-bottom: 6px; }\n';
+      html += '.meta { color: #888; font-size: 13px; margin-bottom: 20px; }\n';
+
+      // Copy link section styles
+      html += '.link-section { margin-bottom: 16px; }\n';
+      html += '.link-label { font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; font-weight: 600; }\n';
+      html += '.link-box { display: flex; align-items: center; background: #1a1a2e; border: 2px solid #2a2a4a; border-radius: 12px; overflow: hidden; transition: border-color 0.2s; }\n';
+      html += '.link-box.copied { border-color: #22c55e; }\n';
+      html += '.link-input { flex: 1; background: none; border: none; color: #ccc; padding: 14px; font-size: 13px; outline: none; font-family: monospace; }\n';
+      html += '.copy-btn { padding: 14px 20px; background: #3b82f6; color: #fff; border: none; font-weight: 700; font-size: 14px; cursor: pointer; transition: background 0.15s; white-space: nowrap; }\n';
+      html += '.copy-btn:active { background: #2563eb; }\n';
+      html += '.copy-btn.copied { background: #22c55e; }\n';
+
+      // Watch here button
+      html += '.watch-btn { display: block; width: 100%; padding: 16px; background: linear-gradient(135deg, #e50914, #b20710); color: #fff; text-decoration: none; border-radius: 12px; font-weight: 700; font-size: 17px; text-align: center; box-shadow: 0 4px 20px rgba(229,9,20,0.4); margin-bottom: 16px; }\n';
+      html += '.watch-btn:active { transform: scale(0.98); }\n';
+
+      // How to open guide
+      html += '.guide { background: #111122; border: 1px solid #1e1e3a; border-radius: 14px; padding: 18px; margin-bottom: 16px; }\n';
+      html += '.guide-title { font-size: 14px; font-weight: 700; margin-bottom: 14px; color: #60a5fa; display: flex; align-items: center; gap: 8px; }\n';
+      html += '.step { display: flex; gap: 12px; margin-bottom: 12px; align-items: flex-start; }\n';
+      html += '.step:last-child { margin-bottom: 0; }\n';
+      html += '.step-num { width: 26px; height: 26px; background: #e50914; color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 12px; flex-shrink: 0; }\n';
+      html += '.step-text { font-size: 13px; color: #bbb; line-height: 1.5; padding-top: 2px; }\n';
+      html += '.step-text strong { color: #fff; }\n';
+
+      // Screenshot hint
+      html += '.hint-img { margin-top: 12px; padding: 12px; background: rgba(229,9,20,0.08); border: 1px dashed rgba(229,9,20,0.3); border-radius: 10px; text-align: center; }\n';
+      html += '.hint-img p { font-size: 28px; margin-bottom: 4px; }\n';
+      html += '.hint-img span { font-size: 11px; color: #e55; font-weight: 600; }\n';
+
+      html += '.footer { text-align: center; padding: 12px; color: #333; font-size: 10px; }\n';
+      html += '.copied-toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); background: #22c55e; color: #fff; padding: 12px 28px; border-radius: 30px; font-weight: 700; font-size: 14px; box-shadow: 0 4px 20px rgba(34,197,94,0.4); z-index: 9999; display: none; }\n';
+      html += '.copied-toast.show { display: block; animation: slideUp 0.3s ease; }\n';
+      html += '@keyframes slideUp { from { transform: translateX(-50%) translateY(20px); opacity: 0; } to { transform: translateX(-50%) translateY(0); opacity: 1; } }\n';
       html += '</style>\n';
-      html += '</head>\n';
-      html += '<body>\n';
+      html += '</head>\n<body>\n';
+
       html += '<div class="container"><div class="card">\n';
 
-      // Thumbnail with play overlay
+      // Thumbnail
       if (thumbnail) {
         html += '<div class="thumb-wrap">\n';
         html += '  <img class="thumb" src="' + thumbnail + '" alt="' + title + '" onerror="this.parentElement.style.display=\'none\'" />\n';
@@ -309,84 +303,98 @@ router.get('/share/:id', async (req, res) => {
       html += '<div class="title">' + title + '</div>\n';
       html += '<div class="meta">';
       if (duration && duration !== '00:00') html += duration + ' &bull; ';
-      html += formatViews(views) + ' views &bull; ' + SITE_NAME;
+      html += formatViews(views) + ' views &bull; ' + SITE_NAME + '</div>\n';
+
+      // === WATCH HERE BUTTON (plays in current context) ===
+      html += '<a class="watch-btn" href="' + videoPageUrl + '">▶ Watch Video</a>\n';
+
+      // === COPY LINK SECTION ===
+      html += '<div class="link-section">\n';
+      html += '  <div class="link-label">📋 Copy link &amp; open in browser</div>\n';
+      html += '  <div class="link-box" id="link-box">\n';
+      html += '    <input class="link-input" id="link-input" type="text" value="' + videoPageUrl + '" readonly />\n';
+      html += '    <button class="copy-btn" id="copy-btn" onclick="copyLink()">COPY</button>\n';
+      html += '  </div>\n';
       html += '</div>\n';
 
-      // PRIMARY: Open in external browser button
-      // On Android, this uses intent:// to force Chrome
-      // On iOS/desktop, links to the video page directly
-      html += '<a id="main-btn" class="open-btn" href="' + videoPageUrl + '">\n';
-      html += '  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>\n';
-      html += '  Open in Browser\n';
-      html += '</a>\n';
+      // === HOW TO OPEN IN BROWSER GUIDE ===
+      html += '<div class="guide">\n';
+      html += '  <div class="guide-title">📱 How to open in Chrome / Safari</div>\n';
 
-      // SECONDARY: Direct link (works in any context)
-      html += '<a class="secondary-btn" href="' + videoPageUrl + '">▶ Watch Here</a>\n';
+      html += '  <div class="step"><div class="step-num">1</div><div class="step-text">Tap <strong>COPY</strong> button above</div></div>\n';
+      html += '  <div class="step"><div class="step-num">2</div><div class="step-text">Open <strong>Chrome</strong> or <strong>Safari</strong> on your phone</div></div>\n';
+      html += '  <div class="step"><div class="step-num">3</div><div class="step-text">Paste the link in address bar &amp; go</div></div>\n';
 
-      // Instructions
-      html += '<div class="steps">\n';
-      html += '  <div class="step"><div class="step-num">1</div><div class="step-text">Tap <strong>"Open in Browser"</strong> above</div></div>\n';
-      html += '  <div class="step"><div class="step-num">2</div><div class="step-text">If it opens here, tap <strong>⋮</strong> (top right) → <strong>"Open in Chrome"</strong></div></div>\n';
-      html += '  <div class="step"><div class="step-num">3</div><div class="step-text">Enjoy the full video experience! 🎬</div></div>\n';
-      html += '</div>\n';
-
-      // Tip
-      html += '<div class="tip-box">\n';
-      html += '  <p>💡 <strong>Why external browser?</strong> Videos play better in Chrome/Safari with full controls, quality options, and no interruptions.</p>\n';
+      html += '  <div class="hint-img">\n';
+      html += '    <p>⋮</p>\n';
+      html += '    <span>OR tap ⋮ menu above → "Open in Chrome"</span>\n';
+      html += '  </div>\n';
       html += '</div>\n';
 
       html += '</div></div>\n';
 
-      // Footer
-      html += '<div class="site-badge">' + SITE_NAME + ' &bull; Best viewing experience in your browser</div>\n';
+      // Copied toast
+      html += '<div class="copied-toast" id="toast">✓ Link Copied! Now open your browser</div>\n';
 
-      // ==========================================
-      // JAVASCRIPT: Try to open external browser
-      // ==========================================
+      // Footer
+      html += '<div class="footer">' + SITE_NAME + ' &bull; Best experience in Chrome or Safari</div>\n';
+
+      // === JAVASCRIPT ===
       html += '<script>\n';
-      html += '(function() {\n';
-      html += '  var targetUrl = "' + videoPageUrl + '";\n';
-      html += '  var ua = navigator.userAgent || "";\n';
-      html += '  var mainBtn = document.getElementById("main-btn");\n';
-      html += '  var isAndroid = /Android/i.test(ua);\n';
-      html += '  var isIOS = /iPhone|iPad|iPod/i.test(ua);\n';
+      html += 'function copyLink() {\n';
+      html += '  var url = "' + videoPageUrl + '";\n';
+      html += '  var input = document.getElementById("link-input");\n';
+      html += '  var btn = document.getElementById("copy-btn");\n';
+      html += '  var box = document.getElementById("link-box");\n';
+      html += '  var toast = document.getElementById("toast");\n';
       html += '\n';
-      html += '  // Detect if inside an in-app browser\n';
-      html += '  var inApp = /Telegram|FBAN|FBAV|Instagram|Twitter|Line\\/|Snapchat|Viber|WhatsApp|MicroMessenger/i.test(ua);\n';
-      html += '\n';
-      html += '  // Also detect generic in-app webviews that dont identify themselves\n';
-      html += '  var isWebView = /(wv|WebView|\\.0\\.0\\.0)/i.test(ua);\n';
-      html += '  var isStandaloneBrowser = /Chrome\\/[\\d.]+ Mobile Safari|Firefox\\/|Safari\\/[\\d.]+ (?!.*CriOS)/i.test(ua) && !inApp && !isWebView;\n';
-      html += '\n';
-      html += '  if (isStandaloneBrowser && !isWebView) {\n';
-      html += '    // Confirmed real browser — redirect after 3 seconds\n';
-      html += '    // so user can still see the page briefly\n';
-      html += '    setTimeout(function() {\n';
-      html += '      window.location.replace(targetUrl);\n';
-      html += '    }, 3000);\n';
-      html += '    return;\n';
-      html += '  }\n';
-      html += '\n';
-      html += '  // === IN-APP BROWSER OR UNKNOWN — SHOW LANDING PAGE ===\n';
-      html += '  // Page stays visible, user must tap a button\n';
-      html += '\n';
-      html += '  if (isAndroid && mainBtn) {\n';
-      html += '    var intentUrl = "intent://" + targetUrl.replace(/^https?:\\/\\//, "")\n';
-      html += '      + "#Intent;scheme=https;package=com.android.chrome"\n';
-      html += '      + ";S.browser_fallback_url=" + encodeURIComponent(targetUrl)\n';
-      html += '      + ";end;";\n';
-      html += '    mainBtn.href = intentUrl;\n';
-      html += '  }\n';
-      html += '\n';
-      html += '  if (isIOS && mainBtn) {\n';
-      html += '    mainBtn.addEventListener("click", function(e) {\n';
-      html += '      e.preventDefault();\n';
-      html += '      window.location.href = "x-safari-" + targetUrl;\n';
-      html += '      setTimeout(function() {\n';
-      html += '        window.location.href = targetUrl;\n';
-      html += '      }, 500);\n';
+      html += '  // Try modern clipboard API first\n';
+      html += '  if (navigator.clipboard && navigator.clipboard.writeText) {\n';
+      html += '    navigator.clipboard.writeText(url).then(function() {\n';
+      html += '      showCopied(btn, box, toast);\n';
+      html += '    }).catch(function() {\n';
+      html += '      fallbackCopy(input, btn, box, toast);\n';
       html += '    });\n';
+      html += '  } else {\n';
+      html += '    fallbackCopy(input, btn, box, toast);\n';
       html += '  }\n';
+      html += '}\n';
+      html += '\n';
+      html += 'function fallbackCopy(input, btn, box, toast) {\n';
+      html += '  input.select();\n';
+      html += '  input.setSelectionRange(0, 99999);\n';
+      html += '  try {\n';
+      html += '    document.execCommand("copy");\n';
+      html += '    showCopied(btn, box, toast);\n';
+      html += '  } catch(e) {\n';
+      html += '    btn.textContent = "SELECT & COPY";\n';
+      html += '  }\n';
+      html += '}\n';
+      html += '\n';
+      html += 'function showCopied(btn, box, toast) {\n';
+      html += '  btn.textContent = "✓ COPIED!";\n';
+      html += '  btn.classList.add("copied");\n';
+      html += '  box.classList.add("copied");\n';
+      html += '  toast.classList.add("show");\n';
+      html += '  setTimeout(function() {\n';
+      html += '    btn.textContent = "COPY";\n';
+      html += '    btn.classList.remove("copied");\n';
+      html += '    box.classList.remove("copied");\n';
+      html += '    toast.classList.remove("show");\n';
+      html += '  }, 3000);\n';
+      html += '}\n';
+      html += '\n';
+      html += '// Auto-redirect only if in a REAL browser (not in-app)\n';
+      html += '(function() {\n';
+      html += '  var ua = navigator.userAgent || "";\n';
+      html += '  var inApp = /Telegram|FBAN|FBAV|Instagram|Twitter|Line\\/|Snapchat|Viber|WhatsApp|MicroMessenger|wv|WebView/i.test(ua);\n';
+      html += '  if (!inApp) {\n';
+      html += '    // Real browser — redirect after 5 seconds\n';
+      html += '    setTimeout(function() {\n';
+      html += '      window.location.replace("' + videoPageUrl + '");\n';
+      html += '    }, 5000);\n';
+      html += '  }\n';
+      html += '  // In-app browser — page stays, user copies link manually\n';
       html += '})();\n';
       html += '</script>\n';
       html += '</body></html>';
