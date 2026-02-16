@@ -8,19 +8,243 @@ import VideoCard from '../../components/video/VideoCard';
 import CommentForm from '../../components/comments/CommentForm';
 import CommentsList from '../../components/comments/CommentsList';
 
-// ==================== IMPROVED AD INJECTOR ====================
+// ==================== AD DEBUGGER (REMOVE AFTER FIXING) ====================
+const AdDebugger = () => {
+  const [debugInfo, setDebugInfo] = useState({});
+  const [showDebug, setShowDebug] = useState(false);
+  const [logs, setLogs] = useState([]);
+
+  useEffect(() => {
+    // Capture console errors and warnings
+    const originalError = console.error;
+    const originalWarn = console.warn;
+    const capturedLogs = [];
+
+    console.error = (...args) => {
+      capturedLogs.push({ type: 'error', msg: args.map(a => String(a)).join(' '), time: new Date().toLocaleTimeString() });
+      setLogs([...capturedLogs].slice(-30));
+      originalError.apply(console, args);
+    };
+    console.warn = (...args) => {
+      capturedLogs.push({ type: 'warn', msg: args.map(a => String(a)).join(' '), time: new Date().toLocaleTimeString() });
+      setLogs([...capturedLogs].slice(-30));
+      originalWarn.apply(console, args);
+    };
+
+    // Catch script/resource load failures
+    const handleError = (event) => {
+      if (event.target?.tagName === 'SCRIPT' || event.target?.tagName === 'IFRAME') {
+        capturedLogs.push({
+          type: 'error',
+          msg: `${event.target.tagName} FAILED: ${event.target.src || 'unknown'}`,
+          time: new Date().toLocaleTimeString()
+        });
+        setLogs([...capturedLogs].slice(-30));
+      }
+    };
+    window.addEventListener('error', handleError, true);
+
+    // Gather debug info after 4 seconds
+    const timer = setTimeout(() => {
+      const adSlots = document.querySelectorAll('.ad-slot');
+      let withContent = 0;
+      let empty = 0;
+      adSlots.forEach(slot => {
+        const content = slot.querySelector('.ad-content');
+        if (content && (content.children.length > 0 || content.innerHTML.trim().length > 10)) {
+          withContent++;
+        } else {
+          empty++;
+        }
+      });
+
+      // Ad blocker test
+      const testDiv = document.createElement('div');
+      testDiv.innerHTML = '&nbsp;';
+      testDiv.className = 'adsbox pub_300x250';
+      testDiv.style.cssText = 'position:absolute;left:-9999px;top:-9999px;width:300px;height:250px;';
+      document.body.appendChild(testDiv);
+
+      const adBlockerDetected = testDiv.offsetHeight === 0;
+      if (document.body.contains(testDiv)) document.body.removeChild(testDiv);
+
+      // Container divs check
+      const containers = document.querySelectorAll('div[id^="container-"]');
+      const containerDetails = [];
+      containers.forEach(c => {
+        const style = window.getComputedStyle(c);
+        containerDetails.push({
+          id: c.id,
+          children: c.children.length,
+          size: `${c.offsetWidth}x${c.offsetHeight}`,
+          display: style.display,
+          visibility: style.visibility,
+        });
+      });
+
+      setDebugInfo({
+        userAgent: navigator.userAgent,
+        screen: `${window.screen.width}x${window.screen.height}`,
+        viewport: `${window.innerWidth}x${window.innerHeight}`,
+        dpr: window.devicePixelRatio,
+        isHTTPS: window.location.protocol === 'https:',
+        adBlocker: adBlockerDetected,
+        adScriptsHPF: document.querySelectorAll('script[src*="highperformanceformat"]').length,
+        adScriptsEG: document.querySelectorAll('script[src*="effectivegatecpm"]').length,
+        totalIframes: document.querySelectorAll('iframe').length,
+        adSlots: adSlots.length,
+        adSlotsWithContent: withContent,
+        adSlotsEmpty: empty,
+        containerDivs: containerDetails,
+      });
+    }, 4000);
+
+    return () => {
+      clearTimeout(timer);
+      console.error = originalError;
+      console.warn = originalWarn;
+      window.removeEventListener('error', handleError, true);
+    };
+  }, []);
+
+  return (
+    <div className="fixed bottom-4 right-4 z-[9999] flex flex-col items-end gap-2">
+      <button
+        onClick={() => setShowDebug(!showDebug)}
+        className="bg-red-600 text-white px-4 py-2 rounded-full text-xs font-bold shadow-xl"
+      >
+        🐛 Debug Ads
+      </button>
+
+      {showDebug && (
+        <div className="fixed inset-2 bg-black text-green-400 rounded-2xl p-4 overflow-auto z-[10000] font-mono text-[11px]">
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="text-yellow-400 font-bold text-sm">📊 Ad Debug Panel</h3>
+            <button onClick={() => setShowDebug(false)} className="bg-red-600 text-white px-3 py-1 rounded text-xs">✕ Close</button>
+          </div>
+
+          {Object.keys(debugInfo).length === 0 ? (
+            <p className="text-yellow-300">⏳ Gathering info... wait 4 seconds</p>
+          ) : (
+            <div className="space-y-3">
+              {/* Device */}
+              <div className="border-b border-gray-700 pb-2">
+                <p className="text-yellow-300 font-bold">📱 Device</p>
+                <p>Screen: {debugInfo.screen}</p>
+                <p>Viewport: {debugInfo.viewport}</p>
+                <p>DPR: {debugInfo.dpr}</p>
+                <p className="text-[9px] text-gray-500 break-all">UA: {debugInfo.userAgent}</p>
+              </div>
+
+              {/* Critical Checks */}
+              <div className="border-b border-gray-700 pb-2">
+                <p className="text-yellow-300 font-bold">🔍 Critical Checks</p>
+                <p>HTTPS: {debugInfo.isHTTPS ? '✅ Yes' : '❌ No - ads may be blocked'}</p>
+                <p>Ad Blocker: {debugInfo.adBlocker ?
+                  <span className="text-red-400 font-bold">⚠️ DETECTED - THIS IS WHY ADS FAIL</span> :
+                  <span className="text-green-400">✅ Not detected</span>
+                }</p>
+              </div>
+
+              {/* Scripts */}
+              <div className="border-b border-gray-700 pb-2">
+                <p className="text-yellow-300 font-bold">📜 Ad Scripts in DOM</p>
+                <p>HighPerformanceFormat scripts: {debugInfo.adScriptsHPF}
+                  {debugInfo.adScriptsHPF === 0 && <span className="text-red-400"> ← PROBLEM: Scripts not injected</span>}
+                </p>
+                <p>EffectiveGateCPM scripts: {debugInfo.adScriptsEG}
+                  {debugInfo.adScriptsEG === 0 && <span className="text-red-400"> ← PROBLEM: Scripts not injected</span>}
+                </p>
+                <p>Iframes (ads render as iframes): {debugInfo.totalIframes}
+                  {debugInfo.totalIframes === 0 && <span className="text-red-400"> ← PROBLEM: No ads rendered</span>}
+                </p>
+              </div>
+
+              {/* Ad Slots */}
+              <div className="border-b border-gray-700 pb-2">
+                <p className="text-yellow-300 font-bold">📦 Ad Slots</p>
+                <p>Total: {debugInfo.adSlots}</p>
+                <p className="text-green-400">With content: {debugInfo.adSlotsWithContent}</p>
+                <p className={debugInfo.adSlotsEmpty > 0 ? "text-red-400" : "text-green-400"}>
+                  Empty: {debugInfo.adSlotsEmpty}
+                  {debugInfo.adSlotsEmpty > 0 && ' ← These ads failed to load'}
+                </p>
+              </div>
+
+              {/* Containers */}
+              <div className="border-b border-gray-700 pb-2">
+                <p className="text-yellow-300 font-bold">🏗️ Ad Container Divs</p>
+                {debugInfo.containerDivs?.length === 0 && <p className="text-red-400">None found ← Native ads not created</p>}
+                {debugInfo.containerDivs?.map((c, i) => (
+                  <div key={i} className="ml-2 text-[10px] mb-1">
+                    <p className="text-cyan-400">{c.id}</p>
+                    <p>Size: {c.size} | Display: {c.display} | Visible: {c.visibility} | Children: {c.children}</p>
+                    {c.size === '0x0' && <p className="text-red-400">← Zero size! Ad not rendering</p>}
+                  </div>
+                ))}
+              </div>
+
+              {/* Console Logs */}
+              {logs.length > 0 && (
+                <div className="border-b border-gray-700 pb-2">
+                  <p className="text-yellow-300 font-bold">❌ Errors/Warnings ({logs.length})</p>
+                  {logs.map((log, i) => (
+                    <p key={i} className={`text-[9px] break-all ${log.type === 'error' ? 'text-red-400' : 'text-yellow-500'}`}>
+                      {log.time} [{log.type}] {log.msg.substring(0, 300)}
+                    </p>
+                  ))}
+                </div>
+              )}
+
+              {/* Diagnosis */}
+              <div className="bg-gray-900 p-3 rounded-lg">
+                <p className="text-yellow-300 font-bold mb-2">🩺 Auto Diagnosis</p>
+                {debugInfo.adBlocker && <p className="text-red-400">• Ad blocker is blocking ads. Disable it and refresh.</p>}
+                {!debugInfo.isHTTPS && <p className="text-red-400">• Site not on HTTPS. Mixed content blocks ads on mobile.</p>}
+                {debugInfo.adScriptsHPF === 0 && !debugInfo.adBlocker && <p className="text-red-400">• Ad scripts not injected into DOM. Script injection is failing.</p>}
+                {debugInfo.adScriptsHPF > 0 && debugInfo.totalIframes === 0 && <p className="text-red-400">• Scripts loaded but no iframes created. Ad network not serving ads to this device/region.</p>}
+                {debugInfo.adSlotsEmpty > 0 && debugInfo.totalIframes > 0 && <p className="text-yellow-400">• Some ads loaded, some didn't. Timing/race condition issue.</p>}
+                {!debugInfo.adBlocker && debugInfo.isHTTPS && debugInfo.adScriptsHPF > 0 && debugInfo.totalIframes > 0 && <p className="text-green-400">• Everything looks fine! Ads should be visible.</p>}
+              </div>
+            </div>
+          )}
+
+          {/* Copy button */}
+          <button
+            onClick={() => {
+              const allData = JSON.stringify({ debugInfo, logs }, null, 2);
+              if (navigator.clipboard?.writeText) {
+                navigator.clipboard.writeText(allData).then(() => alert('Copied!'));
+              } else {
+                const ta = document.createElement('textarea');
+                ta.value = allData;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                alert('Copied!');
+              }
+            }}
+            className="mt-3 bg-blue-600 text-white px-4 py-2 rounded-lg text-xs w-full font-bold"
+          >
+            📋 Copy All Debug Info
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ==================== AD INJECTOR ====================
 const AdSlot = ({ adCode, label = "Sponsored", className = "", minHeight = "50px" }) => {
   const containerRef = useRef(null);
   const uniqueId = useRef(`ad-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
   const mountedRef = useRef(false);
-  const retryTimeoutRef = useRef(null);
 
   useEffect(() => {
     if (!adCode || !containerRef.current) return;
 
     const container = containerRef.current;
-
-    // Clear any previous content
     container.innerHTML = "";
     mountedRef.current = true;
 
@@ -30,121 +254,74 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "", minHeight = "50px
       try {
         let processedCode = adCode;
 
-        // Replace container IDs with unique ones to prevent conflicts
-        const containerMatches = processedCode.matchAll(/id="(container-[a-f0-9]+)"/g);
+        // Replace container IDs with unique ones
+        const containerMatches = [...processedCode.matchAll(/id="(container-[a-f0-9]+)"/g)];
         for (const match of containerMatches) {
           const originalId = match[1];
           const newId = `${originalId}-${uniqueId.current}`;
-          processedCode = processedCode.replace(
-            new RegExp(originalId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'),
-            newId
-          );
+          processedCode = processedCode.split(originalId).join(newId);
         }
 
+        // Separate HTML and scripts
+        const nonScript = processedCode.replace(/<script[\s\S]*?<\/script>/gi, "").trim();
+
+        if (nonScript) {
+          const div = document.createElement("div");
+          div.className = "ad-inner-content";
+          div.innerHTML = nonScript;
+          container.appendChild(div);
+        }
+
+        // Extract scripts
         const tempDiv = document.createElement("div");
         tempDiv.innerHTML = processedCode;
+        const scripts = tempDiv.querySelectorAll("script");
 
-        const scripts = [];
-        const scriptElements = tempDiv.querySelectorAll("script");
+        // Load scripts one by one in order
+        const loadNext = (index) => {
+          if (index >= scripts.length || !mountedRef.current) return;
 
-        // Extract non-script HTML content
-        const nonScriptContent = processedCode.replace(/<script[\s\S]*?<\/script>/gi, "").trim();
+          const orig = scripts[index];
+          const s = document.createElement("script");
 
-        if (nonScriptContent) {
-          const contentDiv = document.createElement("div");
-          contentDiv.className = "ad-inner-content";
-          contentDiv.innerHTML = nonScriptContent;
-          container.appendChild(contentDiv);
-        }
-
-        // Process scripts sequentially for proper loading order
-        scriptElements.forEach((origScript) => {
-          scripts.push({
-            src: origScript.src,
-            textContent: origScript.textContent,
-            attributes: Array.from(origScript.attributes),
-          });
-        });
-
-        // Load scripts sequentially
-        const loadScriptsSequentially = (scriptList, index = 0) => {
-          if (index >= scriptList.length || !mountedRef.current) return;
-
-          const scriptData = scriptList[index];
-          const newScript = document.createElement("script");
-
-          // Copy attributes
-          scriptData.attributes.forEach((attr) => {
-            if (attr.name !== 'src') {
-              newScript.setAttribute(attr.name, attr.value);
-            }
+          Array.from(orig.attributes).forEach((a) => {
+            if (a.name !== 'src') s.setAttribute(a.name, a.value);
           });
 
-          if (scriptData.src) {
-            newScript.src = scriptData.src;
-            newScript.async = true;
-            newScript.onload = () => {
-              if (mountedRef.current) {
-                loadScriptsSequentially(scriptList, index + 1);
-              }
+          if (orig.src) {
+            s.src = orig.src;
+            s.async = true;
+            s.onload = () => {
+              console.log(`✅ Ad script loaded: ${orig.src.substring(0, 60)}...`);
+              loadNext(index + 1);
             };
-            newScript.onerror = () => {
-              console.warn(`Ad script failed to load: ${scriptData.src}`);
-              // Retry once after a delay on mobile
-              if (mountedRef.current) {
-                retryTimeoutRef.current = setTimeout(() => {
-                  if (mountedRef.current) {
-                    loadScriptsSequentially(scriptList, index + 1);
-                  }
-                }, 2000);
-              }
+            s.onerror = () => {
+              console.error(`❌ Ad script FAILED: ${orig.src.substring(0, 60)}...`);
+              loadNext(index + 1);
             };
-          } else if (scriptData.textContent) {
-            newScript.textContent = scriptData.textContent;
+          } else if (orig.textContent) {
+            s.textContent = orig.textContent;
           }
 
-          // Append to container, not document.body
-          // This ensures the script context is correct
-          container.appendChild(newScript);
+          container.appendChild(s);
 
-          // If inline script (no src), move to next immediately
-          if (!scriptData.src) {
-            loadScriptsSequentially(scriptList, index + 1);
-          }
+          if (!orig.src) loadNext(index + 1);
         };
 
-        // Small delay to ensure DOM is ready (critical for mobile)
-        const startTimeout = setTimeout(() => {
-          if (mountedRef.current) {
-            loadScriptsSequentially(scripts);
-          }
-        }, 100);
-
-        return () => clearTimeout(startTimeout);
+        loadNext(0);
       } catch (err) {
-        console.warn("Ad loading error:", err);
+        console.error("Ad injection error:", err);
       }
     };
 
-    // Use requestIdleCallback on mobile for better performance
-    // Falls back to setTimeout for browsers that don't support it
-    if ('requestIdleCallback' in window) {
-      const idleId = requestIdleCallback(() => loadAd(), { timeout: 3000 });
-      return () => {
-        mountedRef.current = false;
-        cancelIdleCallback(idleId);
-        if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
-        if (container) container.innerHTML = "";
-      };
-    } else {
-      const timeoutId = setTimeout(loadAd, 150);
-      return () => {
-        mountedRef.current = false;
-        clearTimeout(timeoutId);
-        if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
-        if (container) container.innerHTML = "";
-      };
-    }
+    // Delay slightly for mobile DOM readiness
+    const timer = setTimeout(loadAd, 200);
+
+    return () => {
+      mountedRef.current = false;
+      clearTimeout(timer);
+      if (container) container.innerHTML = "";
+    };
   }, [adCode]);
 
   if (!adCode) return null;
@@ -158,8 +335,8 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "", minHeight = "50px
       )}
       <div
         ref={containerRef}
-        className="ad-content flex justify-center items-center overflow-hidden"
-        style={{ minHeight }}
+        className="ad-content flex justify-center items-center"
+        style={{ minHeight, overflow: 'visible' }}
       />
     </div>
   );
@@ -177,10 +354,6 @@ const ADS = {
     };
   </script>
   <script src="https://www.highperformanceformat.com/161b6adedd44fd65d7197bdc372ef90f/invoke.js"></script>`,
-
-  // Alternative mobile ad - using a responsive approach
-  mobileNative: `<script async="async" data-cfasync="false" src="https://pl28704186.effectivegatecpm.com/3ebdaa444c50232518b3752efc451cab/invoke.js"></script>
-  <div id="container-3ebdaa444c50232518b3752efc451cab"></div>`,
 
   footer728x90: `<script>
     atOptions = {
@@ -219,66 +392,38 @@ const ADS = {
   <div id="container-3ebdaa444c50232518b3752efc451cab"></div>`,
 };
 
-// ==================== IMPROVED GLOBAL ADS LOADER ====================
+// ==================== GLOBAL ADS LOADER ====================
 const GlobalAdsLoader = () => {
   const loaded = useRef(false);
-
   useEffect(() => {
     if (loaded.current) return;
     loaded.current = true;
 
     const scripts = [];
 
-    const loadScript = (src, delay = 0) => {
-      return new Promise((resolve) => {
-        setTimeout(() => {
-          const script = document.createElement("script");
-          script.src = src;
-          script.async = true;
-          script.onload = resolve;
-          script.onerror = () => {
-            console.warn(`Global ad script failed: ${src}`);
-            resolve(); // Don't block other scripts
-          };
-          document.body.appendChild(script);
-          scripts.push(script);
-        }, delay);
-      });
+    const addScript = (src, delay) => {
+      setTimeout(() => {
+        const s = document.createElement("script");
+        s.src = src;
+        s.async = true;
+        s.onload = () => console.log(`✅ Global ad loaded: ${src.substring(0, 50)}...`);
+        s.onerror = () => console.error(`❌ Global ad FAILED: ${src.substring(0, 50)}...`);
+        document.body.appendChild(s);
+        scripts.push(s);
+      }, delay);
     };
 
-    // Stagger script loading to prevent mobile browser throttling
-    const loadAllScripts = async () => {
-      await loadScript(
-        "https://pl28704151.effectivegatecpm.com/35/ee/21/35ee2192f0b1aa5ca35c1f3af9387b00.js",
-        0
-      );
-      await loadScript(
-        "https://pl28704173.effectivegatecpm.com/52/ef/a1/52efa111bceee1130b219af1074a5f95.js",
-        500
-      );
-      await loadScript(
-        "https://www.effectivegatecpm.com/sbfz9bs1c?key=4b48edda8bb87faa2b8f8b8708c46b0b",
-        1000
-      );
-    };
-
-    // Wait for page to be mostly loaded before injecting global ads
-    if (document.readyState === 'complete') {
-      loadAllScripts();
-    } else {
-      window.addEventListener('load', loadAllScripts, { once: true });
-    }
+    addScript("https://pl28704151.effectivegatecpm.com/35/ee/21/35ee2192f0b1aa5ca35c1f3af9387b00.js", 0);
+    addScript("https://pl28704173.effectivegatecpm.com/52/ef/a1/52efa111bceee1130b219af1074a5f95.js", 500);
+    addScript("https://www.effectivegatecpm.com/sbfz9bs1c?key=4b48edda8bb87faa2b8f8b8708c46b0b", 1000);
 
     return () => {
       scripts.forEach(s => {
-        try {
-          if (document.body.contains(s)) document.body.removeChild(s);
-        } catch (e) { /* ignore */ }
+        try { if (document.body.contains(s)) document.body.removeChild(s); } catch (e) { }
       });
       loaded.current = false;
     };
   }, []);
-
   return null;
 };
 
@@ -288,11 +433,7 @@ const InFeedAd = React.memo(({ isMobile }) => {
     return (
       <div className="col-span-2 py-3">
         <div className="bg-gray-100/50 dark:bg-dark-200/50 rounded-xl p-3 flex justify-center">
-          <AdSlot
-            adCode={ADS.nativeBanner}
-            label="Sponsored"
-            minHeight="100px"
-          />
+          <AdSlot adCode={ADS.nativeBanner} label="Sponsored" minHeight="100px" />
         </div>
       </div>
     );
@@ -301,54 +442,11 @@ const InFeedAd = React.memo(({ isMobile }) => {
   return (
     <div className="col-span-full py-4">
       <div className="w-full bg-gray-100/30 dark:bg-dark-200/30 rounded-xl p-4">
-        <AdSlot
-          adCode={ADS.nativeBanner}
-          label="Sponsored"
-          minHeight="100px"
-        />
+        <AdSlot adCode={ADS.nativeBanner} label="Sponsored" minHeight="100px" />
       </div>
     </div>
   );
 });
-
-// ==================== MOBILE AD WRAPPER ====================
-// Dedicated component for mobile top/bottom ads with visibility tracking
-const MobileAdBanner = ({ adCode, label = "Sponsored", minHeight = "50px" }) => {
-  const [isVisible, setIsVisible] = useState(false);
-  const wrapperRef = useRef(null);
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setIsVisible(true);
-          observer.disconnect(); // Only load once
-        }
-      },
-      { threshold: 0.1 }
-    );
-
-    if (wrapperRef.current) {
-      observer.observe(wrapperRef.current);
-    }
-
-    // Fallback: load after 2 seconds anyway
-    const fallbackTimer = setTimeout(() => setIsVisible(true), 2000);
-
-    return () => {
-      observer.disconnect();
-      clearTimeout(fallbackTimer);
-    };
-  }, []);
-
-  return (
-    <div ref={wrapperRef} className="flex justify-center" style={{ minHeight }}>
-      {isVisible && (
-        <AdSlot adCode={adCode} label={label} className="flex justify-center" minHeight={minHeight} />
-      )}
-    </div>
-  );
-};
 
 // ==================== SEO KEYWORDS ====================
 const SEO_CATEGORIES = [
@@ -359,46 +457,6 @@ const SEO_CATEGORIES = [
   "Teen", "Threesome", "Webcam", "MMS Videos", "Couple", "College",
 ];
 
-// ==================== CUSTOM HOOK FOR RESPONSIVE DETECTION ====================
-const useIsMobile = (breakpoint = 1024) => {
-  const [isMobile, setIsMobile] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return window.innerWidth < breakpoint;
-    }
-    return false;
-  });
-
-  useEffect(() => {
-    // Use matchMedia for more reliable detection
-    const mediaQuery = window.matchMedia(`(max-width: ${breakpoint - 1}px)`);
-
-    const handleChange = (e) => {
-      setIsMobile(e.matches);
-    };
-
-    // Modern browsers
-    if (mediaQuery.addEventListener) {
-      mediaQuery.addEventListener('change', handleChange);
-    } else {
-      // Fallback for older browsers
-      mediaQuery.addListener(handleChange);
-    }
-
-    // Set initial value
-    setIsMobile(mediaQuery.matches);
-
-    return () => {
-      if (mediaQuery.removeEventListener) {
-        mediaQuery.removeEventListener('change', handleChange);
-      } else {
-        mediaQuery.removeListener(handleChange);
-      }
-    };
-  }, [breakpoint]);
-
-  return isMobile;
-};
-
 // ==================== MAIN HOMEPAGE ====================
 const HomePage = () => {
   const [featuredVideos, setFeaturedVideos] = useState([]);
@@ -408,8 +466,7 @@ const HomePage = () => {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [totalVideos, setTotalVideos] = useState(0);
-
-  const isMobile = useIsMobile(1024);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
 
   const observerRef = useRef(null);
   const loadMoreRef = useRef(null);
@@ -417,6 +474,19 @@ const HomePage = () => {
   const hasMoreRef = useRef(true);
   const pageRef = useRef(1);
   const failCountRef = useRef(0);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 1023px)');
+    const handler = (e) => setIsMobile(e.matches);
+    setIsMobile(mq.matches);
+    if (mq.addEventListener) {
+      mq.addEventListener('change', handler);
+      return () => mq.removeEventListener('change', handler);
+    } else {
+      mq.addListener(handler);
+      return () => mq.removeListener(handler);
+    }
+  }, []);
 
   // ==================== FETCH INITIAL DATA ====================
   useEffect(() => {
@@ -608,41 +678,24 @@ const HomePage = () => {
         <meta name="twitter:title" content="Xmaster - Free porn Videos | HD Streaming" />
         <meta name="twitter:description" content="Watch free HD porn videos online. Updated daily." />
         <meta name="twitter:image" content="https://xmaster.guru/logo.jpg" />
-        {/* Viewport meta - ensure proper mobile rendering */}
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
       </Helmet>
 
       <div className="min-h-screen bg-gray-50 dark:bg-dark-400">
         <GlobalAdsLoader />
 
-        {/* ===== TOP BANNER AD ===== */}
+        {/* === DEBUGGER - REMOVE AFTER FIXING === */}
+        <AdDebugger />
+
+        {/* === TOP AD === */}
         <div className="max-w-7xl mx-auto px-4 pt-4">
           {isMobile ? (
-            <MobileAdBanner
-              adCode={ADS.mobile320x50}
-              label="Sponsored"
-              minHeight="60px"
-            />
+            <div className="flex justify-center">
+              <AdSlot adCode={ADS.mobile320x50} label="Sponsored" minHeight="60px" className="flex justify-center" />
+            </div>
           ) : (
-            <AdSlot
-              adCode={ADS.footer728x90}
-              label="Sponsored"
-              className="flex justify-center"
-              minHeight="100px"
-            />
+            <AdSlot adCode={ADS.footer728x90} label="Sponsored" className="flex justify-center" minHeight="100px" />
           )}
         </div>
-
-        {/* ===== MOBILE-ONLY NATIVE AD BELOW HEADER ===== */}
-        {isMobile && (
-          <div className="max-w-7xl mx-auto px-4 pt-3">
-            <MobileAdBanner
-              adCode={ADS.nativeBanner}
-              label="Sponsored"
-              minHeight="100px"
-            />
-          </div>
-        )}
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex flex-col lg:flex-row gap-6">
@@ -664,14 +717,10 @@ const HomePage = () => {
                     </div>
                   )}
 
-                  {/* Mobile ad after featured videos */}
+                  {/* Mobile ad after featured */}
                   {isMobile && (
-                    <div className="mt-4">
-                      <MobileAdBanner
-                        adCode={ADS.footer300x250}
-                        label="Sponsored"
-                        minHeight="260px"
-                      />
+                    <div className="mt-4 flex justify-center">
+                      <AdSlot adCode={ADS.footer300x250} label="Sponsored" minHeight="260px" />
                     </div>
                   )}
                 </section>
@@ -724,14 +773,10 @@ const HomePage = () => {
                 </section>
               )}
 
-              {/* Mobile ad before SEO section */}
+              {/* Mobile ad before SEO */}
               {isMobile && (
-                <div className="mb-6">
-                  <MobileAdBanner
-                    adCode={ADS.mobile320x50}
-                    label="Sponsored"
-                    minHeight="60px"
-                  />
+                <div className="mb-6 flex justify-center">
+                  <AdSlot adCode={ADS.mobile320x50} label="Sponsored" minHeight="60px" />
                 </div>
               )}
 
@@ -792,7 +837,7 @@ const HomePage = () => {
               </section>
             </div>
 
-            {/* ===== DESKTOP SIDEBAR ===== */}
+            {/* Desktop Sidebar */}
             <aside className="w-full lg:w-80 flex-shrink-0 hidden lg:block">
               <div className="sticky top-20 space-y-6">
                 <div className="card p-4">
@@ -832,22 +877,15 @@ const HomePage = () => {
           </div>
         </div>
 
-        {/* ===== FOOTER AD ===== */}
+        {/* Footer Ad */}
         <div className="max-w-7xl mx-auto px-4 pb-8">
           <div className="py-6 border-t border-gray-200 dark:border-dark-100">
             {isMobile ? (
-              <MobileAdBanner
-                adCode={ADS.footer300x250}
-                label="Sponsored"
-                minHeight="260px"
-              />
+              <div className="flex justify-center">
+                <AdSlot adCode={ADS.footer300x250} label="Sponsored" minHeight="260px" />
+              </div>
             ) : (
-              <AdSlot
-                adCode={ADS.footer728x90}
-                label="Sponsored"
-                className="flex justify-center"
-                minHeight="100px"
-              />
+              <AdSlot adCode={ADS.footer728x90} label="Sponsored" className="flex justify-center" minHeight="100px" />
             )}
           </div>
         </div>
