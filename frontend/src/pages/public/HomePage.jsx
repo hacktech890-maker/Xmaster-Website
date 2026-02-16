@@ -8,238 +8,15 @@ import VideoCard from '../../components/video/VideoCard';
 import CommentForm from '../../components/comments/CommentForm';
 import CommentsList from '../../components/comments/CommentsList';
 
-// ==================== AD DEBUGGER (REMOVE AFTER FIXING) ====================
-const AdDebugger = () => {
-  const [debugInfo, setDebugInfo] = useState({});
-  const [showDebug, setShowDebug] = useState(false);
-  const [logs, setLogs] = useState([]);
-
-  useEffect(() => {
-    // Capture console errors and warnings
-    const originalError = console.error;
-    const originalWarn = console.warn;
-    const capturedLogs = [];
-
-    console.error = (...args) => {
-      capturedLogs.push({ type: 'error', msg: args.map(a => String(a)).join(' '), time: new Date().toLocaleTimeString() });
-      setLogs([...capturedLogs].slice(-30));
-      originalError.apply(console, args);
-    };
-    console.warn = (...args) => {
-      capturedLogs.push({ type: 'warn', msg: args.map(a => String(a)).join(' '), time: new Date().toLocaleTimeString() });
-      setLogs([...capturedLogs].slice(-30));
-      originalWarn.apply(console, args);
-    };
-
-    // Catch script/resource load failures
-    const handleError = (event) => {
-      if (event.target?.tagName === 'SCRIPT' || event.target?.tagName === 'IFRAME') {
-        capturedLogs.push({
-          type: 'error',
-          msg: `${event.target.tagName} FAILED: ${event.target.src || 'unknown'}`,
-          time: new Date().toLocaleTimeString()
-        });
-        setLogs([...capturedLogs].slice(-30));
-      }
-    };
-    window.addEventListener('error', handleError, true);
-
-    // Gather debug info after 4 seconds
-    const timer = setTimeout(() => {
-      const adSlots = document.querySelectorAll('.ad-slot');
-      let withContent = 0;
-      let empty = 0;
-      adSlots.forEach(slot => {
-        const content = slot.querySelector('.ad-content');
-        if (content && (content.children.length > 0 || content.innerHTML.trim().length > 10)) {
-          withContent++;
-        } else {
-          empty++;
-        }
-      });
-
-      // Ad blocker test
-      const testDiv = document.createElement('div');
-      testDiv.innerHTML = '&nbsp;';
-      testDiv.className = 'adsbox pub_300x250';
-      testDiv.style.cssText = 'position:absolute;left:-9999px;top:-9999px;width:300px;height:250px;';
-      document.body.appendChild(testDiv);
-
-      const adBlockerDetected = testDiv.offsetHeight === 0;
-      if (document.body.contains(testDiv)) document.body.removeChild(testDiv);
-
-      // Container divs check
-      const containers = document.querySelectorAll('div[id^="container-"]');
-      const containerDetails = [];
-      containers.forEach(c => {
-        const style = window.getComputedStyle(c);
-        containerDetails.push({
-          id: c.id,
-          children: c.children.length,
-          size: `${c.offsetWidth}x${c.offsetHeight}`,
-          display: style.display,
-          visibility: style.visibility,
-        });
-      });
-
-      setDebugInfo({
-        userAgent: navigator.userAgent,
-        screen: `${window.screen.width}x${window.screen.height}`,
-        viewport: `${window.innerWidth}x${window.innerHeight}`,
-        dpr: window.devicePixelRatio,
-        isHTTPS: window.location.protocol === 'https:',
-        adBlocker: adBlockerDetected,
-        adScriptsHPF: document.querySelectorAll('script[src*="highperformanceformat"]').length,
-        adScriptsEG: document.querySelectorAll('script[src*="effectivegatecpm"]').length,
-        totalIframes: document.querySelectorAll('iframe').length,
-        adSlots: adSlots.length,
-        adSlotsWithContent: withContent,
-        adSlotsEmpty: empty,
-        containerDivs: containerDetails,
-      });
-    }, 4000);
-
-    return () => {
-      clearTimeout(timer);
-      console.error = originalError;
-      console.warn = originalWarn;
-      window.removeEventListener('error', handleError, true);
-    };
-  }, []);
-
-  return (
-    <div className="fixed bottom-4 right-4 z-[9999] flex flex-col items-end gap-2">
-      <button
-        onClick={() => setShowDebug(!showDebug)}
-        className="bg-red-600 text-white px-4 py-2 rounded-full text-xs font-bold shadow-xl"
-      >
-        🐛 Debug Ads
-      </button>
-
-      {showDebug && (
-        <div className="fixed inset-2 bg-black text-green-400 rounded-2xl p-4 overflow-auto z-[10000] font-mono text-[11px]">
-          <div className="flex justify-between items-center mb-3">
-            <h3 className="text-yellow-400 font-bold text-sm">📊 Ad Debug Panel</h3>
-            <button onClick={() => setShowDebug(false)} className="bg-red-600 text-white px-3 py-1 rounded text-xs">✕ Close</button>
-          </div>
-
-          {Object.keys(debugInfo).length === 0 ? (
-            <p className="text-yellow-300">⏳ Gathering info... wait 4 seconds</p>
-          ) : (
-            <div className="space-y-3">
-              {/* Device */}
-              <div className="border-b border-gray-700 pb-2">
-                <p className="text-yellow-300 font-bold">📱 Device</p>
-                <p>Screen: {debugInfo.screen}</p>
-                <p>Viewport: {debugInfo.viewport}</p>
-                <p>DPR: {debugInfo.dpr}</p>
-                <p className="text-[9px] text-gray-500 break-all">UA: {debugInfo.userAgent}</p>
-              </div>
-
-              {/* Critical Checks */}
-              <div className="border-b border-gray-700 pb-2">
-                <p className="text-yellow-300 font-bold">🔍 Critical Checks</p>
-                <p>HTTPS: {debugInfo.isHTTPS ? '✅ Yes' : '❌ No - ads may be blocked'}</p>
-                <p>Ad Blocker: {debugInfo.adBlocker ?
-                  <span className="text-red-400 font-bold">⚠️ DETECTED - THIS IS WHY ADS FAIL</span> :
-                  <span className="text-green-400">✅ Not detected</span>
-                }</p>
-              </div>
-
-              {/* Scripts */}
-              <div className="border-b border-gray-700 pb-2">
-                <p className="text-yellow-300 font-bold">📜 Ad Scripts in DOM</p>
-                <p>HighPerformanceFormat scripts: {debugInfo.adScriptsHPF}
-                  {debugInfo.adScriptsHPF === 0 && <span className="text-red-400"> ← PROBLEM: Scripts not injected</span>}
-                </p>
-                <p>EffectiveGateCPM scripts: {debugInfo.adScriptsEG}
-                  {debugInfo.adScriptsEG === 0 && <span className="text-red-400"> ← PROBLEM: Scripts not injected</span>}
-                </p>
-                <p>Iframes (ads render as iframes): {debugInfo.totalIframes}
-                  {debugInfo.totalIframes === 0 && <span className="text-red-400"> ← PROBLEM: No ads rendered</span>}
-                </p>
-              </div>
-
-              {/* Ad Slots */}
-              <div className="border-b border-gray-700 pb-2">
-                <p className="text-yellow-300 font-bold">📦 Ad Slots</p>
-                <p>Total: {debugInfo.adSlots}</p>
-                <p className="text-green-400">With content: {debugInfo.adSlotsWithContent}</p>
-                <p className={debugInfo.adSlotsEmpty > 0 ? "text-red-400" : "text-green-400"}>
-                  Empty: {debugInfo.adSlotsEmpty}
-                  {debugInfo.adSlotsEmpty > 0 && ' ← These ads failed to load'}
-                </p>
-              </div>
-
-              {/* Containers */}
-              <div className="border-b border-gray-700 pb-2">
-                <p className="text-yellow-300 font-bold">🏗️ Ad Container Divs</p>
-                {debugInfo.containerDivs?.length === 0 && <p className="text-red-400">None found ← Native ads not created</p>}
-                {debugInfo.containerDivs?.map((c, i) => (
-                  <div key={i} className="ml-2 text-[10px] mb-1">
-                    <p className="text-cyan-400">{c.id}</p>
-                    <p>Size: {c.size} | Display: {c.display} | Visible: {c.visibility} | Children: {c.children}</p>
-                    {c.size === '0x0' && <p className="text-red-400">← Zero size! Ad not rendering</p>}
-                  </div>
-                ))}
-              </div>
-
-              {/* Console Logs */}
-              {logs.length > 0 && (
-                <div className="border-b border-gray-700 pb-2">
-                  <p className="text-yellow-300 font-bold">❌ Errors/Warnings ({logs.length})</p>
-                  {logs.map((log, i) => (
-                    <p key={i} className={`text-[9px] break-all ${log.type === 'error' ? 'text-red-400' : 'text-yellow-500'}`}>
-                      {log.time} [{log.type}] {log.msg.substring(0, 300)}
-                    </p>
-                  ))}
-                </div>
-              )}
-
-              {/* Diagnosis */}
-              <div className="bg-gray-900 p-3 rounded-lg">
-                <p className="text-yellow-300 font-bold mb-2">🩺 Auto Diagnosis</p>
-                {debugInfo.adBlocker && <p className="text-red-400">• Ad blocker is blocking ads. Disable it and refresh.</p>}
-                {!debugInfo.isHTTPS && <p className="text-red-400">• Site not on HTTPS. Mixed content blocks ads on mobile.</p>}
-                {debugInfo.adScriptsHPF === 0 && !debugInfo.adBlocker && <p className="text-red-400">• Ad scripts not injected into DOM. Script injection is failing.</p>}
-                {debugInfo.adScriptsHPF > 0 && debugInfo.totalIframes === 0 && <p className="text-red-400">• Scripts loaded but no iframes created. Ad network not serving ads to this device/region.</p>}
-                {debugInfo.adSlotsEmpty > 0 && debugInfo.totalIframes > 0 && <p className="text-yellow-400">• Some ads loaded, some didn't. Timing/race condition issue.</p>}
-                {!debugInfo.adBlocker && debugInfo.isHTTPS && debugInfo.adScriptsHPF > 0 && debugInfo.totalIframes > 0 && <p className="text-green-400">• Everything looks fine! Ads should be visible.</p>}
-              </div>
-            </div>
-          )}
-
-          {/* Copy button */}
-          <button
-            onClick={() => {
-              const allData = JSON.stringify({ debugInfo, logs }, null, 2);
-              if (navigator.clipboard?.writeText) {
-                navigator.clipboard.writeText(allData).then(() => alert('Copied!'));
-              } else {
-                const ta = document.createElement('textarea');
-                ta.value = allData;
-                document.body.appendChild(ta);
-                ta.select();
-                document.execCommand('copy');
-                document.body.removeChild(ta);
-                alert('Copied!');
-              }
-            }}
-            className="mt-3 bg-blue-600 text-white px-4 py-2 rounded-lg text-xs w-full font-bold"
-          >
-            📋 Copy All Debug Info
-          </button>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ==================== AD INJECTOR ====================
-const AdSlot = ({ adCode, label = "Sponsored", className = "", minHeight = "50px" }) => {
+// ==================== SMART AD SLOT ====================
+// Hides itself completely if ad fails to load
+const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
   const containerRef = useRef(null);
+  const wrapperRef = useRef(null);
   const uniqueId = useRef(`ad-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
   const mountedRef = useRef(false);
+  const [adLoaded, setAdLoaded] = useState(false);
+  const [adFailed, setAdFailed] = useState(false);
 
   useEffect(() => {
     if (!adCode || !containerRef.current) return;
@@ -247,6 +24,8 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "", minHeight = "50px
     const container = containerRef.current;
     container.innerHTML = "";
     mountedRef.current = true;
+    setAdLoaded(false);
+    setAdFailed(false);
 
     const loadAd = () => {
       if (!mountedRef.current || !container) return;
@@ -277,9 +56,43 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "", minHeight = "50px
         tempDiv.innerHTML = processedCode;
         const scripts = tempDiv.querySelectorAll("script");
 
-        // Load scripts one by one in order
+        let scriptsLoaded = 0;
+        let scriptsFailed = 0;
+        const totalScripts = scripts.length;
+
+        const checkComplete = () => {
+          if (scriptsLoaded + scriptsFailed >= totalScripts) {
+            // Wait a bit then check if ad actually rendered
+            setTimeout(() => {
+              if (!mountedRef.current) return;
+              
+              const hasIframe = container.querySelector('iframe');
+              const hasAdContent = container.querySelector('div[id^="container-"]');
+              const containerHeight = container.offsetHeight;
+              
+              // Check if the ad container div has content
+              let adDivHasContent = false;
+              if (hasAdContent) {
+                adDivHasContent = hasAdContent.children.length > 0 || hasAdContent.offsetHeight > 10;
+              }
+
+              if (hasIframe || adDivHasContent || containerHeight > 20) {
+                setAdLoaded(true);
+                setAdFailed(false);
+              } else if (scriptsFailed > 0 || !hasIframe) {
+                setAdLoaded(false);
+                setAdFailed(true);
+              }
+            }, 3000);
+          }
+        };
+
+        // Load scripts sequentially
         const loadNext = (index) => {
-          if (index >= scripts.length || !mountedRef.current) return;
+          if (index >= totalScripts || !mountedRef.current) {
+            checkComplete();
+            return;
+          }
 
           const orig = scripts[index];
           const s = document.createElement("script");
@@ -292,29 +105,42 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "", minHeight = "50px
             s.src = orig.src;
             s.async = true;
             s.onload = () => {
-              console.log(`✅ Ad script loaded: ${orig.src.substring(0, 60)}...`);
+              scriptsLoaded++;
               loadNext(index + 1);
             };
             s.onerror = () => {
-              console.error(`❌ Ad script FAILED: ${orig.src.substring(0, 60)}...`);
+              scriptsFailed++;
               loadNext(index + 1);
             };
           } else if (orig.textContent) {
             s.textContent = orig.textContent;
+            scriptsLoaded++;
           }
 
           container.appendChild(s);
-
           if (!orig.src) loadNext(index + 1);
         };
 
         loadNext(0);
+
+        // Fallback: if nothing happens after 8 seconds, hide
+        const fallbackTimer = setTimeout(() => {
+          if (!mountedRef.current) return;
+          const hasIframe = container.querySelector('iframe');
+          if (!hasIframe && container.offsetHeight < 20) {
+            setAdFailed(true);
+          } else {
+            setAdLoaded(true);
+          }
+        }, 8000);
+
+        return () => clearTimeout(fallbackTimer);
       } catch (err) {
         console.error("Ad injection error:", err);
+        setAdFailed(true);
       }
     };
 
-    // Delay slightly for mobile DOM readiness
     const timer = setTimeout(loadAd, 200);
 
     return () => {
@@ -324,11 +150,24 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "", minHeight = "50px
     };
   }, [adCode]);
 
-  if (!adCode) return null;
+  // If no ad code or ad failed, render nothing (no space taken)
+  if (!adCode || adFailed) return null;
 
   return (
-    <div className={`ad-slot ${className}`}>
-      {label && (
+    <div
+      ref={wrapperRef}
+      className={`ad-slot ${className} transition-all duration-300`}
+      style={{
+        // Before load confirmation: show minimal height
+        // After load: auto height
+        // Failed: component returns null above
+        minHeight: adLoaded ? 'auto' : '0px',
+        overflow: adLoaded ? 'visible' : 'hidden',
+        opacity: adLoaded ? 1 : 0,
+        maxHeight: adLoaded ? 'none' : '0px',
+      }}
+    >
+      {label && adLoaded && (
         <span className="text-[10px] text-gray-500 dark:text-gray-600 uppercase tracking-wider mb-1 block text-center">
           {label}
         </span>
@@ -336,7 +175,7 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "", minHeight = "50px
       <div
         ref={containerRef}
         className="ad-content flex justify-center items-center"
-        style={{ minHeight, overflow: 'visible' }}
+        style={{ overflow: 'visible' }}
       />
     </div>
   );
@@ -406,8 +245,6 @@ const GlobalAdsLoader = () => {
         const s = document.createElement("script");
         s.src = src;
         s.async = true;
-        s.onload = () => console.log(`✅ Global ad loaded: ${src.substring(0, 50)}...`);
-        s.onerror = () => console.error(`❌ Global ad FAILED: ${src.substring(0, 50)}...`);
         document.body.appendChild(s);
         scripts.push(s);
       }, delay);
@@ -427,26 +264,80 @@ const GlobalAdsLoader = () => {
   return null;
 };
 
-// ==================== IN-FEED AD COMPONENT ====================
-const InFeedAd = React.memo(({ isMobile }) => {
+// ==================== IN-FEED AD (NO LOOPING) ====================
+// Uses different ad types to prevent repetition
+const IN_FEED_AD_TYPES = ['nativeBanner', 'footer300x250', 'mobile320x50'];
+
+const InFeedAd = React.memo(({ isMobile, adIndex = 0 }) => {
+  // Cycle through different ad types to prevent same ad repeating
+  const adType = IN_FEED_AD_TYPES[adIndex % IN_FEED_AD_TYPES.length];
+
+  // Pick ad code based on type and device
+  let adCode;
+  if (isMobile) {
+    switch (adType) {
+      case 'nativeBanner':
+        adCode = ADS.nativeBanner;
+        break;
+      case 'footer300x250':
+        adCode = ADS.footer300x250;
+        break;
+      case 'mobile320x50':
+        adCode = ADS.mobile320x50;
+        break;
+      default:
+        adCode = ADS.nativeBanner;
+    }
+  } else {
+    adCode = ADS.nativeBanner;
+  }
+
+  // Wrapper that collapses if AdSlot returns null
+  return (
+    <InFeedAdWrapper isMobile={isMobile} adCode={adCode} />
+  );
+});
+
+// Separate wrapper so it collapses when ad fails
+const InFeedAdWrapper = ({ isMobile, adCode }) => {
+  const [hasAd, setHasAd] = useState(true);
+  const wrapperRef = useRef(null);
+
+  // Monitor if the AdSlot inside rendered or not
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (wrapperRef.current) {
+        const adSlot = wrapperRef.current.querySelector('.ad-slot');
+        // If AdSlot returned null, it won't be in the DOM
+        if (!adSlot || adSlot.offsetHeight === 0) {
+          setHasAd(false);
+        }
+      }
+    }, 10000);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (!hasAd) return null;
+
   if (isMobile) {
     return (
-      <div className="col-span-2 py-3">
+      <div ref={wrapperRef} className="col-span-2">
         <div className="bg-gray-100/50 dark:bg-dark-200/50 rounded-xl p-3 flex justify-center">
-          <AdSlot adCode={ADS.nativeBanner} label="Sponsored" minHeight="100px" />
+          <AdSlot adCode={adCode} label="Sponsored" />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="col-span-full py-4">
+    <div ref={wrapperRef} className="col-span-full">
       <div className="w-full bg-gray-100/30 dark:bg-dark-200/30 rounded-xl p-4">
-        <AdSlot adCode={ADS.nativeBanner} label="Sponsored" minHeight="100px" />
+        <AdSlot adCode={adCode} label="Sponsored" />
       </div>
     </div>
   );
-});
+};
 
 // ==================== SEO KEYWORDS ====================
 const SEO_CATEGORIES = [
@@ -475,6 +366,7 @@ const HomePage = () => {
   const pageRef = useRef(1);
   const failCountRef = useRef(0);
 
+  // Responsive detection
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 1023px)');
     const handler = (e) => setIsMobile(e.matches);
@@ -509,15 +401,10 @@ const HomePage = () => {
         if (d && d.videos && d.videos.length > 0) {
           setAllVideos(d.videos);
           pageRef.current = 1;
-
           const total = d.pagination?.total || 0;
           const pages = d.pagination?.pages || 1;
           setTotalVideos(total);
-
-          if (pages <= 1) {
-            setHasMore(false);
-            hasMoreRef.current = false;
-          }
+          if (pages <= 1) { setHasMore(false); hasMoreRef.current = false; }
         } else {
           setHasMore(false);
           hasMoreRef.current = false;
@@ -537,7 +424,6 @@ const HomePage = () => {
   // ==================== LOAD MORE VIDEOS ====================
   const loadMoreVideos = useCallback(async () => {
     if (loadingMoreRef.current || !hasMoreRef.current) return;
-
     loadingMoreRef.current = true;
     setLoadingMore(true);
 
@@ -549,21 +435,15 @@ const HomePage = () => {
 
       if (d && d.videos && d.videos.length > 0) {
         failCountRef.current = 0;
-
         setAllVideos(prev => {
           const ids = new Set(prev.map(v => v._id));
           const unique = d.videos.filter(v => !ids.has(v._id));
           return [...prev, ...unique];
         });
-
         pageRef.current = nextPage;
-
         if (d.pagination) {
           setTotalVideos(d.pagination.total || 0);
-          if (nextPage >= d.pagination.pages) {
-            setHasMore(false);
-            hasMoreRef.current = false;
-          }
+          if (nextPage >= d.pagination.pages) { setHasMore(false); hasMoreRef.current = false; }
         }
       } else {
         setHasMore(false);
@@ -573,11 +453,7 @@ const HomePage = () => {
       console.error('Load more error:', error.message);
       failCountRef.current += 1;
       pageRef.current = nextPage;
-
-      if (failCountRef.current >= 3) {
-        setHasMore(false);
-        hasMoreRef.current = false;
-      }
+      if (failCountRef.current >= 3) { setHasMore(false); hasMoreRef.current = false; }
     } finally {
       loadingMoreRef.current = false;
       setLoadingMore(false);
@@ -600,31 +476,25 @@ const HomePage = () => {
 
     observerRef.current = observer;
     if (loadMoreRef.current) observer.observe(loadMoreRef.current);
-
     return () => observer.disconnect();
   }, [loading, loadMoreVideos]);
 
   // ==================== SCROLL FALLBACK ====================
   useEffect(() => {
     if (loading) return;
-
     let ticking = false;
     const onScroll = () => {
       if (loadingMoreRef.current || !hasMoreRef.current) return;
-      const { scrollY } = window;
-      const { scrollHeight, clientHeight } = document.documentElement;
-      if (scrollY + clientHeight >= scrollHeight - 600) {
+      if (window.scrollY + document.documentElement.clientHeight >= document.documentElement.scrollHeight - 600) {
         loadMoreVideos();
       }
     };
-
     const throttled = () => {
       if (!ticking) {
         window.requestAnimationFrame(() => { onScroll(); ticking = false; });
         ticking = true;
       }
     };
-
     window.addEventListener('scroll', throttled, { passive: true });
     return () => window.removeEventListener('scroll', throttled);
   }, [loading, loadMoreVideos]);
@@ -640,15 +510,30 @@ const HomePage = () => {
       );
     }
 
-    const videosPerAdBreak = isMobile ? 8 : 20;
+    // Show ads less frequently: every 12 on mobile, every 24 on desktop
+    const videosPerAdBreak = isMobile ? 12 : 24;
+    // Maximum number of in-feed ads to prevent looping
+    const maxInFeedAds = 3;
+
     const items = [];
     let adCounter = 0;
 
     for (let i = 0; i < allVideos.length; i++) {
       items.push(<VideoCard key={allVideos[i]._id} video={allVideos[i]} />);
 
-      if ((i + 1) % videosPerAdBreak === 0 && i < allVideos.length - 1) {
-        items.push(<InFeedAd key={`infeed-ad-${adCounter}-${i}`} isMobile={isMobile} />);
+      // Insert ad break, but limit total number
+      if (
+        (i + 1) % videosPerAdBreak === 0 &&
+        i < allVideos.length - 1 &&
+        adCounter < maxInFeedAds
+      ) {
+        items.push(
+          <InFeedAd
+            key={`infeed-ad-${adCounter}`}
+            isMobile={isMobile}
+            adIndex={adCounter}
+          />
+        );
         adCounter++;
       }
     }
@@ -683,18 +568,15 @@ const HomePage = () => {
       <div className="min-h-screen bg-gray-50 dark:bg-dark-400">
         <GlobalAdsLoader />
 
-        {/* === DEBUGGER - REMOVE AFTER FIXING === */}
-        <AdDebugger />
-
         {/* === TOP AD === */}
         <div className="max-w-7xl mx-auto px-4 pt-4">
-          {isMobile ? (
-            <div className="flex justify-center">
-              <AdSlot adCode={ADS.mobile320x50} label="Sponsored" minHeight="60px" className="flex justify-center" />
-            </div>
-          ) : (
-            <AdSlot adCode={ADS.footer728x90} label="Sponsored" className="flex justify-center" minHeight="100px" />
-          )}
+          <div className="flex justify-center">
+            {isMobile ? (
+              <AdSlot adCode={ADS.mobile320x50} label="Sponsored" className="flex justify-center" />
+            ) : (
+              <AdSlot adCode={ADS.footer728x90} label="Sponsored" className="flex justify-center" />
+            )}
+          </div>
         </div>
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -704,6 +586,7 @@ const HomePage = () => {
                 Xmaster - Free porn Videos | Watch HD porn Online | Best porn Tube Site
               </h1>
 
+              {/* Featured Videos */}
               {featuredVideos.length > 0 && (
                 <section className="mb-10">
                   <SectionHeader icon={FiStar} title="Featured Videos" iconColor="text-yellow-500" />
@@ -716,16 +599,10 @@ const HomePage = () => {
                       ))}
                     </div>
                   )}
-
-                  {/* Mobile ad after featured */}
-                  {isMobile && (
-                    <div className="mt-4 flex justify-center">
-                      <AdSlot adCode={ADS.footer300x250} label="Sponsored" minHeight="260px" />
-                    </div>
-                  )}
                 </section>
               )}
 
+              {/* Latest Videos */}
               <section className="mb-10">
                 <SectionHeader
                   icon={FiClock}
@@ -762,6 +639,7 @@ const HomePage = () => {
                 )}
               </section>
 
+              {/* Categories */}
               {categories.length > 0 && (
                 <section id="categories" className="mb-10">
                   <SectionHeader title="Browse Categories" iconColor="text-purple-500" />
@@ -773,13 +651,7 @@ const HomePage = () => {
                 </section>
               )}
 
-              {/* Mobile ad before SEO */}
-              {isMobile && (
-                <div className="mb-6 flex justify-center">
-                  <AdSlot adCode={ADS.mobile320x50} label="Sponsored" minHeight="60px" />
-                </div>
-              )}
-
+              {/* SEO Section */}
               <section className="mb-10 bg-white dark:bg-dark-200 rounded-xl p-6">
                 <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">
                   Popular Porn Categories on Xmaster
@@ -828,6 +700,7 @@ const HomePage = () => {
                 </ul>
               </section>
 
+              {/* Comments */}
               <section className="mb-10">
                 <SectionHeader title="💬 Comments" />
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -855,7 +728,7 @@ const HomePage = () => {
                 </div>
 
                 <div className="flex justify-center">
-                  <AdSlot adCode={ADS.sidebar160x300} label="Sponsored" minHeight="310px" />
+                  <AdSlot adCode={ADS.sidebar160x300} label="Sponsored" />
                 </div>
 
                 <div className="card p-4">
@@ -879,13 +752,11 @@ const HomePage = () => {
 
         {/* Footer Ad */}
         <div className="max-w-7xl mx-auto px-4 pb-8">
-          <div className="py-6 border-t border-gray-200 dark:border-dark-100">
+          <div className="py-6 border-t border-gray-200 dark:border-dark-100 flex justify-center">
             {isMobile ? (
-              <div className="flex justify-center">
-                <AdSlot adCode={ADS.footer300x250} label="Sponsored" minHeight="260px" />
-              </div>
+              <AdSlot adCode={ADS.footer300x250} label="Sponsored" className="flex justify-center" />
             ) : (
-              <AdSlot adCode={ADS.footer728x90} label="Sponsored" className="flex justify-center" minHeight="100px" />
+              <AdSlot adCode={ADS.footer728x90} label="Sponsored" className="flex justify-center" />
             )}
           </div>
         </div>
