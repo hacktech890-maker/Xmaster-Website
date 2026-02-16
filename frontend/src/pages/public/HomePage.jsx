@@ -112,17 +112,6 @@ const ADS = {
   </script>
   <script src="https://www.highperformanceformat.com/e50c996a8b1f38f50988e7c6e6ebc19a/invoke.js"></script>`,
 
-  sidebar160x600: `<script>
-    atOptions = {
-      'key' : '5341bbc09b5293c807f871518481b16d',
-      'format' : 'iframe',
-      'height' : 600,
-      'width' : 160,
-      'params' : {}
-    };
-  </script>
-  <script src="https://www.highperformanceformat.com/5341bbc09b5293c807f871518481b16d/invoke.js"></script>`,
-
   sidebar160x300: `<script>
     atOptions = {
       'key' : 'deffd68605ce0b0c91d11c13a0fffd06',
@@ -136,12 +125,6 @@ const ADS = {
 
   nativeBanner: `<script async="async" data-cfasync="false" src="https://pl28704186.effectivegatecpm.com/3ebdaa444c50232518b3752efc451cab/invoke.js"></script>
   <div id="container-3ebdaa444c50232518b3752efc451cab"></div>`,
-
-  socialBar: `<script src="https://pl28704151.effectivegatecpm.com/35/ee/21/35ee2192f0b1aa5ca35c1f3af9387b00.js"></script>`,
-
-  socialBar2: `<script src="https://pl28704173.effectivegatecpm.com/52/ef/a1/52efa111bceee1130b219af1074a5f95.js"></script>`,
-
-  popunder: `<script src="https://www.effectivegatecpm.com/sbfz9bs1c?key=4b48edda8bb87faa2b8f8b8708c46b0b"></script>`,
 };
 
 // ==================== GLOBAL ADS LOADER ====================
@@ -177,62 +160,24 @@ const GlobalAdsLoader = () => {
 };
 
 // ==================== IN-FEED AD COMPONENT ====================
-const InFeedAd = React.memo(({ index, isMobile }) => {
-  const adType = index % 3;
-
+const InFeedAd = React.memo(({ isMobile }) => {
   if (isMobile) {
-    if (adType === 0) {
-      return (
-        <div className="col-span-2 flex justify-center items-center py-3">
-          <div className="w-full max-w-sm bg-gray-100/50 dark:bg-dark-200/50 rounded-xl p-3">
-            <AdSlot adCode={ADS.mobile320x50} label="Sponsored" />
-          </div>
+    return (
+      <div className="col-span-2 py-3">
+        <div className="bg-gray-100/50 dark:bg-dark-200/50 rounded-xl p-3">
+          <AdSlot adCode={ADS.nativeBanner} label="Sponsored" />
         </div>
-      );
-    } else if (adType === 1) {
-      return (
-        <div className="col-span-2 flex justify-center items-center py-3">
-          <div className="bg-gray-100/50 dark:bg-dark-200/50 rounded-xl p-3">
-            <AdSlot adCode={ADS.footer300x250} label="Sponsored" />
-          </div>
-        </div>
-      );
-    } else {
-      return (
-        <div className="col-span-2 py-3">
-          <div className="bg-gray-100/50 dark:bg-dark-200/50 rounded-xl p-3">
-            <AdSlot adCode={ADS.nativeBanner} label="You might like" />
-          </div>
-        </div>
-      );
-    }
+      </div>
+    );
   }
 
-  if (adType === 0) {
-    return (
-      <div className="col-span-full flex justify-center items-center py-4">
-        <div className="w-full bg-gray-100/30 dark:bg-dark-200/30 rounded-xl p-4">
-          <AdSlot adCode={ADS.footer728x90} label="Sponsored" />
-        </div>
+  return (
+    <div className="col-span-full py-4">
+      <div className="w-full bg-gray-100/30 dark:bg-dark-200/30 rounded-xl p-4">
+        <AdSlot adCode={ADS.nativeBanner} label="Sponsored" />
       </div>
-    );
-  } else if (adType === 1) {
-    return (
-      <div className="col-span-full py-4">
-        <div className="w-full bg-gray-100/30 dark:bg-dark-200/30 rounded-xl p-4">
-          <AdSlot adCode={ADS.nativeBanner} label="Recommended" />
-        </div>
-      </div>
-    );
-  } else {
-    return (
-      <div className="col-span-full flex justify-center items-center py-4">
-        <div className="w-full bg-gray-100/30 dark:bg-dark-200/30 rounded-xl p-4">
-          <AdSlot adCode={ADS.medium468x60} label="Sponsored" />
-        </div>
-      </div>
-    );
-  }
+    </div>
+  );
 });
 
 // ==================== SEO KEYWORDS ====================
@@ -273,9 +218,9 @@ const HomePage = () => {
   useEffect(() => { pageRef.current = page; }, [page]);
 
   // ==================== FETCH INITIAL DATA ====================
+  // ==================== FETCH INITIAL DATA ====================
   useEffect(() => {
     const fetchHomeData = async () => {
-      // Fetch home data (featured, categories)
       try {
         const response = await publicAPI.getHomeData();
         if (response.data && response.data.success) {
@@ -287,7 +232,6 @@ const HomePage = () => {
         console.error('Home data error:', homeErr);
       }
 
-      // Fetch first page of videos
       try {
         const videosResponse = await publicAPI.getVideos({
           page: 1,
@@ -295,35 +239,62 @@ const HomePage = () => {
           sort: 'newest',
         });
 
-        const vData = videosResponse.data;
-        console.log('Initial videos response:', {
-          success: vData?.success,
-          videoCount: vData?.videos?.length,
-          pagination: vData?.pagination
-        });
+        // Debug: log entire response structure
+        console.log('[INIT] Raw response type:', typeof videosResponse.data);
+        console.log('[INIT] Raw response keys:', Object.keys(videosResponse.data || {}));
+        console.log('[INIT] Full response:', JSON.stringify(videosResponse.data).substring(0, 500));
 
-        if (vData && vData.videos) {
-          const videos = vData.videos;
+        let videos = [];
+        let total = 0;
+        let totalPages = 1;
+
+        const d = videosResponse.data;
+
+        if (d) {
+          // Handle different response formats
+          if (Array.isArray(d)) {
+            // Response is directly an array
+            videos = d;
+            total = d.length;
+          } else if (d.videos && Array.isArray(d.videos)) {
+            // Standard format: { success, videos, pagination }
+            videos = d.videos;
+            total = d.pagination?.total || d.total || videos.length;
+            totalPages = d.pagination?.pages || Math.ceil(total / 40) || 1;
+          } else if (d.data && Array.isArray(d.data)) {
+            // Alternative: { success, data, pagination }
+            videos = d.data;
+            total = d.pagination?.total || d.total || videos.length;
+            totalPages = d.pagination?.pages || Math.ceil(total / 40) || 1;
+          } else if (d.data && d.data.videos) {
+            // Nested: { data: { videos, pagination } }
+            videos = d.data.videos;
+            total = d.data.pagination?.total || videos.length;
+            totalPages = d.data.pagination?.pages || Math.ceil(total / 40) || 1;
+          }
+        }
+
+        console.log('[INIT] Parsed:', { videoCount: videos.length, total, totalPages });
+
+        if (videos.length > 0) {
           setAllVideos(videos);
           setPage(1);
           pageRef.current = 1;
-
-          const pag = vData.pagination;
-          const total = pag?.total || 0;
-          const totalPages = pag?.pages || 1;
-
           setTotalVideos(total);
 
-          if (videos.length === 0 || 1 >= totalPages) {
+          if (1 >= totalPages) {
             setHasMore(false);
             hasMoreRef.current = false;
           } else {
             setHasMore(true);
             hasMoreRef.current = true;
           }
+        } else {
+          setHasMore(false);
+          hasMoreRef.current = false;
         }
       } catch (vidErr) {
-        console.error('Videos fetch error:', vidErr);
+        console.error('[INIT] Videos fetch error:', vidErr);
       }
 
       setLoading(false);
@@ -333,13 +304,14 @@ const HomePage = () => {
   }, []);
 
   // ==================== LOAD MORE VIDEOS ====================
+    // ==================== LOAD MORE VIDEOS ====================
   const loadMoreVideos = useCallback(async () => {
     if (loadingMoreRef.current) {
-      console.log('[LoadMore] Blocked: already loading');
+      console.log('[LoadMore] BLOCKED: already loading');
       return;
     }
     if (!hasMoreRef.current) {
-      console.log('[LoadMore] Blocked: no more videos');
+      console.log('[LoadMore] BLOCKED: no more videos');
       return;
     }
 
@@ -347,7 +319,7 @@ const HomePage = () => {
     setLoadingMore(true);
 
     const nextPage = pageRef.current + 1;
-    console.log(`[LoadMore] Fetching page ${nextPage}...`);
+    console.log(`[LoadMore] Starting fetch for page ${nextPage}...`);
 
     try {
       const response = await publicAPI.getVideos({
@@ -356,57 +328,72 @@ const HomePage = () => {
         sort: 'newest',
       });
 
-      const vData = response.data;
+      console.log('[LoadMore] Raw response keys:', Object.keys(response.data || {}));
 
-      console.log('[LoadMore] Response:', {
-        success: vData?.success,
-        videoCount: vData?.videos?.length,
-        page: vData?.pagination?.page,
-        totalPages: vData?.pagination?.pages,
-        total: vData?.pagination?.total
-      });
+      let newVideos = [];
+      let total = 0;
+      let totalPages = 1;
 
-      if (!vData || !vData.videos) {
-        console.log('[LoadMore] No data, stopping');
-        setHasMore(false);
-        hasMoreRef.current = false;
-        return;
+      const d = response.data;
+
+      if (d) {
+        if (Array.isArray(d)) {
+          newVideos = d;
+          total = d.length;
+        } else if (d.videos && Array.isArray(d.videos)) {
+          newVideos = d.videos;
+          total = d.pagination?.total || d.total || 0;
+          totalPages = d.pagination?.pages || Math.ceil(total / 40) || 1;
+        } else if (d.data && Array.isArray(d.data)) {
+          newVideos = d.data;
+          total = d.pagination?.total || d.total || 0;
+          totalPages = d.pagination?.pages || Math.ceil(total / 40) || 1;
+        } else if (d.data && d.data.videos) {
+          newVideos = d.data.videos;
+          total = d.data.pagination?.total || 0;
+          totalPages = d.data.pagination?.pages || Math.ceil(total / 40) || 1;
+        }
       }
 
-      const newVideos = vData.videos;
+      console.log(`[LoadMore] Parsed: ${newVideos.length} videos, page ${nextPage}/${totalPages}, total ${total}`);
 
       if (newVideos.length === 0) {
-        console.log('[LoadMore] Empty page, stopping');
+        console.log('[LoadMore] No new videos, stopping');
         setHasMore(false);
         hasMoreRef.current = false;
         return;
       }
 
+      // Deduplicate and append
       setAllVideos(prev => {
         const existingIds = new Set(prev.map(v => v._id));
         const unique = newVideos.filter(v => !existingIds.has(v._id));
-        console.log(`[LoadMore] Adding ${unique.length} new videos (${newVideos.length - unique.length} dupes skipped)`);
+        console.log(`[LoadMore] Adding ${unique.length} unique (${newVideos.length - unique.length} dupes)`);
         return [...prev, ...unique];
       });
 
+      // Update counters
       setPage(nextPage);
       pageRef.current = nextPage;
 
-      const pag = vData.pagination;
-      if (pag) {
-        setTotalVideos(pag.total || 0);
-        if (nextPage >= pag.pages) {
-          console.log(`[LoadMore] Reached last page (${nextPage}/${pag.pages})`);
-          setHasMore(false);
-          hasMoreRef.current = false;
-        }
+      if (total > 0) {
+        setTotalVideos(total);
       }
+
+      if (nextPage >= totalPages) {
+        console.log(`[LoadMore] Reached last page ${nextPage}/${totalPages}`);
+        setHasMore(false);
+        hasMoreRef.current = false;
+      }
+
     } catch (error) {
-      console.error('[LoadMore] Error:', error.message);
+      console.error('[LoadMore] FETCH ERROR:', error);
+      console.error('[LoadMore] Error details:', error.response?.status, error.response?.data);
+      // Don't disable on error — user can retry
     } finally {
       loadingMoreRef.current = false;
       setLoadingMore(false);
-      console.log('[LoadMore] Done, unlocked');
+      console.log('[LoadMore] Finished, unlocked');
     }
   }, []);
 
@@ -466,7 +453,8 @@ const HomePage = () => {
       );
     }
 
-    const videosPerAdBreak = isMobile ? 8 : 16;
+    // Native banner ad every 5 rows desktop (20 videos), every 4 rows mobile (8 videos)
+    const videosPerAdBreak = isMobile ? 8 : 20;
     const items = [];
     let adCounter = 0;
 
@@ -475,7 +463,7 @@ const HomePage = () => {
 
       if ((i + 1) % videosPerAdBreak === 0 && i < allVideos.length - 1) {
         items.push(
-          <InFeedAd key={`ad-${adCounter}`} index={adCounter} isMobile={isMobile} />
+          <InFeedAd key={`ad-${adCounter}`} isMobile={isMobile} />
         );
         adCounter++;
       }
@@ -511,6 +499,7 @@ const HomePage = () => {
       <div className="min-h-screen bg-gray-50 dark:bg-dark-400">
         <GlobalAdsLoader />
 
+        {/* ONE top banner ad only */}
         <div className="max-w-7xl mx-auto px-4 pt-4">
           {isMobile ? (
             <AdSlot adCode={ADS.mobile320x50} label="Sponsored" className="flex justify-center" />
@@ -521,11 +510,13 @@ const HomePage = () => {
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex flex-col lg:flex-row gap-6">
+            {/* ==================== MAIN CONTENT ==================== */}
             <div className="flex-1">
               <h1 className="sr-only">
                 Xmaster - Free porn Videos | Watch HD porn Online | Best porn Tube Site | Alternative to pornhub xhamster Xvideos
               </h1>
 
+              {/* Featured Videos */}
               {featuredVideos.length > 0 && (
                 <section className="mb-10">
                   <SectionHeader icon={FiStar} title="Featured Videos" iconColor="text-yellow-500" />
@@ -541,14 +532,7 @@ const HomePage = () => {
                 </section>
               )}
 
-              <div className="mb-8">
-                {isMobile ? (
-                  <AdSlot adCode={ADS.footer300x250} label="Sponsored" className="flex justify-center" />
-                ) : (
-                  <AdSlot adCode={ADS.nativeBanner} label="Recommended" />
-                )}
-              </div>
-
+              {/* All Videos with Infinite Scroll */}
               <section className="mb-10">
                 <SectionHeader
                   icon={FiClock}
@@ -580,21 +564,19 @@ const HomePage = () => {
                           You've reached the end • {allVideos.length} of {totalVideos} videos loaded
                         </p>
                       )}
-                      {hasMore && !loadingMore && (
+                                           {hasMore && !loadingMore && (
                         <button
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            console.log('[Button] Clicked! refs:', {
-                              loading: loadingMoreRef.current,
-                              hasMore: hasMoreRef.current,
-                              page: pageRef.current
-                            });
+                          onClick={() => {
+                            console.log('[BUTTON] === CLICKED ===');
+                            console.log('[BUTTON] loadingMoreRef:', loadingMoreRef.current);
+                            console.log('[BUTTON] hasMoreRef:', hasMoreRef.current);
+                            console.log('[BUTTON] pageRef:', pageRef.current);
+                            console.log('[BUTTON] allVideos count:', allVideos.length);
                             loadMoreVideos();
                           }}
-                          className="px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-medium transition-colors text-sm active:scale-95"
+                          className="px-8 py-4 bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-bold transition-colors text-base active:scale-95 shadow-lg"
                         >
-                          Load More Videos ({allVideos.length} of {totalVideos} loaded)
+                          Load More Videos ({allVideos.length} of {totalVideos})
                         </button>
                       )}
                     </div>
@@ -602,6 +584,7 @@ const HomePage = () => {
                 )}
               </section>
 
+              {/* Categories */}
               {categories.length > 0 && (
                 <section id="categories" className="mb-10">
                   <SectionHeader title="Browse Categories" iconColor="text-purple-500" />
@@ -613,6 +596,7 @@ const HomePage = () => {
                 </section>
               )}
 
+              {/* SEO Content */}
               <section className="mb-10 bg-white dark:bg-dark-200 rounded-xl p-6">
                 <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">
                   Popular Porn Categories on Xmaster
@@ -661,6 +645,7 @@ const HomePage = () => {
                 </ul>
               </section>
 
+              {/* Comments */}
               <section className="mb-10">
                 <SectionHeader title="💬 Comments" />
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -670,12 +655,9 @@ const HomePage = () => {
               </section>
             </div>
 
+            {/* ==================== SIDEBAR (1 ad only) ==================== */}
             <aside className="w-full lg:w-80 flex-shrink-0 hidden lg:block">
               <div className="sticky top-20 space-y-6">
-                <div className="flex justify-center">
-                  <AdSlot adCode={ADS.sidebar160x600} label="Sponsored" />
-                </div>
-
                 <div className="card p-4">
                   <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Quick Links</h3>
                   <div className="space-y-2">
@@ -690,6 +672,7 @@ const HomePage = () => {
                   </div>
                 </div>
 
+                {/* ONE sidebar ad only */}
                 <div className="flex justify-center">
                   <AdSlot adCode={ADS.sidebar160x300} label="Sponsored" />
                 </div>
@@ -708,13 +691,12 @@ const HomePage = () => {
                     ))}
                   </div>
                 </div>
-
-                <AdSlot adCode={ADS.nativeBanner} label="Recommended" />
               </div>
             </aside>
           </div>
         </div>
 
+        {/* Footer Ad */}
         <div className="max-w-7xl mx-auto px-4 pb-8">
           <div className="py-6 border-t border-gray-200 dark:border-dark-100">
             {isMobile ? (
