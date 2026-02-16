@@ -7,19 +7,21 @@ const ViewLog = require('../models/ViewLog');
 const Report = require('../models/Report');
 
 // GET /api/videos — Change the default limit
+// GET /api/videos
 router.get('/', async (req, res) => {
   try {
-    // ✅ FIX: Increase default limit from 20 to 40, allow up to 100
-    const { page = 1, sort = 'newest', category = '', tag = '' } = req.query;
+    const { sort = 'newest', category = '', tag = '' } = req.query;
+    const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(parseInt(req.query.limit) || 40, 100);
     const query = { status: 'public', isDuplicate: { $ne: true } };
 
     // Category filter
     if (category) {
       if (mongoose.Types.ObjectId.isValid(category)) {
+        const catId = new mongoose.Types.ObjectId(category);
         query.$or = [
-          { category: new mongoose.Types.ObjectId(category) },
-          { categories: new mongoose.Types.ObjectId(category) }
+          { category: catId },
+          { categories: catId }
         ];
       }
     }
@@ -28,36 +30,56 @@ router.get('/', async (req, res) => {
     let sortOption = {};
     switch (sort) {
       case 'oldest': sortOption = { uploadDate: 1 }; break;
-      case 'views': sortOption = { views: -1 }; break;
-      case 'likes': sortOption = { likes: -1 }; break;
-      default: sortOption = { uploadDate: -1 };
+      case 'views': sortOption = { views: -1, _id: -1 }; break;
+      case 'likes': sortOption = { likes: -1, _id: -1 }; break;
+      default: sortOption = { uploadDate: -1, _id: -1 };
     }
 
-    const skip = (parseInt(page) - 1) * limit;
-    const [videos, total] = await Promise.all([
-      Video.find(query)
-        .populate('category', 'name slug color icon')
-        .populate('categories', 'name slug color icon')
-        .sort(sortOption)
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      Video.countDocuments(query)
-    ]);
+    const skip = (page - 1) * limit;
+
+    // Get total count first
+    const total = await Video.countDocuments(query);
+    const totalPages = Math.ceil(total / limit) || 1;
+
+    // If requested page is beyond total, return empty
+    if (page > totalPages) {
+      return res.json({
+        success: true,
+        videos: [],
+        pagination: {
+          page: page,
+          limit: limit,
+          total: total,
+          pages: totalPages
+        }
+      });
+    }
+
+    const videos = await Video.find(query)
+      .populate('category', 'name slug color icon')
+      .populate('categories', 'name slug color icon')
+      .sort(sortOption)
+      .skip(skip)
+      .limit(limit)
+      .lean();
 
     res.json({
       success: true,
       videos,
       pagination: {
-        page: parseInt(page),
+        page: page,
         limit: limit,
-        total,
-        pages: Math.ceil(total / limit)
+        total: total,
+        pages: totalPages
       }
     });
   } catch (error) {
-    console.error('Get Videos Error:', error);
-    res.status(500).json({ error: 'Failed to get videos' });
+    console.error('Get Videos Error:', error.message, error.stack);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get videos',
+      message: error.message
+    });
   }
 });
 

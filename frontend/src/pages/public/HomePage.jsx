@@ -101,17 +101,6 @@ const ADS = {
   </script>
   <script src="https://www.highperformanceformat.com/3becc7318ca2e6c794f587d8f3f05d0b/invoke.js"></script>`,
 
-  medium468x60: `<script>
-    atOptions = {
-      'key' : 'e50c996a8b1f38f50988e7c6e6ebc19a',
-      'format' : 'iframe',
-      'height' : 60,
-      'width' : 468,
-      'params' : {}
-    };
-  </script>
-  <script src="https://www.highperformanceformat.com/e50c996a8b1f38f50988e7c6e6ebc19a/invoke.js"></script>`,
-
   sidebar160x300: `<script>
     atOptions = {
       'key' : 'deffd68605ce0b0c91d11c13a0fffd06',
@@ -196,7 +185,6 @@ const HomePage = () => {
   const [allVideos, setAllVideos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [totalVideos, setTotalVideos] = useState(0);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
@@ -206,6 +194,7 @@ const HomePage = () => {
   const loadingMoreRef = useRef(false);
   const hasMoreRef = useRef(true);
   const pageRef = useRef(1);
+  const failCountRef = useRef(0);
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 1024);
@@ -213,14 +202,10 @@ const HomePage = () => {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  useEffect(() => { loadingMoreRef.current = loadingMore; }, [loadingMore]);
-  useEffect(() => { hasMoreRef.current = hasMore; }, [hasMore]);
-  useEffect(() => { pageRef.current = page; }, [page]);
-
-  // ==================== FETCH INITIAL DATA ====================
   // ==================== FETCH INITIAL DATA ====================
   useEffect(() => {
     const fetchHomeData = async () => {
+      // Fetch featured + categories
       try {
         const response = await publicAPI.getHomeData();
         if (response.data && response.data.success) {
@@ -228,73 +213,35 @@ const HomePage = () => {
           setFeaturedVideos(data.featuredVideos || []);
           setCategories(data.categories || []);
         }
-      } catch (homeErr) {
-        console.error('Home data error:', homeErr);
+      } catch (err) {
+        console.error('Home data error:', err);
       }
 
+      // Fetch first page of videos
       try {
-        const videosResponse = await publicAPI.getVideos({
-          page: 1,
-          limit: 40,
-          sort: 'newest',
-        });
+        const res = await publicAPI.getVideos({ page: 1, limit: 40, sort: 'newest' });
+        const d = res.data;
 
-        // Debug: log entire response structure
-        console.log('[INIT] Raw response type:', typeof videosResponse.data);
-        console.log('[INIT] Raw response keys:', Object.keys(videosResponse.data || {}));
-        console.log('[INIT] Full response:', JSON.stringify(videosResponse.data).substring(0, 500));
-
-        let videos = [];
-        let total = 0;
-        let totalPages = 1;
-
-        const d = videosResponse.data;
-
-        if (d) {
-          // Handle different response formats
-          if (Array.isArray(d)) {
-            // Response is directly an array
-            videos = d;
-            total = d.length;
-          } else if (d.videos && Array.isArray(d.videos)) {
-            // Standard format: { success, videos, pagination }
-            videos = d.videos;
-            total = d.pagination?.total || d.total || videos.length;
-            totalPages = d.pagination?.pages || Math.ceil(total / 40) || 1;
-          } else if (d.data && Array.isArray(d.data)) {
-            // Alternative: { success, data, pagination }
-            videos = d.data;
-            total = d.pagination?.total || d.total || videos.length;
-            totalPages = d.pagination?.pages || Math.ceil(total / 40) || 1;
-          } else if (d.data && d.data.videos) {
-            // Nested: { data: { videos, pagination } }
-            videos = d.data.videos;
-            total = d.data.pagination?.total || videos.length;
-            totalPages = d.data.pagination?.pages || Math.ceil(total / 40) || 1;
-          }
-        }
-
-        console.log('[INIT] Parsed:', { videoCount: videos.length, total, totalPages });
-
-        if (videos.length > 0) {
-          setAllVideos(videos);
-          setPage(1);
+        if (d && d.videos && d.videos.length > 0) {
+          setAllVideos(d.videos);
           pageRef.current = 1;
+
+          const total = d.pagination?.total || 0;
+          const pages = d.pagination?.pages || 1;
           setTotalVideos(total);
 
-          if (1 >= totalPages) {
+          if (pages <= 1) {
             setHasMore(false);
             hasMoreRef.current = false;
-          } else {
-            setHasMore(true);
-            hasMoreRef.current = true;
           }
         } else {
           setHasMore(false);
           hasMoreRef.current = false;
         }
-      } catch (vidErr) {
-        console.error('[INIT] Videos fetch error:', vidErr);
+      } catch (err) {
+        console.error('Videos error:', err);
+        setHasMore(false);
+        hasMoreRef.current = false;
       }
 
       setLoading(false);
@@ -304,96 +251,57 @@ const HomePage = () => {
   }, []);
 
   // ==================== LOAD MORE VIDEOS ====================
-    // ==================== LOAD MORE VIDEOS ====================
   const loadMoreVideos = useCallback(async () => {
-    if (loadingMoreRef.current) {
-      console.log('[LoadMore] BLOCKED: already loading');
-      return;
-    }
-    if (!hasMoreRef.current) {
-      console.log('[LoadMore] BLOCKED: no more videos');
-      return;
-    }
+    if (loadingMoreRef.current || !hasMoreRef.current) return;
 
     loadingMoreRef.current = true;
     setLoadingMore(true);
 
     const nextPage = pageRef.current + 1;
-    console.log(`[LoadMore] Starting fetch for page ${nextPage}...`);
 
     try {
-      const response = await publicAPI.getVideos({
-        page: nextPage,
-        limit: 40,
-        sort: 'newest',
-      });
+      const res = await publicAPI.getVideos({ page: nextPage, limit: 40, sort: 'newest' });
+      const d = res.data;
 
-      console.log('[LoadMore] Raw response keys:', Object.keys(response.data || {}));
+      if (d && d.videos && d.videos.length > 0) {
+        // Success — reset fail counter
+        failCountRef.current = 0;
 
-      let newVideos = [];
-      let total = 0;
-      let totalPages = 1;
+        setAllVideos(prev => {
+          const ids = new Set(prev.map(v => v._id));
+          const unique = d.videos.filter(v => !ids.has(v._id));
+          return [...prev, ...unique];
+        });
 
-      const d = response.data;
+        pageRef.current = nextPage;
 
-      if (d) {
-        if (Array.isArray(d)) {
-          newVideos = d;
-          total = d.length;
-        } else if (d.videos && Array.isArray(d.videos)) {
-          newVideos = d.videos;
-          total = d.pagination?.total || d.total || 0;
-          totalPages = d.pagination?.pages || Math.ceil(total / 40) || 1;
-        } else if (d.data && Array.isArray(d.data)) {
-          newVideos = d.data;
-          total = d.pagination?.total || d.total || 0;
-          totalPages = d.pagination?.pages || Math.ceil(total / 40) || 1;
-        } else if (d.data && d.data.videos) {
-          newVideos = d.data.videos;
-          total = d.data.pagination?.total || 0;
-          totalPages = d.data.pagination?.pages || Math.ceil(total / 40) || 1;
+        if (d.pagination) {
+          setTotalVideos(d.pagination.total || 0);
+          if (nextPage >= d.pagination.pages) {
+            setHasMore(false);
+            hasMoreRef.current = false;
+          }
         }
-      }
-
-      console.log(`[LoadMore] Parsed: ${newVideos.length} videos, page ${nextPage}/${totalPages}, total ${total}`);
-
-      if (newVideos.length === 0) {
-        console.log('[LoadMore] No new videos, stopping');
+      } else {
+        // Empty response
         setHasMore(false);
         hasMoreRef.current = false;
-        return;
       }
+    } catch (error) {
+      console.error('Load more error:', error.message);
+      failCountRef.current += 1;
 
-      // Deduplicate and append
-      setAllVideos(prev => {
-        const existingIds = new Set(prev.map(v => v._id));
-        const unique = newVideos.filter(v => !existingIds.has(v._id));
-        console.log(`[LoadMore] Adding ${unique.length} unique (${newVideos.length - unique.length} dupes)`);
-        return [...prev, ...unique];
-      });
-
-      // Update counters
-      setPage(nextPage);
+      // Skip failed page
       pageRef.current = nextPage;
 
-      if (total > 0) {
-        setTotalVideos(total);
-      }
-
-      if (nextPage >= totalPages) {
-        console.log(`[LoadMore] Reached last page ${nextPage}/${totalPages}`);
+      // Stop trying after 3 consecutive failures
+      if (failCountRef.current >= 3) {
         setHasMore(false);
         hasMoreRef.current = false;
       }
-
-    } catch (error) {
-      console.error('[LoadMore] FETCH ERROR:', error);
-      console.error('[LoadMore] Error details:', error.response?.status, error.response?.data);
-      // Don't disable on error — user can retry
     } finally {
       loadingMoreRef.current = false;
       setLoadingMore(false);
-      console.log('[LoadMore] Finished, unlocked');
     }
   }, []);
 
@@ -404,12 +312,11 @@ const HomePage = () => {
 
     const observer = new IntersectionObserver(
       (entries) => {
-        const entry = entries[0];
-        if (entry.isIntersecting && hasMoreRef.current && !loadingMoreRef.current) {
+        if (entries[0].isIntersecting && hasMoreRef.current && !loadingMoreRef.current) {
           loadMoreVideos();
         }
       },
-      { threshold: 0.01, rootMargin: '600px' }
+      { threshold: 0.1, rootMargin: '400px' }
     );
 
     observerRef.current = observer;
@@ -423,23 +330,24 @@ const HomePage = () => {
     if (loading) return;
 
     let ticking = false;
-    const handleScroll = () => {
+    const onScroll = () => {
       if (loadingMoreRef.current || !hasMoreRef.current) return;
-      const scrollTop = window.scrollY || document.documentElement.scrollTop;
-      const scrollHeight = document.documentElement.scrollHeight;
-      const clientHeight = document.documentElement.clientHeight;
-      if (scrollTop + clientHeight >= scrollHeight - 800) loadMoreVideos();
+      const { scrollY } = window;
+      const { scrollHeight, clientHeight } = document.documentElement;
+      if (scrollY + clientHeight >= scrollHeight - 600) {
+        loadMoreVideos();
+      }
     };
 
-    const throttledScroll = () => {
+    const throttled = () => {
       if (!ticking) {
-        window.requestAnimationFrame(() => { handleScroll(); ticking = false; });
+        window.requestAnimationFrame(() => { onScroll(); ticking = false; });
         ticking = true;
       }
     };
 
-    window.addEventListener('scroll', throttledScroll, { passive: true });
-    return () => window.removeEventListener('scroll', throttledScroll);
+    window.addEventListener('scroll', throttled, { passive: true });
+    return () => window.removeEventListener('scroll', throttled);
   }, [loading, loadMoreVideos]);
 
   // ==================== RENDER VIDEOS WITH ADS ====================
@@ -453,7 +361,6 @@ const HomePage = () => {
       );
     }
 
-    // Native banner ad every 5 rows desktop (20 videos), every 4 rows mobile (8 videos)
     const videosPerAdBreak = isMobile ? 8 : 20;
     const items = [];
     let adCounter = 0;
@@ -462,9 +369,7 @@ const HomePage = () => {
       items.push(<VideoCard key={allVideos[i]._id} video={allVideos[i]} />);
 
       if ((i + 1) % videosPerAdBreak === 0 && i < allVideos.length - 1) {
-        items.push(
-          <InFeedAd key={`ad-${adCounter}`} isMobile={isMobile} />
-        );
+        items.push(<InFeedAd key={`ad-${adCounter}`} isMobile={isMobile} />);
         adCounter++;
       }
     }
@@ -499,7 +404,6 @@ const HomePage = () => {
       <div className="min-h-screen bg-gray-50 dark:bg-dark-400">
         <GlobalAdsLoader />
 
-        {/* ONE top banner ad only */}
         <div className="max-w-7xl mx-auto px-4 pt-4">
           {isMobile ? (
             <AdSlot adCode={ADS.mobile320x50} label="Sponsored" className="flex justify-center" />
@@ -510,13 +414,11 @@ const HomePage = () => {
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex flex-col lg:flex-row gap-6">
-            {/* ==================== MAIN CONTENT ==================== */}
             <div className="flex-1">
               <h1 className="sr-only">
-                Xmaster - Free porn Videos | Watch HD porn Online | Best porn Tube Site | Alternative to pornhub xhamster Xvideos
+                Xmaster - Free porn Videos | Watch HD porn Online | Best porn Tube Site
               </h1>
 
-              {/* Featured Videos */}
               {featuredVideos.length > 0 && (
                 <section className="mb-10">
                   <SectionHeader icon={FiStar} title="Featured Videos" iconColor="text-yellow-500" />
@@ -532,7 +434,6 @@ const HomePage = () => {
                 </section>
               )}
 
-              {/* All Videos with Infinite Scroll */}
               <section className="mb-10">
                 <SectionHeader
                   icon={FiClock}
@@ -550,8 +451,8 @@ const HomePage = () => {
 
                     <div
                       ref={loadMoreRef}
-                      className="py-8 flex flex-col items-center justify-center"
-                      style={{ minHeight: '100px' }}
+                      className="py-6 flex justify-center"
+                      style={{ minHeight: '60px' }}
                     >
                       {loadingMore && (
                         <div className="flex items-center gap-3 text-gray-400">
@@ -561,30 +462,14 @@ const HomePage = () => {
                       )}
                       {!hasMore && allVideos.length > 0 && (
                         <p className="text-gray-500 dark:text-gray-400 text-sm">
-                          You've reached the end • {allVideos.length} of {totalVideos} videos loaded
+                          You've reached the end • {allVideos.length} videos loaded
                         </p>
-                      )}
-                                           {hasMore && !loadingMore && (
-                        <button
-                          onClick={() => {
-                            console.log('[BUTTON] === CLICKED ===');
-                            console.log('[BUTTON] loadingMoreRef:', loadingMoreRef.current);
-                            console.log('[BUTTON] hasMoreRef:', hasMoreRef.current);
-                            console.log('[BUTTON] pageRef:', pageRef.current);
-                            console.log('[BUTTON] allVideos count:', allVideos.length);
-                            loadMoreVideos();
-                          }}
-                          className="px-8 py-4 bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-bold transition-colors text-base active:scale-95 shadow-lg"
-                        >
-                          Load More Videos ({allVideos.length} of {totalVideos})
-                        </button>
                       )}
                     </div>
                   </>
                 )}
               </section>
 
-              {/* Categories */}
               {categories.length > 0 && (
                 <section id="categories" className="mb-10">
                   <SectionHeader title="Browse Categories" iconColor="text-purple-500" />
@@ -596,7 +481,6 @@ const HomePage = () => {
                 </section>
               )}
 
-              {/* SEO Content */}
               <section className="mb-10 bg-white dark:bg-dark-200 rounded-xl p-6">
                 <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">
                   Popular Porn Categories on Xmaster
@@ -645,7 +529,6 @@ const HomePage = () => {
                 </ul>
               </section>
 
-              {/* Comments */}
               <section className="mb-10">
                 <SectionHeader title="💬 Comments" />
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -655,7 +538,6 @@ const HomePage = () => {
               </section>
             </div>
 
-            {/* ==================== SIDEBAR (1 ad only) ==================== */}
             <aside className="w-full lg:w-80 flex-shrink-0 hidden lg:block">
               <div className="sticky top-20 space-y-6">
                 <div className="card p-4">
@@ -672,7 +554,6 @@ const HomePage = () => {
                   </div>
                 </div>
 
-                {/* ONE sidebar ad only */}
                 <div className="flex justify-center">
                   <AdSlot adCode={ADS.sidebar160x300} label="Sponsored" />
                 </div>
@@ -696,7 +577,6 @@ const HomePage = () => {
           </div>
         </div>
 
-        {/* Footer Ad */}
         <div className="max-w-7xl mx-auto px-4 pb-8">
           <div className="py-6 border-t border-gray-200 dark:border-dark-100">
             {isMobile ? (
