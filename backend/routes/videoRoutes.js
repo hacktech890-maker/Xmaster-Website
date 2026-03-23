@@ -6,7 +6,11 @@ const Category = require('../models/Category');
 const ViewLog = require('../models/ViewLog');
 const Report = require('../models/Report');
 
+// ============================================================
 // GET /api/videos
+// Supports: sort=newest|oldest|views|likes|random
+// Random mode uses MongoDB $sample for true randomization
+// ============================================================
 router.get('/', async (req, res) => {
   try {
     const { sort = 'newest', category = '', tag = '' } = req.query;
@@ -14,7 +18,6 @@ router.get('/', async (req, res) => {
     const limit = Math.min(parseInt(req.query.limit) || 40, 100);
     const query = { status: 'public', isDuplicate: { $ne: true } };
 
-    // Category filter
     if (category) {
       if (mongoose.Types.ObjectId.isValid(category)) {
         const catId = new mongoose.Types.ObjectId(category);
@@ -26,14 +29,10 @@ router.get('/', async (req, res) => {
     }
     if (tag) query.tags = { $in: [tag.toLowerCase()] };
 
-    // Get total count first (needed by all sort modes)
     const total = await Video.countDocuments(query);
     const totalPages = Math.ceil(total / limit) || 1;
 
-    // ============================================================
-    // RANDOM SORT — uses MongoDB $sample for true randomization
-    // Supports ?exclude=id1,id2,id3 to avoid returning already-loaded videos
-    // ============================================================
+    // ===================== RANDOM MODE =====================
     if (sort === 'random') {
       const excludeStr = req.query.exclude || '';
       const excludeIds = excludeStr
@@ -45,7 +44,15 @@ router.get('/', async (req, res) => {
 
       const randomQuery = { ...query };
       if (excludeIds.length > 0) {
-        randomQuery._id = { $nin: excludeIds };
+        if (randomQuery._id) {
+          randomQuery.$and = [
+            { _id: randomQuery._id },
+            { _id: { $nin: excludeIds } }
+          ];
+          delete randomQuery._id;
+        } else {
+          randomQuery._id = { $nin: excludeIds };
+        }
       }
 
       const videos = await Video.aggregate([
@@ -79,9 +86,7 @@ router.get('/', async (req, res) => {
       });
     }
 
-    // ============================================================
-    // REGULAR SORTED QUERY (newest, oldest, views, likes)
-    // ============================================================
+    // ===================== SORTED MODE =====================
     if (page > totalPages) {
       return res.json({
         success: true,

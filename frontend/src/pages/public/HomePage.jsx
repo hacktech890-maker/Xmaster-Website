@@ -8,11 +8,6 @@ import VideoCard from '../../components/video/VideoCard';
 import CommentForm from '../../components/comments/CommentForm';
 import CommentsList from '../../components/comments/CommentsList';
 
-// =====================================================================
-// CATEGORIES DISABLED — set to true to re-enable categories everywhere
-// =====================================================================
-const SHOW_CATEGORIES = false;
-
 // ==================== SMART AD SLOT ====================
 const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
   const containerRef = useRef(null);
@@ -24,7 +19,6 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
 
   useEffect(() => {
     if (!adCode || !containerRef.current) return;
-
     const container = containerRef.current;
     container.innerHTML = "";
     mountedRef.current = true;
@@ -33,30 +27,24 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
 
     const loadAd = () => {
       if (!mountedRef.current || !container) return;
-
       try {
         let processedCode = adCode;
-
         const containerMatches = [...processedCode.matchAll(/id="(container-[a-f0-9]+)"/g)];
         for (const match of containerMatches) {
           const originalId = match[1];
           const newId = `${originalId}-${uniqueId.current}`;
           processedCode = processedCode.split(originalId).join(newId);
         }
-
         const nonScript = processedCode.replace(/<script[\s\S]*?<\/script>/gi, "").trim();
-
         if (nonScript) {
           const div = document.createElement("div");
           div.className = "ad-inner-content";
           div.innerHTML = nonScript;
           container.appendChild(div);
         }
-
         const tempDiv = document.createElement("div");
         tempDiv.innerHTML = processedCode;
         const scripts = tempDiv.querySelectorAll("script");
-
         let scriptsLoaded = 0;
         let scriptsFailed = 0;
         const totalScripts = scripts.length;
@@ -65,40 +53,29 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
           if (scriptsLoaded + scriptsFailed >= totalScripts) {
             setTimeout(() => {
               if (!mountedRef.current) return;
-
               const hasIframe = container.querySelector('iframe');
               const hasAdContent = container.querySelector('div[id^="container-"]');
               const containerHeight = container.offsetHeight;
-
               let adDivHasContent = false;
               if (hasAdContent) {
                 adDivHasContent = hasAdContent.children.length > 0 || hasAdContent.offsetHeight > 10;
               }
-
               if (hasIframe || adDivHasContent || containerHeight > 20) {
-                setAdLoaded(true);
-                setAdFailed(false);
-              } else if (scriptsFailed > 0 || !hasIframe) {
-                setAdLoaded(false);
-                setAdFailed(true);
+                setAdLoaded(true); setAdFailed(false);
+              } else {
+                setAdLoaded(false); setAdFailed(true);
               }
             }, 3000);
           }
         };
 
         const loadNext = (index) => {
-          if (index >= totalScripts || !mountedRef.current) {
-            checkComplete();
-            return;
-          }
-
+          if (index >= totalScripts || !mountedRef.current) { checkComplete(); return; }
           const orig = scripts[index];
           const s = document.createElement("script");
-
           Array.from(orig.attributes).forEach((a) => {
             if (a.name !== 'src') s.setAttribute(a.name, a.value);
           });
-
           if (orig.src) {
             s.src = orig.src;
             s.async = true;
@@ -108,23 +85,17 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
             s.textContent = orig.textContent;
             scriptsLoaded++;
           }
-
           container.appendChild(s);
           if (!orig.src) loadNext(index + 1);
         };
-
         loadNext(0);
 
         const fallbackTimer = setTimeout(() => {
           if (!mountedRef.current) return;
           const hasIframe = container.querySelector('iframe');
-          if (!hasIframe && container.offsetHeight < 20) {
-            setAdFailed(true);
-          } else {
-            setAdLoaded(true);
-          }
+          if (!hasIframe && container.offsetHeight < 20) setAdFailed(true);
+          else setAdLoaded(true);
         }, 8000);
-
         return () => clearTimeout(fallbackTimer);
       } catch (err) {
         console.error("Ad injection error:", err);
@@ -133,7 +104,6 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
     };
 
     const timer = setTimeout(loadAd, 200);
-
     return () => {
       mountedRef.current = false;
       clearTimeout(timer);
@@ -144,26 +114,17 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
   if (!adCode || adFailed) return null;
 
   return (
-    <div
-      ref={wrapperRef}
-      className={`ad-slot ${className} transition-all duration-300`}
+    <div ref={wrapperRef} className={`ad-slot ${className} transition-all duration-300`}
       style={{
         minHeight: adLoaded ? 'auto' : '0px',
         overflow: adLoaded ? 'visible' : 'hidden',
         opacity: adLoaded ? 1 : 0,
         maxHeight: adLoaded ? 'none' : '0px',
-      }}
-    >
+      }}>
       {label && adLoaded && (
-        <span className="text-[10px] text-gray-500 dark:text-gray-600 uppercase tracking-wider mb-1 block text-center">
-          {label}
-        </span>
+        <span className="text-[10px] text-gray-500 dark:text-gray-600 uppercase tracking-wider mb-1 block text-center">{label}</span>
       )}
-      <div
-        ref={containerRef}
-        className="ad-content flex justify-center items-center"
-        style={{ overflow: 'visible' }}
-      />
+      <div ref={containerRef} className="ad-content flex justify-center items-center" style={{ overflow: 'visible' }} />
     </div>
   );
 };
@@ -171,49 +132,21 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
 // ==================== AD CODES ====================
 const ADS = {
   mobile320x50: `<script>
-    atOptions = {
-      'key' : '161b6adedd44fd65d7197bdc372ef90f',
-      'format' : 'iframe',
-      'height' : 50,
-      'width' : 320,
-      'params' : {}
-    };
+    atOptions = { 'key' : '161b6adedd44fd65d7197bdc372ef90f', 'format' : 'iframe', 'height' : 50, 'width' : 320, 'params' : {} };
   </script>
   <script src="https://www.highperformanceformat.com/161b6adedd44fd65d7197bdc372ef90f/invoke.js"></script>`,
-
   footer728x90: `<script>
-    atOptions = {
-      'key' : '8615981141c313bf4581c3cf1de1fb8f',
-      'format' : 'iframe',
-      'height' : 90,
-      'width' : 728,
-      'params' : {}
-    };
+    atOptions = { 'key' : '8615981141c313bf4581c3cf1de1fb8f', 'format' : 'iframe', 'height' : 90, 'width' : 728, 'params' : {} };
   </script>
   <script src="https://www.highperformanceformat.com/8615981141c313bf4581c3cf1de1fb8f/invoke.js"></script>`,
-
   footer300x250: `<script>
-    atOptions = {
-      'key' : '3becc7318ca2e6c794f587d8f3f05d0b',
-      'format' : 'iframe',
-      'height' : 250,
-      'width' : 300,
-      'params' : {}
-    };
+    atOptions = { 'key' : '3becc7318ca2e6c794f587d8f3f05d0b', 'format' : 'iframe', 'height' : 250, 'width' : 300, 'params' : {} };
   </script>
   <script src="https://www.highperformanceformat.com/3becc7318ca2e6c794f587d8f3f05d0b/invoke.js"></script>`,
-
   sidebar160x300: `<script>
-    atOptions = {
-      'key' : 'deffd68605ce0b0c91d11c13a0fffd06',
-      'format' : 'iframe',
-      'height' : 300,
-      'width' : 160,
-      'params' : {}
-    };
+    atOptions = { 'key' : 'deffd68605ce0b0c91d11c13a0fffd06', 'format' : 'iframe', 'height' : 300, 'width' : 160, 'params' : {} };
   </script>
   <script src="https://www.highperformanceformat.com/deffd68605ce0b0c91d11c13a0fffd06/invoke.js"></script>`,
-
   nativeBanner: `<script async="async" data-cfasync="false" src="https://pl28704186.effectivegatecpm.com/3ebdaa444c50232518b3752efc451cab/invoke.js"></script>
   <div id="container-3ebdaa444c50232518b3752efc451cab"></div>`,
 };
@@ -224,27 +157,20 @@ const GlobalAdsLoader = () => {
   useEffect(() => {
     if (loaded.current) return;
     loaded.current = true;
-
     const scripts = [];
-
     const addScript = (src, delay) => {
       setTimeout(() => {
         const s = document.createElement("script");
-        s.src = src;
-        s.async = true;
+        s.src = src; s.async = true;
         document.body.appendChild(s);
         scripts.push(s);
       }, delay);
     };
-
     addScript("https://pl28704151.effectivegatecpm.com/35/ee/21/35ee2192f0b1aa5ca35c1f3af9387b00.js", 0);
     addScript("https://pl28704173.effectivegatecpm.com/52/ef/a1/52efa111bceee1130b219af1074a5f95.js", 500);
     addScript("https://www.effectivegatecpm.com/sbfz9bs1c?key=4b48edda8bb87faa2b8f8b8708c46b0b", 1000);
-
     return () => {
-      scripts.forEach(s => {
-        try { if (document.body.contains(s)) document.body.removeChild(s); } catch (e) { }
-      });
+      scripts.forEach(s => { try { if (document.body.contains(s)) document.body.removeChild(s); } catch (e) {} });
       loaded.current = false;
     };
   }, []);
@@ -256,7 +182,6 @@ const IN_FEED_AD_TYPES = ['nativeBanner', 'footer300x250', 'mobile320x50'];
 
 const InFeedAd = React.memo(({ isMobile, adIndex = 0 }) => {
   const adType = IN_FEED_AD_TYPES[adIndex % IN_FEED_AD_TYPES.length];
-
   let adCode;
   if (isMobile) {
     switch (adType) {
@@ -268,28 +193,22 @@ const InFeedAd = React.memo(({ isMobile, adIndex = 0 }) => {
   } else {
     adCode = ADS.nativeBanner;
   }
-
   return <InFeedAdWrapper isMobile={isMobile} adCode={adCode} />;
 });
 
 const InFeedAdWrapper = ({ isMobile, adCode }) => {
   const [hasAd, setHasAd] = useState(true);
   const wrapperRef = useRef(null);
-
   useEffect(() => {
     const timer = setTimeout(() => {
       if (wrapperRef.current) {
         const adSlot = wrapperRef.current.querySelector('.ad-slot');
-        if (!adSlot || adSlot.offsetHeight === 0) {
-          setHasAd(false);
-        }
+        if (!adSlot || adSlot.offsetHeight === 0) setHasAd(false);
       }
     }, 10000);
     return () => clearTimeout(timer);
   }, []);
-
   if (!hasAd) return null;
-
   if (isMobile) {
     return (
       <div ref={wrapperRef} className="col-span-2">
@@ -299,7 +218,6 @@ const InFeedAdWrapper = ({ isMobile, adCode }) => {
       </div>
     );
   }
-
   return (
     <div ref={wrapperRef} className="col-span-full">
       <div className="w-full bg-gray-100/30 dark:bg-dark-200/30 rounded-xl p-4">
@@ -309,8 +227,8 @@ const InFeedAdWrapper = ({ isMobile, adCode }) => {
   );
 };
 
-// ==================== SEO KEYWORDS ====================
-const SEO_CATEGORIES = [
+// ==================== SEO TAGS (not categories) ====================
+const SEO_TAGS = [
   "Amateur", "Anal", "Asian", "BBW", "Big Ass", "Big Tits", "Blonde", "Blowjob",
   "Brunette", "Cosplay", "Creampie", "Cumshot", "Desi", "Ebony", "Gangbang",
   "Hardcore", "HD Videos", "Hentai", "Homemade", "Indian", "Interracial",
@@ -327,7 +245,6 @@ const HomePage = () => {
   const [hasMore, setHasMore] = useState(true);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
 
-  // Refs
   const allVideosRef = useRef([]);
   const totalRef = useRef(0);
   const observerRef = useRef(null);
@@ -336,12 +253,9 @@ const HomePage = () => {
   const hasMoreRef = useRef(true);
   const failCountRef = useRef(0);
 
-  // Keep allVideosRef in sync with state
-  useEffect(() => {
-    allVideosRef.current = allVideos;
-  }, [allVideos]);
+  useEffect(() => { allVideosRef.current = allVideos; }, [allVideos]);
 
-  // Responsive detection
+  // Responsive
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 1023px)');
     const handler = (e) => setIsMobile(e.matches);
@@ -358,33 +272,23 @@ const HomePage = () => {
   // ==================== FETCH INITIAL DATA ====================
   useEffect(() => {
     const fetchHomeData = async () => {
-      // 1) Get featured videos from home endpoint
+      // Featured videos
       try {
         const response = await publicAPI.getHomeData();
-        if (response.data && response.data.success) {
-          const data = response.data.data;
-          setFeaturedVideos(data.featuredVideos || []);
-          // CATEGORIES DISABLED — not storing categories at all
+        if (response.data?.success) {
+          setFeaturedVideos(response.data.data.featuredVideos || []);
         }
       } catch (err) {
         console.error('Home data error:', err);
       }
 
-      // 2) Get RANDOM videos for the main grid
-      //    Using sort=random which uses MongoDB $sample
-      //    This guarantees different videos on every page refresh
+      // RANDOM videos — MongoDB $sample gives different results every call
       try {
-        const res = await publicAPI.getVideos({
-          limit: 40,
-          sort: 'random'
-        });
+        const res = await publicAPI.getVideos({ limit: 40, sort: 'random' });
         const d = res.data;
-
-        if (d && d.videos && d.videos.length > 0) {
+        if (d?.videos?.length > 0) {
           setAllVideos(d.videos);
           totalRef.current = d.pagination?.total || 0;
-
-          // If we got all videos in the first batch, no more to load
           if (d.videos.length >= (d.pagination?.total || 0)) {
             setHasMore(false);
             hasMoreRef.current = false;
@@ -405,19 +309,15 @@ const HomePage = () => {
     fetchHomeData();
   }, []);
 
-  // ==================== LOAD MORE VIDEOS (RANDOM) ====================
+  // ==================== LOAD MORE (RANDOM, EXCLUDE LOADED) ====================
   const loadMoreVideos = useCallback(async () => {
     if (loadingMoreRef.current || !hasMoreRef.current) return;
     loadingMoreRef.current = true;
     setLoadingMore(true);
 
     try {
-      // Build exclude list from already-loaded video IDs (limit to 200 to keep URL short)
       const currentVideos = allVideosRef.current;
-      const excludeIds = currentVideos
-        .slice(-200)
-        .map(v => v._id)
-        .join(',');
+      const excludeIds = currentVideos.slice(-200).map(v => v._id).join(',');
 
       const res = await publicAPI.getVideos({
         limit: 40,
@@ -426,37 +326,23 @@ const HomePage = () => {
       });
       const d = res.data;
 
-      if (d && d.videos && d.videos.length > 0) {
-        // Deduplicate against already-loaded videos
+      if (d?.videos?.length > 0) {
         setAllVideos(prev => {
           const existingIds = new Set(prev.map(v => v._id));
           const unique = d.videos.filter(v => !existingIds.has(v._id));
-
-          if (unique.length === 0) {
-            // Got no new videos — might have loaded everything
-            failCountRef.current += 1;
-          } else {
-            failCountRef.current = 0;
-          }
+          if (unique.length === 0) failCountRef.current += 1;
+          else failCountRef.current = 0;
 
           const updated = [...prev, ...unique];
-
-          // Stop if we've loaded all available videos
           if (totalRef.current > 0 && updated.length >= totalRef.current) {
-            setHasMore(false);
-            hasMoreRef.current = false;
+            setHasMore(false); hasMoreRef.current = false;
           }
-
-          // Stop after 2 consecutive empty results
           if (failCountRef.current >= 2) {
-            setHasMore(false);
-            hasMoreRef.current = false;
+            setHasMore(false); hasMoreRef.current = false;
           }
-
           return updated;
         });
       } else {
-        // API returned no videos at all — we've exhausted the pool
         setHasMore(false);
         hasMoreRef.current = false;
       }
@@ -464,8 +350,7 @@ const HomePage = () => {
       console.error('Load more error:', error.message);
       failCountRef.current += 1;
       if (failCountRef.current >= 3) {
-        setHasMore(false);
-        hasMoreRef.current = false;
+        setHasMore(false); hasMoreRef.current = false;
       }
     } finally {
       loadingMoreRef.current = false;
@@ -473,40 +358,31 @@ const HomePage = () => {
     }
   }, []);
 
-  // ==================== INTERSECTION OBSERVER ====================
+  // Intersection Observer
   useEffect(() => {
     if (loading) return;
     if (observerRef.current) observerRef.current.disconnect();
-
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasMoreRef.current && !loadingMoreRef.current) {
-          loadMoreVideos();
-        }
+        if (entries[0].isIntersecting && hasMoreRef.current && !loadingMoreRef.current) loadMoreVideos();
       },
       { threshold: 0.1, rootMargin: '400px' }
     );
-
     observerRef.current = observer;
     if (loadMoreRef.current) observer.observe(loadMoreRef.current);
     return () => observer.disconnect();
   }, [loading, loadMoreVideos]);
 
-  // ==================== SCROLL FALLBACK ====================
+  // Scroll fallback
   useEffect(() => {
     if (loading) return;
     let ticking = false;
     const onScroll = () => {
       if (loadingMoreRef.current || !hasMoreRef.current) return;
-      if (window.scrollY + document.documentElement.clientHeight >= document.documentElement.scrollHeight - 600) {
-        loadMoreVideos();
-      }
+      if (window.scrollY + document.documentElement.clientHeight >= document.documentElement.scrollHeight - 600) loadMoreVideos();
     };
     const throttled = () => {
-      if (!ticking) {
-        window.requestAnimationFrame(() => { onScroll(); ticking = false; });
-        ticking = true;
-      }
+      if (!ticking) { window.requestAnimationFrame(() => { onScroll(); ticking = false; }); ticking = true; }
     };
     window.addEventListener('scroll', throttled, { passive: true });
     return () => window.removeEventListener('scroll', throttled);
@@ -525,25 +401,13 @@ const HomePage = () => {
 
     const videosPerAdBreak = isMobile ? 12 : 24;
     const maxInFeedAds = 3;
-
     const items = [];
     let adCounter = 0;
 
     for (let i = 0; i < allVideos.length; i++) {
       items.push(<VideoCard key={allVideos[i]._id} video={allVideos[i]} />);
-
-      if (
-        (i + 1) % videosPerAdBreak === 0 &&
-        i < allVideos.length - 1 &&
-        adCounter < maxInFeedAds
-      ) {
-        items.push(
-          <InFeedAd
-            key={`infeed-ad-${adCounter}`}
-            isMobile={isMobile}
-            adIndex={adCounter}
-          />
-        );
+      if ((i + 1) % videosPerAdBreak === 0 && i < allVideos.length - 1 && adCounter < maxInFeedAds) {
+        items.push(<InFeedAd key={`infeed-ad-${adCounter}`} isMobile={isMobile} adIndex={adCounter} />);
         adCounter++;
       }
     }
@@ -578,31 +442,26 @@ const HomePage = () => {
       <div className="min-h-screen bg-gray-50 dark:bg-dark-400">
         <GlobalAdsLoader />
 
-        {/* === TOP AD === */}
+        {/* TOP AD */}
         <div className="max-w-7xl mx-auto px-4 pt-4">
           <div className="flex justify-center">
-            {isMobile ? (
-              <AdSlot adCode={ADS.mobile320x50} label="Sponsored" className="flex justify-center" />
-            ) : (
-              <AdSlot adCode={ADS.footer728x90} label="Sponsored" className="flex justify-center" />
-            )}
+            {isMobile
+              ? <AdSlot adCode={ADS.mobile320x50} label="Sponsored" className="flex justify-center" />
+              : <AdSlot adCode={ADS.footer728x90} label="Sponsored" className="flex justify-center" />
+            }
           </div>
         </div>
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex flex-col lg:flex-row gap-6">
             <div className="flex-1">
-              <h1 className="sr-only">
-                Xmaster - Free porn Videos | Watch HD porn Online | Best porn Tube Site
-              </h1>
+              <h1 className="sr-only">Xmaster - Free porn Videos | Watch HD porn Online | Best porn Tube Site</h1>
 
               {/* Featured Videos */}
               {featuredVideos.length > 0 && (
                 <section className="mb-10">
                   <SectionHeader icon={FiStar} title="Featured Videos" iconColor="text-yellow-500" />
-                  {loading ? (
-                    <VideoGridSkeleton count={6} columns={3} />
-                  ) : (
+                  {loading ? <VideoGridSkeleton count={6} columns={3} /> : (
                     <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
                       {featuredVideos.slice(0, 6).map((video) => (
                         <VideoCard key={video._id} video={video} />
@@ -612,7 +471,7 @@ const HomePage = () => {
                 </section>
               )}
 
-              {/* Latest Videos — NO video count shown publicly */}
+              {/* Videos — NO count shown */}
               <section className="mb-10">
                 <SectionHeader
                   icon={FiClock}
@@ -622,17 +481,10 @@ const HomePage = () => {
                   iconColor="text-blue-500"
                 />
 
-                {loading ? (
-                  <VideoGridSkeleton count={12} columns={4} />
-                ) : (
+                {loading ? <VideoGridSkeleton count={12} columns={4} /> : (
                   <>
                     {renderVideosWithAds()}
-
-                    <div
-                      ref={loadMoreRef}
-                      className="py-6 flex justify-center"
-                      style={{ minHeight: '60px' }}
-                    >
+                    <div ref={loadMoreRef} className="py-6 flex justify-center" style={{ minHeight: '60px' }}>
                       {loadingMore && (
                         <div className="flex items-center gap-3 text-gray-400">
                           <FiLoader className="w-5 h-5 animate-spin" />
@@ -640,33 +492,26 @@ const HomePage = () => {
                         </div>
                       )}
                       {!hasMore && allVideos.length > 0 && (
-                        <p className="text-gray-500 dark:text-gray-400 text-sm">
-                          You've reached the end
-                        </p>
+                        <p className="text-gray-500 dark:text-gray-400 text-sm">You've reached the end</p>
                       )}
                     </div>
                   </>
                 )}
               </section>
 
-              {/* ============================================================
-                  CATEGORIES SECTION — DISABLED
-                  To re-enable: change SHOW_CATEGORIES to true at the top
-                  ============================================================ */}
-
-              {/* SEO Section */}
+              {/* SEO Tags — these are SEARCH links, NOT category cards */}
               <section className="mb-10 bg-white dark:bg-dark-200 rounded-xl p-6">
                 <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">
-                  Popular Porn Categories on Xmaster
+                  Popular Searches on Xmaster
                 </h2>
                 <div className="flex flex-wrap gap-2 mb-6">
-                  {SEO_CATEGORIES.map((cat, i) => (
+                  {SEO_TAGS.map((tag, i) => (
                     <Link
                       key={i}
-                      to={`/search?q=${encodeURIComponent(cat)}`}
+                      to={`/search?q=${encodeURIComponent(tag)}`}
                       className="px-3 py-1.5 bg-gray-100 dark:bg-dark-100 text-gray-700 dark:text-gray-300 text-xs rounded-full hover:bg-primary-600 hover:text-white transition-colors"
                     >
-                      {cat}
+                      {tag}
                     </Link>
                   ))}
                 </div>
@@ -674,8 +519,7 @@ const HomePage = () => {
                 <div className="text-sm text-gray-500 dark:text-gray-400 space-y-3 leading-relaxed">
                   <p>
                     <strong>Xmaster</strong> is your ultimate destination for free porn videos online.
-                    We offer a massive collection of HD and 4K Porn content across hundreds of categories
-                    including mms videos, porn videos, latest mms viral videos porn, latest porn, and many more.
+                    We offer a massive collection of HD and 4K Porn content updated daily.
                   </p>
                   <p>
                     Looking for an alternative to pornhub, xhamster, or xvideos? Xmaster provides
@@ -684,7 +528,7 @@ const HomePage = () => {
                   </p>
                   <p>
                     Whether you enjoy anal, hardcore, sex videos, latest porn, MMS videos, desi content, or
-                    any other category, Xmaster has thousands of free porn videos ready to stream.
+                    any other type, Xmaster has thousands of free porn videos ready to stream.
                     No signup required.
                   </p>
                 </div>
@@ -695,7 +539,6 @@ const HomePage = () => {
                 <ul className="text-sm text-gray-500 dark:text-gray-400 space-y-2 list-disc list-inside">
                   <li>Free HD & 4K porn video streaming</li>
                   <li>Thousands of porn videos updated daily</li>
-                  <li>Hundreds of porn categories to explore</li>
                   <li>Fast loading and smooth playback</li>
                   <li>Works on all devices - mobile, desktop, tablet</li>
                   <li>No registration required</li>
@@ -703,7 +546,7 @@ const HomePage = () => {
                 </ul>
               </section>
 
-              {/* Comments */}
+              {/* Comments — directly after SEO, NO categories above */}
               <section className="mb-10">
                 <SectionHeader title="💬 Comments" />
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -713,7 +556,7 @@ const HomePage = () => {
               </section>
             </div>
 
-            {/* Desktop Sidebar */}
+            {/* Sidebar */}
             <aside className="w-full lg:w-80 flex-shrink-0 hidden lg:block">
               <div className="sticky top-20 space-y-6">
                 <div className="card p-4">
@@ -738,11 +581,8 @@ const HomePage = () => {
                   <h3 className="font-semibold text-gray-900 dark:text-white mb-3 text-sm">Popular Searches</h3>
                   <div className="flex flex-wrap gap-1.5">
                     {["HD Porn", "Amateur", "MILF", "Teen", "Desi", "MMS", "Anal", "POV", "Lesbian", "Homemade", "Indian", "Webcam"].map((tag, i) => (
-                      <Link
-                        key={i}
-                        to={`/search?q=${encodeURIComponent(tag)}`}
-                        className="px-2 py-1 bg-dark-100 text-gray-400 text-[10px] rounded hover:bg-primary-600 hover:text-white transition-colors"
-                      >
+                      <Link key={i} to={`/search?q=${encodeURIComponent(tag)}`}
+                        className="px-2 py-1 bg-dark-100 text-gray-400 text-[10px] rounded hover:bg-primary-600 hover:text-white transition-colors">
                         {tag}
                       </Link>
                     ))}
@@ -756,11 +596,10 @@ const HomePage = () => {
         {/* Footer Ad */}
         <div className="max-w-7xl mx-auto px-4 pb-8">
           <div className="py-6 border-t border-gray-200 dark:border-dark-100 flex justify-center">
-            {isMobile ? (
-              <AdSlot adCode={ADS.footer300x250} label="Sponsored" className="flex justify-center" />
-            ) : (
-              <AdSlot adCode={ADS.footer728x90} label="Sponsored" className="flex justify-center" />
-            )}
+            {isMobile
+              ? <AdSlot adCode={ADS.footer300x250} label="Sponsored" className="flex justify-center" />
+              : <AdSlot adCode={ADS.footer728x90} label="Sponsored" className="flex justify-center" />
+            }
           </div>
         </div>
       </div>
