@@ -6,7 +6,6 @@ const Category = require('../models/Category');
 const ViewLog = require('../models/ViewLog');
 const Report = require('../models/Report');
 
-// GET /api/videos — Change the default limit
 // GET /api/videos
 router.get('/', async (req, res) => {
   try {
@@ -27,6 +26,70 @@ router.get('/', async (req, res) => {
     }
     if (tag) query.tags = { $in: [tag.toLowerCase()] };
 
+    // Get total count first (needed by all sort modes)
+    const total = await Video.countDocuments(query);
+    const totalPages = Math.ceil(total / limit) || 1;
+
+    // ============================================================
+    // RANDOM SORT — uses MongoDB $sample for true randomization
+    // Supports ?exclude=id1,id2,id3 to avoid returning already-loaded videos
+    // ============================================================
+    if (sort === 'random') {
+      const excludeStr = req.query.exclude || '';
+      const excludeIds = excludeStr
+        ? excludeStr.split(',')
+            .map(id => id.trim())
+            .filter(id => id && mongoose.Types.ObjectId.isValid(id))
+            .map(id => new mongoose.Types.ObjectId(id))
+        : [];
+
+      const randomQuery = { ...query };
+      if (excludeIds.length > 0) {
+        randomQuery._id = { $nin: excludeIds };
+      }
+
+      const videos = await Video.aggregate([
+        { $match: randomQuery },
+        { $sample: { size: limit } },
+        {
+          $lookup: {
+            from: 'categories',
+            localField: 'category',
+            foreignField: '_id',
+            as: 'categoryData'
+          }
+        },
+        {
+          $addFields: {
+            category: { $arrayElemAt: ['$categoryData', 0] }
+          }
+        },
+        { $project: { categoryData: 0 } }
+      ]);
+
+      return res.json({
+        success: true,
+        videos,
+        pagination: {
+          page: 1,
+          limit,
+          total,
+          pages: totalPages
+        }
+      });
+    }
+
+    // ============================================================
+    // REGULAR SORTED QUERY (newest, oldest, views, likes)
+    // ============================================================
+    if (page > totalPages) {
+      return res.json({
+        success: true,
+        videos: [],
+        pagination: { page, limit, total, pages: totalPages }
+      });
+    }
+
     let sortOption = {};
     switch (sort) {
       case 'oldest': sortOption = { uploadDate: 1 }; break;
@@ -36,24 +99,6 @@ router.get('/', async (req, res) => {
     }
 
     const skip = (page - 1) * limit;
-
-    // Get total count first
-    const total = await Video.countDocuments(query);
-    const totalPages = Math.ceil(total / limit) || 1;
-
-    // If requested page is beyond total, return empty
-    if (page > totalPages) {
-      return res.json({
-        success: true,
-        videos: [],
-        pagination: {
-          page: page,
-          limit: limit,
-          total: total,
-          pages: totalPages
-        }
-      });
-    }
 
     const videos = await Video.find(query)
       .populate('category', 'name slug color icon')
@@ -66,12 +111,7 @@ router.get('/', async (req, res) => {
     res.json({
       success: true,
       videos,
-      pagination: {
-        page: page,
-        limit: limit,
-        total: total,
-        pages: totalPages
-      }
+      pagination: { page, limit, total, pages: totalPages }
     });
   } catch (error) {
     console.error('Get Videos Error:', error.message, error.stack);
@@ -104,7 +144,6 @@ router.get('/latest', async (req, res) => {
 router.get('/trending', async (req, res) => {
   try {
     const { limit = 12 } = req.query;
-    // Get top 50 by views, then randomly pick from them
     const videos = await Video.aggregate([
       { $match: { status: 'public', isDuplicate: { $ne: true } } },
       { $sort: { views: -1 } },
@@ -153,7 +192,7 @@ router.get('/featured', async (req, res) => {
   }
 });
 
-// GET /api/videos/random - Truly random videos
+// GET /api/videos/random
 router.get('/random', async (req, res) => {
   try {
     const { limit = 12, exclude = '' } = req.query;
@@ -220,8 +259,7 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// GET /api/videos/:id/related - SMART RANDOM RECOMMENDATIONS
-// Uses seed parameter for different results on each refresh
+// GET /api/videos/:id/related
 router.get('/:id/related', async (req, res) => {
   try {
     const { limit = 12, seed = '' } = req.query;
@@ -237,7 +275,6 @@ router.get('/:id/related', async (req, res) => {
       isDuplicate: { $ne: true },
     };
 
-    // STRATEGY 1: Same category videos (random, ~40%)
     if (video.category) {
       const categoryCount = Math.ceil(requestedLimit * 0.4);
       const catId = new mongoose.Types.ObjectId(video.category);
@@ -251,12 +288,11 @@ router.get('/:id/related', async (req, res) => {
             ]
           }
         },
-        { $sample: { size: categoryCount + 5 } }, // fetch extra to account for overlaps
+        { $sample: { size: categoryCount + 5 } },
       ]);
       relatedVideos.push(...categoryVideos.slice(0, categoryCount));
     }
 
-    // STRATEGY 2: Same tags videos (random, ~30%)
     if (video.tags && video.tags.length > 0) {
       const tagCount = Math.ceil(requestedLimit * 0.3);
       const existingIds = relatedVideos.map(v => v._id);
@@ -273,7 +309,6 @@ router.get('/:id/related', async (req, res) => {
       relatedVideos.push(...tagVideos.slice(0, tagCount));
     }
 
-    // STRATEGY 3: Fill remaining with random videos
     const remaining = requestedLimit - relatedVideos.length;
     if (remaining > 0) {
       const existingIds = [videoObjectId, ...relatedVideos.map(v => v._id)];
@@ -289,7 +324,6 @@ router.get('/:id/related', async (req, res) => {
       relatedVideos.push(...randomVideos.slice(0, remaining));
     }
 
-    // Deduplicate by _id
     const seenIds = new Set();
     relatedVideos = relatedVideos.filter(v => {
       const idStr = v._id.toString();
@@ -298,7 +332,6 @@ router.get('/:id/related', async (req, res) => {
       return true;
     });
 
-    // Shuffle using seed for consistent-per-request but different-per-refresh randomness
     const seedNum = seed ? parseInt(seed) || Date.now() : Date.now();
     let shuffleSeed = seedNum;
     const pseudoRandom = () => {
@@ -311,10 +344,8 @@ router.get('/:id/related', async (req, res) => {
       [relatedVideos[i], relatedVideos[j]] = [relatedVideos[j], relatedVideos[i]];
     }
 
-    // Trim to requested limit
     relatedVideos = relatedVideos.slice(0, requestedLimit);
 
-    // Populate category info
     const categoryIds = [...new Set(
       relatedVideos
         .map(v => v.category)

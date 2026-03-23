@@ -7,17 +7,11 @@ import { VideoGridSkeleton } from '../../components/video/VideoGrid';
 import VideoCard from '../../components/video/VideoCard';
 import CommentForm from '../../components/comments/CommentForm';
 import CommentsList from '../../components/comments/CommentsList';
-import { CATEGORIES_ENABLED } from '../../config/features';
 
-// ==================== SHUFFLE UTILITY ====================
-const shuffleArray = (array) => {
-  const shuffled = [...array];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  return shuffled;
-};
+// =====================================================================
+// CATEGORIES DISABLED — set to true to re-enable categories everywhere
+// =====================================================================
+const SHOW_CATEGORIES = false;
 
 // ==================== SMART AD SLOT ====================
 const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
@@ -327,19 +321,25 @@ const SEO_CATEGORIES = [
 // ==================== MAIN HOMEPAGE ====================
 const HomePage = () => {
   const [featuredVideos, setFeaturedVideos] = useState([]);
-  const [categories, setCategories] = useState([]);
   const [allVideos, setAllVideos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
 
+  // Refs
+  const allVideosRef = useRef([]);
+  const totalRef = useRef(0);
   const observerRef = useRef(null);
   const loadMoreRef = useRef(null);
   const loadingMoreRef = useRef(false);
   const hasMoreRef = useRef(true);
-  const pageRef = useRef(1);
   const failCountRef = useRef(0);
+
+  // Keep allVideosRef in sync with state
+  useEffect(() => {
+    allVideosRef.current = allVideos;
+  }, [allVideos]);
 
   // Responsive detection
   useEffect(() => {
@@ -358,37 +358,37 @@ const HomePage = () => {
   // ==================== FETCH INITIAL DATA ====================
   useEffect(() => {
     const fetchHomeData = async () => {
+      // 1) Get featured videos from home endpoint
       try {
         const response = await publicAPI.getHomeData();
         if (response.data && response.data.success) {
           const data = response.data.data;
-          // Shuffle featured videos for randomness
-          setFeaturedVideos(shuffleArray(data.featuredVideos || []));
-          // CATEGORIES: only load when enabled
-          if (CATEGORIES_ENABLED) {
-            setCategories(data.categories || []);
-          }
+          setFeaturedVideos(data.featuredVideos || []);
+          // CATEGORIES DISABLED — not storing categories at all
         }
       } catch (err) {
         console.error('Home data error:', err);
       }
 
+      // 2) Get RANDOM videos for the main grid
+      //    Using sort=random which uses MongoDB $sample
+      //    This guarantees different videos on every page refresh
       try {
-        // Add cache-busting timestamp to prevent cached results
         const res = await publicAPI.getVideos({
-          page: 1,
           limit: 40,
-          sort: 'newest',
-          _t: Date.now()
+          sort: 'random'
         });
         const d = res.data;
 
         if (d && d.videos && d.videos.length > 0) {
-          // RANDOMIZATION FIX: shuffle videos so order changes on every reload
-          setAllVideos(shuffleArray(d.videos));
-          pageRef.current = 1;
-          const pages = d.pagination?.pages || 1;
-          if (pages <= 1) { setHasMore(false); hasMoreRef.current = false; }
+          setAllVideos(d.videos);
+          totalRef.current = d.pagination?.total || 0;
+
+          // If we got all videos in the first batch, no more to load
+          if (d.videos.length >= (d.pagination?.total || 0)) {
+            setHasMore(false);
+            hasMoreRef.current = false;
+          }
         } else {
           setHasMore(false);
           hasMoreRef.current = false;
@@ -405,45 +405,68 @@ const HomePage = () => {
     fetchHomeData();
   }, []);
 
-  // ==================== LOAD MORE VIDEOS ====================
+  // ==================== LOAD MORE VIDEOS (RANDOM) ====================
   const loadMoreVideos = useCallback(async () => {
     if (loadingMoreRef.current || !hasMoreRef.current) return;
     loadingMoreRef.current = true;
     setLoadingMore(true);
 
-    const nextPage = pageRef.current + 1;
-
     try {
+      // Build exclude list from already-loaded video IDs (limit to 200 to keep URL short)
+      const currentVideos = allVideosRef.current;
+      const excludeIds = currentVideos
+        .slice(-200)
+        .map(v => v._id)
+        .join(',');
+
       const res = await publicAPI.getVideos({
-        page: nextPage,
         limit: 40,
-        sort: 'newest',
-        _t: Date.now()
+        sort: 'random',
+        exclude: excludeIds
       });
       const d = res.data;
 
       if (d && d.videos && d.videos.length > 0) {
-        failCountRef.current = 0;
-        // Shuffle each new batch too
-        const shuffledNew = shuffleArray(d.videos);
+        // Deduplicate against already-loaded videos
         setAllVideos(prev => {
-          const ids = new Set(prev.map(v => v._id));
-          const unique = shuffledNew.filter(v => !ids.has(v._id));
-          return [...prev, ...unique];
+          const existingIds = new Set(prev.map(v => v._id));
+          const unique = d.videos.filter(v => !existingIds.has(v._id));
+
+          if (unique.length === 0) {
+            // Got no new videos — might have loaded everything
+            failCountRef.current += 1;
+          } else {
+            failCountRef.current = 0;
+          }
+
+          const updated = [...prev, ...unique];
+
+          // Stop if we've loaded all available videos
+          if (totalRef.current > 0 && updated.length >= totalRef.current) {
+            setHasMore(false);
+            hasMoreRef.current = false;
+          }
+
+          // Stop after 2 consecutive empty results
+          if (failCountRef.current >= 2) {
+            setHasMore(false);
+            hasMoreRef.current = false;
+          }
+
+          return updated;
         });
-        pageRef.current = nextPage;
-        if (d.pagination) {
-          if (nextPage >= d.pagination.pages) { setHasMore(false); hasMoreRef.current = false; }
-        }
       } else {
+        // API returned no videos at all — we've exhausted the pool
         setHasMore(false);
         hasMoreRef.current = false;
       }
     } catch (error) {
       console.error('Load more error:', error.message);
       failCountRef.current += 1;
-      pageRef.current = nextPage;
-      if (failCountRef.current >= 3) { setHasMore(false); hasMoreRef.current = false; }
+      if (failCountRef.current >= 3) {
+        setHasMore(false);
+        hasMoreRef.current = false;
+      }
     } finally {
       loadingMoreRef.current = false;
       setLoadingMore(false);
@@ -589,7 +612,7 @@ const HomePage = () => {
                 </section>
               )}
 
-              {/* Latest Videos — VIDEO COUNT HIDDEN from public */}
+              {/* Latest Videos — NO video count shown publicly */}
               <section className="mb-10">
                 <SectionHeader
                   icon={FiClock}
@@ -626,17 +649,10 @@ const HomePage = () => {
                 )}
               </section>
 
-              {/* CATEGORIES: Only render when feature is enabled */}
-              {CATEGORIES_ENABLED && categories.length > 0 && (
-                <section id="categories" className="mb-10">
-                  <SectionHeader title="Browse Categories" iconColor="text-purple-500" />
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
-                    {categories.map((category) => (
-                      <CategoryCard key={category._id} category={category} />
-                    ))}
-                  </div>
-                </section>
-              )}
+              {/* ============================================================
+                  CATEGORIES SECTION — DISABLED
+                  To re-enable: change SHOW_CATEGORIES to true at the top
+                  ============================================================ */}
 
               {/* SEO Section */}
               <section className="mb-10 bg-white dark:bg-dark-200 rounded-xl p-6">
@@ -766,23 +782,6 @@ const SectionHeader = ({ icon: Icon, title, link, linkText, iconColor = 'text-pr
       </Link>
     )}
   </div>
-);
-
-// ==================== CATEGORY CARD (kept for future re-enable) ====================
-const CategoryCard = ({ category }) => (
-  <Link
-    to={`/category/${category.slug}`}
-    className="group card p-4 text-center hover:shadow-lg transition-all"
-    style={{ borderTop: `3px solid ${category.color || '#ef4444'}` }}
-  >
-    <div className="text-3xl mb-2">{category.icon || '📁'}</div>
-    <h3 className="font-medium text-gray-900 dark:text-white group-hover:text-primary-600 transition-colors text-sm sm:text-base">
-      {category.name}
-    </h3>
-    <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-1">
-      {category.videoCount || 0} videos
-    </p>
-  </Link>
 );
 
 export default HomePage;
