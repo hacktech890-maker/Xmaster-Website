@@ -1,6 +1,7 @@
 import React, { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
+import { CATEGORIES_ENABLED } from './config/features';
 import LoadingSpinner from './components/common/LoadingSpinner';
 import Navbar from './components/common/Navbar';
 import Footer from './components/common/Footer';
@@ -46,19 +47,27 @@ function App() {
           <Route path="/watch/:id" element={<PublicLayout><WatchPage /></PublicLayout>} />
           <Route path="/watch/:id/:slug" element={<PublicLayout><WatchPage /></PublicLayout>} />
           <Route path="/search" element={<PublicLayout><SearchPage /></PublicLayout>} />
-          <Route path="/category/:slug" element={<PublicLayout><CategoryPage /></PublicLayout>} />
           <Route path="/trending" element={<PublicLayout><TrendingPage /></PublicLayout>} />
           <Route path="/tag/:tag" element={<PublicLayout><SearchPage /></PublicLayout>} />
+
+          {/* CATEGORIES: Only render route when enabled */}
+          {CATEGORIES_ENABLED && (
+            <Route path="/category/:slug" element={<PublicLayout><CategoryPage /></PublicLayout>} />
+          )}
 
           <Route path="/xmaster-admin" element={<AdminLogin />} />
           <Route path="/admin/dashboard" element={<AdminLayout><Dashboard /></AdminLayout>} />
           <Route path="/admin/videos" element={<AdminLayout><VideosManager /></AdminLayout>} />
           <Route path="/admin/upload" element={<AdminLayout><UploadPage /></AdminLayout>} />
-          <Route path="/admin/categories" element={<AdminLayout><CategoriesManager /></AdminLayout>} />
           <Route path="/admin/comments" element={<AdminLayout><CommentsManager /></AdminLayout>} />
           <Route path="/admin/ads" element={<AdminLayout><AdsManager /></AdminLayout>} />
           <Route path="/admin/reports" element={<AdminLayout><ReportsPage /></AdminLayout>} />
           <Route path="/admin/duplicates" element={<AdminLayout><DuplicateManager /></AdminLayout>} />
+
+          {/* CATEGORIES: Only render admin route when enabled */}
+          {CATEGORIES_ENABLED && (
+            <Route path="/admin/categories" element={<AdminLayout><CategoriesManager /></AdminLayout>} />
+          )}
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

@@ -8,6 +8,7 @@ import {
   FiGrid,
   FiSearch,
 } from "react-icons/fi";
+import { CATEGORIES_ENABLED } from "../../config/features";
 import SearchBar from "./SearchBar";
 import ThemeToggle from "./ThemeToggle";
 
@@ -15,10 +16,14 @@ const Navbar = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
 
+  // Build nav links — categories only included when enabled
   const navLinks = [
     { name: "Home", path: "/", icon: FiHome },
     { name: "Trending", path: "/trending", icon: FiTrendingUp },
-    { name: "Categories", path: "/#categories", icon: FiGrid },
+    // CATEGORIES: link only shows when feature is enabled
+    ...(CATEGORIES_ENABLED
+      ? [{ name: "Categories", path: "/#categories", icon: FiGrid }]
+      : []),
   ];
 
   return (

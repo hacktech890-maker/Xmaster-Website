@@ -7,9 +7,19 @@ import { VideoGridSkeleton } from '../../components/video/VideoGrid';
 import VideoCard from '../../components/video/VideoCard';
 import CommentForm from '../../components/comments/CommentForm';
 import CommentsList from '../../components/comments/CommentsList';
+import { CATEGORIES_ENABLED } from '../../config/features';
+
+// ==================== SHUFFLE UTILITY ====================
+const shuffleArray = (array) => {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+};
 
 // ==================== SMART AD SLOT ====================
-// Hides itself completely if ad fails to load
 const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
   const containerRef = useRef(null);
   const wrapperRef = useRef(null);
@@ -33,7 +43,6 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
       try {
         let processedCode = adCode;
 
-        // Replace container IDs with unique ones
         const containerMatches = [...processedCode.matchAll(/id="(container-[a-f0-9]+)"/g)];
         for (const match of containerMatches) {
           const originalId = match[1];
@@ -41,7 +50,6 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
           processedCode = processedCode.split(originalId).join(newId);
         }
 
-        // Separate HTML and scripts
         const nonScript = processedCode.replace(/<script[\s\S]*?<\/script>/gi, "").trim();
 
         if (nonScript) {
@@ -51,7 +59,6 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
           container.appendChild(div);
         }
 
-        // Extract scripts
         const tempDiv = document.createElement("div");
         tempDiv.innerHTML = processedCode;
         const scripts = tempDiv.querySelectorAll("script");
@@ -62,15 +69,13 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
 
         const checkComplete = () => {
           if (scriptsLoaded + scriptsFailed >= totalScripts) {
-            // Wait a bit then check if ad actually rendered
             setTimeout(() => {
               if (!mountedRef.current) return;
-              
+
               const hasIframe = container.querySelector('iframe');
               const hasAdContent = container.querySelector('div[id^="container-"]');
               const containerHeight = container.offsetHeight;
-              
-              // Check if the ad container div has content
+
               let adDivHasContent = false;
               if (hasAdContent) {
                 adDivHasContent = hasAdContent.children.length > 0 || hasAdContent.offsetHeight > 10;
@@ -87,7 +92,6 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
           }
         };
 
-        // Load scripts sequentially
         const loadNext = (index) => {
           if (index >= totalScripts || !mountedRef.current) {
             checkComplete();
@@ -104,14 +108,8 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
           if (orig.src) {
             s.src = orig.src;
             s.async = true;
-            s.onload = () => {
-              scriptsLoaded++;
-              loadNext(index + 1);
-            };
-            s.onerror = () => {
-              scriptsFailed++;
-              loadNext(index + 1);
-            };
+            s.onload = () => { scriptsLoaded++; loadNext(index + 1); };
+            s.onerror = () => { scriptsFailed++; loadNext(index + 1); };
           } else if (orig.textContent) {
             s.textContent = orig.textContent;
             scriptsLoaded++;
@@ -123,7 +121,6 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
 
         loadNext(0);
 
-        // Fallback: if nothing happens after 8 seconds, hide
         const fallbackTimer = setTimeout(() => {
           if (!mountedRef.current) return;
           const hasIframe = container.querySelector('iframe');
@@ -150,7 +147,6 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
     };
   }, [adCode]);
 
-  // If no ad code or ad failed, render nothing (no space taken)
   if (!adCode || adFailed) return null;
 
   return (
@@ -158,9 +154,6 @@ const AdSlot = ({ adCode, label = "Sponsored", className = "" }) => {
       ref={wrapperRef}
       className={`ad-slot ${className} transition-all duration-300`}
       style={{
-        // Before load confirmation: show minimal height
-        // After load: auto height
-        // Failed: component returns null above
         minHeight: adLoaded ? 'auto' : '0px',
         overflow: adLoaded ? 'visible' : 'hidden',
         opacity: adLoaded ? 1 : 0,
@@ -264,57 +257,40 @@ const GlobalAdsLoader = () => {
   return null;
 };
 
-// ==================== IN-FEED AD (NO LOOPING) ====================
-// Uses different ad types to prevent repetition
+// ==================== IN-FEED AD ====================
 const IN_FEED_AD_TYPES = ['nativeBanner', 'footer300x250', 'mobile320x50'];
 
 const InFeedAd = React.memo(({ isMobile, adIndex = 0 }) => {
-  // Cycle through different ad types to prevent same ad repeating
   const adType = IN_FEED_AD_TYPES[adIndex % IN_FEED_AD_TYPES.length];
 
-  // Pick ad code based on type and device
   let adCode;
   if (isMobile) {
     switch (adType) {
-      case 'nativeBanner':
-        adCode = ADS.nativeBanner;
-        break;
-      case 'footer300x250':
-        adCode = ADS.footer300x250;
-        break;
-      case 'mobile320x50':
-        adCode = ADS.mobile320x50;
-        break;
-      default:
-        adCode = ADS.nativeBanner;
+      case 'nativeBanner': adCode = ADS.nativeBanner; break;
+      case 'footer300x250': adCode = ADS.footer300x250; break;
+      case 'mobile320x50': adCode = ADS.mobile320x50; break;
+      default: adCode = ADS.nativeBanner;
     }
   } else {
     adCode = ADS.nativeBanner;
   }
 
-  // Wrapper that collapses if AdSlot returns null
-  return (
-    <InFeedAdWrapper isMobile={isMobile} adCode={adCode} />
-  );
+  return <InFeedAdWrapper isMobile={isMobile} adCode={adCode} />;
 });
 
-// Separate wrapper so it collapses when ad fails
 const InFeedAdWrapper = ({ isMobile, adCode }) => {
   const [hasAd, setHasAd] = useState(true);
   const wrapperRef = useRef(null);
 
-  // Monitor if the AdSlot inside rendered or not
   useEffect(() => {
     const timer = setTimeout(() => {
       if (wrapperRef.current) {
         const adSlot = wrapperRef.current.querySelector('.ad-slot');
-        // If AdSlot returned null, it won't be in the DOM
         if (!adSlot || adSlot.offsetHeight === 0) {
           setHasAd(false);
         }
       }
     }, 10000);
-
     return () => clearTimeout(timer);
   }, []);
 
@@ -356,7 +332,6 @@ const HomePage = () => {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
-  const [totalVideos, setTotalVideos] = useState(0);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
 
   const observerRef = useRef(null);
@@ -387,23 +362,32 @@ const HomePage = () => {
         const response = await publicAPI.getHomeData();
         if (response.data && response.data.success) {
           const data = response.data.data;
-          setFeaturedVideos(data.featuredVideos || []);
-          setCategories(data.categories || []);
+          // Shuffle featured videos for randomness
+          setFeaturedVideos(shuffleArray(data.featuredVideos || []));
+          // CATEGORIES: only load when enabled
+          if (CATEGORIES_ENABLED) {
+            setCategories(data.categories || []);
+          }
         }
       } catch (err) {
         console.error('Home data error:', err);
       }
 
       try {
-        const res = await publicAPI.getVideos({ page: 1, limit: 40, sort: 'newest' });
+        // Add cache-busting timestamp to prevent cached results
+        const res = await publicAPI.getVideos({
+          page: 1,
+          limit: 40,
+          sort: 'newest',
+          _t: Date.now()
+        });
         const d = res.data;
 
         if (d && d.videos && d.videos.length > 0) {
-          setAllVideos(d.videos);
+          // RANDOMIZATION FIX: shuffle videos so order changes on every reload
+          setAllVideos(shuffleArray(d.videos));
           pageRef.current = 1;
-          const total = d.pagination?.total || 0;
           const pages = d.pagination?.pages || 1;
-          setTotalVideos(total);
           if (pages <= 1) { setHasMore(false); hasMoreRef.current = false; }
         } else {
           setHasMore(false);
@@ -430,19 +414,25 @@ const HomePage = () => {
     const nextPage = pageRef.current + 1;
 
     try {
-      const res = await publicAPI.getVideos({ page: nextPage, limit: 40, sort: 'newest' });
+      const res = await publicAPI.getVideos({
+        page: nextPage,
+        limit: 40,
+        sort: 'newest',
+        _t: Date.now()
+      });
       const d = res.data;
 
       if (d && d.videos && d.videos.length > 0) {
         failCountRef.current = 0;
+        // Shuffle each new batch too
+        const shuffledNew = shuffleArray(d.videos);
         setAllVideos(prev => {
           const ids = new Set(prev.map(v => v._id));
-          const unique = d.videos.filter(v => !ids.has(v._id));
+          const unique = shuffledNew.filter(v => !ids.has(v._id));
           return [...prev, ...unique];
         });
         pageRef.current = nextPage;
         if (d.pagination) {
-          setTotalVideos(d.pagination.total || 0);
           if (nextPage >= d.pagination.pages) { setHasMore(false); hasMoreRef.current = false; }
         }
       } else {
@@ -510,9 +500,7 @@ const HomePage = () => {
       );
     }
 
-    // Show ads less frequently: every 12 on mobile, every 24 on desktop
     const videosPerAdBreak = isMobile ? 12 : 24;
-    // Maximum number of in-feed ads to prevent looping
     const maxInFeedAds = 3;
 
     const items = [];
@@ -521,7 +509,6 @@ const HomePage = () => {
     for (let i = 0; i < allVideos.length; i++) {
       items.push(<VideoCard key={allVideos[i]._id} video={allVideos[i]} />);
 
-      // Insert ad break, but limit total number
       if (
         (i + 1) % videosPerAdBreak === 0 &&
         i < allVideos.length - 1 &&
@@ -602,11 +589,11 @@ const HomePage = () => {
                 </section>
               )}
 
-              {/* Latest Videos */}
+              {/* Latest Videos — VIDEO COUNT HIDDEN from public */}
               <section className="mb-10">
                 <SectionHeader
                   icon={FiClock}
-                  title={`Latest Videos${totalVideos > 0 ? ` (${totalVideos})` : ''}`}
+                  title="Latest Videos"
                   link="/search?sort=newest"
                   linkText="View All"
                   iconColor="text-blue-500"
@@ -631,7 +618,7 @@ const HomePage = () => {
                       )}
                       {!hasMore && allVideos.length > 0 && (
                         <p className="text-gray-500 dark:text-gray-400 text-sm">
-                          You've reached the end • {allVideos.length} videos loaded
+                          You've reached the end
                         </p>
                       )}
                     </div>
@@ -639,8 +626,8 @@ const HomePage = () => {
                 )}
               </section>
 
-              {/* Categories */}
-              {categories.length > 0 && (
+              {/* CATEGORIES: Only render when feature is enabled */}
+              {CATEGORIES_ENABLED && categories.length > 0 && (
                 <section id="categories" className="mb-10">
                   <SectionHeader title="Browse Categories" iconColor="text-purple-500" />
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
@@ -781,7 +768,7 @@ const SectionHeader = ({ icon: Icon, title, link, linkText, iconColor = 'text-pr
   </div>
 );
 
-// ==================== CATEGORY CARD ====================
+// ==================== CATEGORY CARD (kept for future re-enable) ====================
 const CategoryCard = ({ category }) => (
   <Link
     to={`/category/${category.slug}`}

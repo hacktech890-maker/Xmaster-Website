@@ -6,6 +6,7 @@ import {
   FiCopy
 } from 'react-icons/fi';
 import { useAuth } from '../../context/AuthContext';
+import { CATEGORIES_ENABLED } from '../../config/features';
 
 const AdminSidebar = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -13,11 +14,15 @@ const AdminSidebar = () => {
   const navigate = useNavigate();
   const { logout } = useAuth();
 
+  // Build menu items — categories only included when enabled
   const menuItems = [
     { name: 'Dashboard', path: '/admin/dashboard', icon: FiHome },
     { name: 'Videos', path: '/admin/videos', icon: FiVideo },
     { name: 'Upload', path: '/admin/upload', icon: FiUpload },
-    { name: 'Categories', path: '/admin/categories', icon: FiGrid },
+    // CATEGORIES: menu item only shows when feature is enabled
+    ...(CATEGORIES_ENABLED
+      ? [{ name: 'Categories', path: '/admin/categories', icon: FiGrid }]
+      : []),
     { name: 'Comments', path: '/admin/comments', icon: FiMessageSquare },
     { name: 'Duplicates', path: '/admin/duplicates', icon: FiCopy },
     { name: 'Ads', path: '/admin/ads', icon: FiDollarSign },
