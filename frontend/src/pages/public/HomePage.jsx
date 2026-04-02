@@ -170,7 +170,7 @@ const GlobalAdsLoader = () => {
     addScript("https://pl28704173.effectivegatecpm.com/52/ef/a1/52efa111bceee1130b219af1074a5f95.js", 500);
     addScript("https://www.effectivegatecpm.com/sbfz9bs1c?key=4b48edda8bb87faa2b8f8b8708c46b0b", 1000);
     return () => {
-      scripts.forEach(s => { try { if (document.body.contains(s)) document.body.removeChild(s); } catch (e) {} });
+      scripts.forEach(s => { try { if (document.body.contains(s)) document.body.removeChild(s); } catch (e) { } });
       loaded.current = false;
     };
   }, []);
@@ -476,10 +476,9 @@ const HomePage = () => {
                 <SectionHeader
                   icon={FiClock}
                   title="Latest Videos"
-                  link="/search?sort=newest"
-                  linkText="View All"
                   iconColor="text-blue-500"
                 />
+
 
                 {loading ? <VideoGridSkeleton count={12} columns={4} /> : (
                   <>
@@ -500,51 +499,6 @@ const HomePage = () => {
               </section>
 
               {/* SEO Tags — these are SEARCH links, NOT category cards */}
-              <section className="mb-10 bg-white dark:bg-dark-200 rounded-xl p-6">
-                <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">
-                  Popular Searches on Xmaster
-                </h2>
-                <div className="flex flex-wrap gap-2 mb-6">
-                  {SEO_TAGS.map((tag, i) => (
-                    <Link
-                      key={i}
-                      to={`/search?q=${encodeURIComponent(tag)}`}
-                      className="px-3 py-1.5 bg-gray-100 dark:bg-dark-100 text-gray-700 dark:text-gray-300 text-xs rounded-full hover:bg-primary-600 hover:text-white transition-colors"
-                    >
-                      {tag}
-                    </Link>
-                  ))}
-                </div>
-
-                <div className="text-sm text-gray-500 dark:text-gray-400 space-y-3 leading-relaxed">
-                  <p>
-                    <strong>Xmaster</strong> is your ultimate destination for free porn videos online.
-                    We offer a massive collection of HD and 4K Porn content updated daily.
-                  </p>
-                  <p>
-                    Looking for an alternative to pornhub, xhamster, or xvideos? Xmaster provides
-                    the same premium experience with faster streaming, better video quality, and a
-                    cleaner interface.
-                  </p>
-                  <p>
-                    Whether you enjoy anal, hardcore, sex videos, latest porn, MMS videos, desi content, or
-                    any other type, Xmaster has thousands of free porn videos ready to stream.
-                    No signup required.
-                  </p>
-                </div>
-
-                <h3 className="text-base font-semibold text-gray-900 dark:text-white mt-6 mb-3">
-                  Why Choose Xmaster?
-                </h3>
-                <ul className="text-sm text-gray-500 dark:text-gray-400 space-y-2 list-disc list-inside">
-                  <li>Free HD & 4K porn video streaming</li>
-                  <li>Thousands of porn videos updated daily</li>
-                  <li>Fast loading and smooth playback</li>
-                  <li>Works on all devices - mobile, desktop, tablet</li>
-                  <li>No registration required</li>
-                  <li>Best alternative to pornhub, xhamster, xvideos</li>
-                </ul>
-              </section>
 
               {/* Comments — directly after SEO, NO categories above */}
               <section className="mb-10">
@@ -577,17 +531,7 @@ const HomePage = () => {
                   <AdSlot adCode={ADS.sidebar160x300} label="Sponsored" />
                 </div>
 
-                <div className="card p-4">
-                  <h3 className="font-semibold text-gray-900 dark:text-white mb-3 text-sm">Popular Searches</h3>
-                  <div className="flex flex-wrap gap-1.5">
-                    {["HD Porn", "Amateur", "MILF", "Teen", "Desi", "MMS", "Anal", "POV", "Lesbian", "Homemade", "Indian", "Webcam"].map((tag, i) => (
-                      <Link key={i} to={`/search?q=${encodeURIComponent(tag)}`}
-                        className="px-2 py-1 bg-dark-100 text-gray-400 text-[10px] rounded hover:bg-primary-600 hover:text-white transition-colors">
-                        {tag}
-                      </Link>
-                    ))}
-                  </div>
-                </div>
+                
               </div>
             </aside>
           </div>
