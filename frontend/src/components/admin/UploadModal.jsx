@@ -1,167 +1,192 @@
-import React, { useState } from 'react';
-import { FiX, FiUpload } from 'react-icons/fi';
+// src/components/admin/UploadModal.jsx
+// Quick upload modal for admin — used from dashboard / videos page
+// Lightweight version of UploadPage
 
-const UploadModal = ({ isOpen, onClose, onUpload }) => {
-  const [file, setFile] = useState(null);
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [category, setCategory] = useState('');
+import React, { useState, useCallback } from 'react';
+import { useDropzone } from 'react-dropzone';
+import { FiUpload, FiX, FiCheck, FiFile } from 'react-icons/fi';
+import toast from 'react-hot-toast';
+
+import { adminAPI } from '../../services/api';
+import Modal        from '../common/Modal';
+
+// ============================================================
+// UPLOAD MODAL
+// ============================================================
+
+const UploadModal = ({
+  isOpen,
+  onClose,
+  onSuccess,
+}) => {
+  const [file,      setFile]      = useState(null);
+  const [title,     setTitle]     = useState('');
+  const [progress,  setProgress]  = useState(0);
   const [uploading, setUploading] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const [error,     setError]     = useState('');
 
-  if (!isOpen) return null;
-
-  const handleFileChange = (e) => {
-    const selectedFile = e.target.files[0];
-    if (selectedFile) {
-      setFile(selectedFile);
-      if (!title) {
-        setTitle(selectedFile.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' '));
-      }
+  const onDrop = useCallback((accepted) => {
+    const f = accepted[0];
+    if (!f) return;
+    setFile(f);
+    setError('');
+    if (!title) {
+      const name = f.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ');
+      setTitle(name);
     }
+  }, [title]);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: { 'video/*': ['.mp4', '.mkv', '.avi', '.mov', '.webm'] },
+    maxFiles: 1,
+  });
+
+  const handleClose = () => {
+    if (uploading) return;
+    setFile(null);
+    setTitle('');
+    setProgress(0);
+    setError('');
+    onClose();
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!file || !title.trim()) return;
+  const handleUpload = async () => {
+    if (!file || !title.trim()) {
+      setError('File and title are required');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('video', file);
+    formData.append('title', title.trim());
+    formData.append('status', 'private');
 
     setUploading(true);
-    setProgress(0);
+    setError('');
 
     try {
-      const formData = new FormData();
-      formData.append('video', file);
-      formData.append('title', title.trim());
-      formData.append('description', description.trim());
-      if (category) formData.append('category', category);
-
-      await onUpload(formData, (prog) => setProgress(prog));
-
-      // Reset form
-      setFile(null);
-      setTitle('');
-      setDescription('');
-      setCategory('');
-      onClose();
-    } catch (error) {
-      console.error('Upload failed:', error);
+      await adminAPI.uploadVideo(formData, (pct) => setProgress(pct));
+      toast.success('Video uploaded!');
+      onSuccess?.();
+      handleClose();
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Upload failed');
     } finally {
       setUploading(false);
-      setProgress(0);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Overlay */}
-      <div className="absolute inset-0 bg-black/60" onClick={!uploading ? onClose : undefined} />
+    <Modal
+      isOpen={isOpen}
+      onClose={handleClose}
+      title="Quick Upload"
+      size="md"
+      showClose={!uploading}
+    >
+      <div className="space-y-4">
 
-      {/* Modal */}
-      <div className="relative bg-white dark:bg-dark-200 rounded-2xl w-full max-w-lg shadow-2xl z-10">
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-dark-100">
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white">Upload Video</h2>
-          {!uploading && (
-            <button onClick={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-dark-100 rounded-lg">
-              <FiX className="w-5 h-5 text-gray-500" />
-            </button>
+        {/* Drop zone */}
+        <div
+          {...getRootProps()}
+          className={`
+            rounded-xl p-6 border-2 border-dashed cursor-pointer
+            text-center transition-all duration-250
+            ${isDragActive
+              ? 'border-primary-600/60 bg-primary-600/8'
+              : file
+                ? 'border-emerald-500/40 bg-emerald-500/5'
+                : 'border-white/12 hover:border-white/25 hover:bg-white/3'
+            }
+          `}
+        >
+          <input {...getInputProps()} />
+          {file ? (
+            <div className="flex flex-col items-center gap-2">
+              <FiFile className="w-8 h-8 text-emerald-400" />
+              <p className="text-sm font-semibold text-white">{file.name}</p>
+              <p className="text-xs text-white/40">
+                {(file.size / 1024 / 1024).toFixed(1)} MB
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-2">
+              <FiUpload className={`w-8 h-8 ${isDragActive ? 'text-primary-400' : 'text-white/25'}`} />
+              <p className="text-sm text-white/60">
+                {isDragActive ? 'Drop here' : 'Drag video or click to browse'}
+              </p>
+            </div>
           )}
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          {/* File Input */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Video File
-            </label>
-            <div className="border-2 border-dashed border-gray-300 dark:border-dark-100 rounded-xl p-6 text-center">
-              {file ? (
-                <div>
-                  <p className="text-sm text-gray-900 dark:text-white font-medium">{file.name}</p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {(file.size / (1024 * 1024)).toFixed(2)} MB
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setFile(null)}
-                    className="text-xs text-red-500 mt-2 hover:underline"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ) : (
-                <label className="cursor-pointer">
-                  <FiUpload className="w-8 h-8 mx-auto text-gray-400 mb-2" />
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Click to select video</p>
-                  <p className="text-xs text-gray-500 mt-1">MP4, MKV, AVI, MOV (Max 10GB)</p>
-                  <input
-                    type="file"
-                    accept="video/*"
-                    onChange={handleFileChange}
-                    className="hidden"
-                  />
-                </label>
-              )}
+        {/* Title input */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold text-white/40 uppercase tracking-widest">
+            Title
+          </label>
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Video title"
+            className="input-base"
+          />
+        </div>
+
+        {/* Progress */}
+        {uploading && (
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-xs">
+              <span className="text-white/50">Uploading...</span>
+              <span className="text-primary-400 font-bold">{progress}%</span>
+            </div>
+            <div className="h-1.5 bg-white/8 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-primary-700 to-primary-500 rounded-full transition-all duration-300"
+                style={{ width: `${progress}%` }}
+              />
             </div>
           </div>
+        )}
 
-          {/* Title */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Title *
-            </label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Enter video title"
-              className="input-field"
-              required
-            />
-          </div>
+        {/* Error */}
+        {error && (
+          <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+            {error}
+          </p>
+        )}
 
-          {/* Description */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Description
-            </label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Enter description (optional)"
-              rows={3}
-              className="input-field resize-none"
-            />
-          </div>
-
-          {/* Progress Bar */}
-          {uploading && (
-            <div>
-              <div className="flex justify-between text-sm mb-1">
-                <span className="text-gray-600 dark:text-gray-400">Uploading...</span>
-                <span className="text-gray-900 dark:text-white font-medium">{progress}%</span>
-              </div>
-              <div className="w-full h-3 bg-gray-200 dark:bg-dark-100 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-primary-500 transition-all duration-300 rounded-full"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Submit */}
+        {/* Actions */}
+        <div className="flex gap-2 pt-1">
           <button
-            type="submit"
-            disabled={!file || !title.trim() || uploading}
-            className="btn-primary w-full py-3 disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={handleUpload}
+            disabled={uploading || !file || !title.trim()}
+            className="
+              flex-1 py-2.5 rounded-xl font-bold text-sm text-white
+              bg-gradient-to-r from-primary-600 to-primary-700
+              hover:from-primary-500 hover:to-primary-600
+              disabled:opacity-40 disabled:pointer-events-none
+              flex items-center justify-center gap-2
+              transition-all duration-200
+            "
           >
-            {uploading ? `Uploading... ${progress}%` : 'Upload Video'}
+            {uploading ? (
+              <><span className="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />Uploading {progress}%</>
+            ) : (
+              <><FiUpload className="w-4 h-4" />Upload</>
+            )}
           </button>
-        </form>
+          <button
+            onClick={handleClose}
+            disabled={uploading}
+            className="px-4 py-2.5 rounded-xl text-sm btn-ghost border border-white/8"
+          >
+            Cancel
+          </button>
+        </div>
       </div>
-    </div>
+    </Modal>
   );
 };
 

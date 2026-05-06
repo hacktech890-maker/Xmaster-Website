@@ -1,116 +1,336 @@
+/* src/index.css */
+/* REPLACED: New premium design system CSS */
+
+/* Base Tailwind imports */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ============================================
-   CUSTOM SCROLLBAR
-   ============================================ */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: #3f3f3f #1e1e1e;
+/* Custom animations and glass effects */
+@import './styles/animations.css';
+@import './styles/glassmorphism.css';
+
+/* ============================================================
+   CSS CUSTOM PROPERTIES (Design Tokens)
+   ============================================================ */
+
+:root {
+  /* Primary colors */
+  --color-primary:     #e11d48;
+  --color-primary-dark:#be123c;
+  --color-primary-light:#f43f5e;
+
+  /* Background colors */
+  --color-bg-darkest:  #0a0a0a;
+  --color-bg-dark:     #0f0f0f;
+  --color-bg-card:     #141414;
+  --color-bg-elevated: #1a1a1a;
+  --color-bg-surface:  #222222;
+
+  /* Text colors */
+  --color-text-primary:   #ffffff;
+  --color-text-secondary: rgba(255,255,255,0.65);
+  --color-text-muted:     rgba(255,255,255,0.35);
+  --color-text-accent:    #e11d48;
+
+  /* Border colors */
+  --color-border:         rgba(255,255,255,0.07);
+  --color-border-hover:   rgba(255,255,255,0.15);
+  --color-border-active:  rgba(225,29,72,0.4);
+
+  /* Spacing */
+  --nav-height:        64px;
+  --sidebar-width:     260px;
+  --max-width:         1400px;
+
+  /* Transitions */
+  --transition-fast:   150ms ease;
+  --transition-normal: 250ms ease;
+  --transition-slow:   400ms ease;
+
+  /* Z-index layers */
+  --z-base:       1;
+  --z-dropdown:   100;
+  --z-sticky:     200;
+  --z-fixed:      300;
+  --z-modal-bg:   400;
+  --z-modal:      500;
+  --z-tooltip:    600;
+  --z-disclaimer: 9999;
 }
 
-*::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+/* ============================================================
+   BASE RESET & GLOBAL STYLES
+   ============================================================ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
-*::-webkit-scrollbar-track {
-  background: #1e1e1e;
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
 }
 
-*::-webkit-scrollbar-thumb {
-  background: #3f3f3f;
-  border-radius: 4px;
-}
-
-*::-webkit-scrollbar-thumb:hover {
-  background: #555;
-}
-
-/* ============================================
-   BASE STYLES
-   ============================================ */
 body {
-  font-family: 'Inter', 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: 'Inter', 'Roboto', -apple-system, BlinkMacSystemFont,
+               'Segoe UI', sans-serif;
+  background-color: var(--color-bg-dark);
+  color: var(--color-text-primary);
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
 }
 
-/* ============================================
-   COMPONENT CLASSES
-   ============================================ */
+/* Dark mode is default and always on */
+html.dark body {
+  background-color: var(--color-bg-dark);
+  color: var(--color-text-primary);
+}
+
+/* ============================================================
+   TYPOGRAPHY
+   ============================================================ */
+
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+img {
+  max-width: 100%;
+  display: block;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  background: none;
+  font-family: inherit;
+}
+
+input, textarea, select {
+  font-family: inherit;
+}
+
+/* ============================================================
+   COMPONENT UTILITIES (@layer components)
+   ============================================================ */
+
 @layer components {
+
+  /* Button variants */
   .btn-primary {
-    @apply bg-primary-600 hover:bg-primary-700 text-white font-medium py-2 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2;
+    @apply inline-flex items-center justify-center gap-2
+           px-5 py-2.5 rounded-xl font-semibold text-sm
+           bg-primary-600 text-white
+           hover:bg-primary-500 active:bg-primary-700
+           transition-all duration-200
+           focus:outline-none focus:ring-2 focus:ring-primary-500/50;
   }
 
   .btn-secondary {
-    @apply bg-gray-200 dark:bg-dark-100 hover:bg-gray-300 dark:hover:bg-dark-200 text-gray-900 dark:text-white font-medium py-2 px-4 rounded-lg transition-all duration-200;
+    @apply inline-flex items-center justify-center gap-2
+           px-5 py-2.5 rounded-xl font-semibold text-sm
+           bg-white/10 text-white
+           hover:bg-white/20 active:bg-white/5
+           transition-all duration-200 border border-white/10
+           focus:outline-none focus:ring-2 focus:ring-white/20;
   }
 
-  .btn-outline {
-    @apply border border-primary-600 text-primary-600 hover:bg-primary-600 hover:text-white font-medium py-2 px-4 rounded-lg transition-all duration-200;
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2
+           px-4 py-2 rounded-lg font-medium text-sm
+           text-white/70 hover:text-white hover:bg-white/10
+           transition-all duration-200
+           focus:outline-none;
   }
 
-  .input-field {
-    @apply w-full px-4 py-2.5 bg-gray-100 dark:bg-dark-200 border border-gray-200 dark:border-dark-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all duration-200 text-gray-900 dark:text-white placeholder-gray-500;
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2
+           px-5 py-2.5 rounded-xl font-semibold text-sm
+           bg-red-600/20 text-red-400 border border-red-600/30
+           hover:bg-red-600/30 hover:text-red-300
+           transition-all duration-200
+           focus:outline-none;
   }
 
-  .card {
-    @apply bg-white dark:bg-dark-200 rounded-xl shadow-lg overflow-hidden transition-all duration-300;
+  /* Input variants */
+  .input-base {
+    @apply w-full px-4 py-3 rounded-xl text-sm
+           bg-white/5 border border-white/10 text-white
+           placeholder:text-white/30
+           focus:outline-none focus:border-primary-500/60
+           focus:bg-white/8 transition-all duration-200;
+  }
+
+  /* Card variants */
+  .card-base {
+    @apply rounded-xl bg-dark-200 border border-white/5
+           transition-all duration-250;
   }
 
   .card-hover {
-    @apply hover:shadow-xl hover:scale-[1.02] cursor-pointer;
+    @apply hover:bg-dark-100 hover:border-white/10
+           hover:-translate-y-0.5 hover:shadow-2xl
+           hover:shadow-black/50;
   }
 
-  .sidebar-link {
-    @apply flex items-center gap-3 px-4 py-3 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-dark-100 transition-all duration-200;
-  }
-
-  .sidebar-link-active {
-    @apply bg-primary-600 text-white hover:bg-primary-700;
-  }
-
-  .badge {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
-  }
-
-  .badge-success {
-    @apply bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200;
-  }
-
-  .badge-warning {
-    @apply bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200;
-  }
-
-  .badge-danger {
-    @apply bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200;
-  }
-
+  /* Badge variants */
   .badge-primary {
-    @apply bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200;
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full
+           text-xs font-semibold
+           bg-primary-600/20 text-primary-400
+           border border-primary-600/30;
   }
 
-  .table-row {
-    @apply border-b border-gray-100 dark:border-dark-100 hover:bg-gray-50 dark:hover:bg-dark-100 transition-colors;
+  .badge-premium {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full
+           text-xs font-bold tracking-wider
+           bg-gradient-to-r from-amber-500/20 to-orange-500/20
+           text-amber-400 border border-amber-500/30;
   }
+
+  /* Section title */
+  .section-title {
+    @apply text-xl font-bold text-white
+           flex items-center gap-3;
+  }
+
+  .section-title::before {
+    content: '';
+    @apply inline-block w-1 h-6 bg-primary-600 rounded-full;
+  }
+
+  /* Scrollable row */
+  .scroll-row {
+    @apply flex gap-4 overflow-x-auto pb-2;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .scroll-row > * {
+    scroll-snap-align: start;
+    flex-shrink: 0;
+  }
+
+  /* Admin table */
+  .admin-table {
+    @apply w-full border-collapse;
+  }
+
+  .admin-table th {
+    @apply px-4 py-3 text-left text-xs font-semibold
+           text-white/40 uppercase tracking-wider
+           border-b border-white/5;
+  }
+
+  .admin-table td {
+    @apply px-4 py-3 text-sm text-white/80
+           border-b border-white/5;
+  }
+
+  .admin-table tr:hover td {
+    @apply bg-white/3;
+  }
+
+  /* Status badges */
+  .status-public  { @apply bg-emerald-500/20 text-emerald-400 border-emerald-500/30; }
+  .status-private { @apply bg-gray-500/20 text-gray-400 border-gray-500/30; }
+  .status-draft   { @apply bg-amber-500/20 text-amber-400 border-amber-500/30; }
 }
 
-/* ============================================
-   VIDEO PLAYER
-   ============================================ */
-.video-container {
+/* ============================================================
+   CUSTOM TAILWIND UTILITIES
+   ============================================================ */
+
+@layer utilities {
+  .text-gradient {
+    background: linear-gradient(135deg, #e11d48, #f43f5e);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .text-gradient-gold {
+    background: linear-gradient(135deg, #f59e0b, #fbbf24);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .bg-dark-gradient {
+    background: linear-gradient(180deg, #0f0f0f 0%, #141414 100%);
+  }
+
+  .bg-glass-5  { background: rgba(255,255,255,0.05); }
+  .bg-glass-8  { background: rgba(255,255,255,0.08); }
+  .bg-glass-10 { background: rgba(255,255,255,0.10); }
+
+  .border-glass { border-color: rgba(255,255,255,0.07); }
+
+  .shadow-glow-red {
+    box-shadow: 0 0 30px rgba(225,29,72,0.25);
+  }
+
+  .shadow-premium {
+    box-shadow: 0 25px 80px rgba(0,0,0,0.6),
+                0 5px 20px rgba(0,0,0,0.4);
+  }
+
+  /* Horizontal scroll without scrollbar */
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Aspect ratios */
+  .aspect-video-thumb { aspect-ratio: 16/9; }
+  .aspect-portrait    { aspect-ratio: 9/16; }
+
+  /* Truncation */
+  .line-clamp-1 { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+  .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+}
+
+/* ============================================================
+   TAILWIND DARK MODE OVERRIDES (ensure dark is always applied)
+   ============================================================ */
+
+/* Force dark backgrounds */
+.dark {
+  color-scheme: dark;
+}
+
+/* ============================================================
+   VIDEO IFRAME STYLES
+   ============================================================ */
+
+.video-iframe-container {
   position: relative;
-  padding-bottom: 56.25%;
-  height: 0;
-  overflow: hidden;
+  width: 100%;
   background: #000;
   border-radius: 12px;
+  overflow: hidden;
 }
 
-.video-container iframe {
+.video-iframe-container iframe {
   position: absolute;
   top: 0;
   left: 0;
@@ -119,112 +339,71 @@ body {
   border: none;
 }
 
-/* ============================================
-   UTILITIES
-   ============================================ */
-@layer utilities {
-  .gradient-text {
-    @apply bg-gradient-to-r from-primary-500 to-primary-700 bg-clip-text text-transparent;
-  }
-
-  .skeleton {
-    @apply animate-pulse bg-gray-200 dark:bg-dark-100 rounded;
-  }
-
-  .hide-scrollbar {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
-
-  .hide-scrollbar::-webkit-scrollbar {
-    display: none;
-  }
-
-  .text-responsive {
-    @apply text-sm sm:text-base;
-  }
-}
-
-/* ============================================
-   AD SLOT STYLES
-   ============================================ */
-
-/* Base ad slot */
-.ad-slot {
-  width: 100%;
-  overflow: visible;
+/* Video loading shimmer */
+.video-loading-state {
+  position: absolute;
+  inset: 0;
   display: flex;
-  flex-direction: column;
   align-items: center;
-}
-
-/* Hide completely when empty */
-.ad-slot:empty {
-  display: none !important;
-  min-height: 0 !important;
-  max-height: 0 !important;
-  padding: 0 !important;
-  margin: 0 !important;
-}
-
-/* Ad content container */
-.ad-content {
-  width: 100%;
-  display: flex;
   justify-content: center;
+  background: #0a0a0a;
+  border-radius: 12px;
+}
+
+/* ============================================================
+   AD CONTAINERS
+   ============================================================ */
+
+.ad-container {
+  width: 100%;
+  overflow: hidden;
+  border-radius: 8px;
+  min-height: 1px; /* Prevent layout collapse */
+}
+
+/* ============================================================
+   REACT TRANSITIONS
+   ============================================================ */
+
+.page-enter {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.page-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 300ms ease, transform 300ms ease;
+}
+
+.page-exit {
+  opacity: 1;
+}
+
+.page-exit-active {
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+/* ============================================================
+   LOADING OVERLAY
+   ============================================================ */
+
+#root-loading {
+  position: fixed;
+  inset: 0;
+  background: #0f0f0f;
+  display: flex;
   align-items: center;
-  overflow: visible;
-}
-
-/* Responsive iframes */
-.ad-content iframe {
-  max-width: 100% !important;
-  display: block !important;
-  margin: 0 auto !important;
-}
-
-/* Inner content wrapper */
-.ad-inner-content {
-  width: 100%;
-  display: flex;
   justify-content: center;
+  z-index: 9998;
 }
 
-/* Collapse empty ad content */
-.ad-content:empty {
-  display: none !important;
-  min-height: 0 !important;
-}
+/* ============================================================
+   SELECTION HIGHLIGHT
+   ============================================================ */
 
-/* Parent wrappers of failed ads should also collapse */
-.col-span-2:has(.ad-slot:empty),
-.col-span-full:has(.ad-slot:empty),
-.col-span-2:has(> div > .ad-slot:empty),
-.col-span-full:has(> div > .ad-slot:empty) {
-  display: none !important;
-  height: 0 !important;
-  padding: 0 !important;
-  margin: 0 !important;
-  overflow: hidden !important;
-}
-
-/* When ad-slot has no visible children, collapse wrapper */
-div:has(> .ad-slot[style*="max-height: 0px"]) {
-  padding: 0 !important;
-  margin: 0 !important;
-}
-
-/* Mobile ad fixes */
-@media (max-width: 768px) {
-  .ad-content div[id^="container-"] {
-    width: 100% !important;
-    display: flex !important;
-    justify-content: center !important;
-  }
-
-  /* Prevent ad overflow on small screens */
-  .ad-slot {
-    max-width: 100vw;
-    overflow-x: hidden;
-  }
+::selection {
+  background: rgba(225, 29, 72, 0.3);
+  color: #fff;
 }

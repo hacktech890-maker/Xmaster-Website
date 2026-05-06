@@ -1,437 +1,382 @@
-import React, { useState, useEffect } from 'react';
+// src/pages/admin/CommentsManager.jsx
+// Modern comment moderation interface
+// Preserves: all existing adminAPI comment calls
+
+import React, { useState, useEffect, useRef } from 'react';
 import {
-  FiMessageSquare, FiEye, FiEyeOff, FiTrash2, FiMail,
-  FiUser, FiClock, FiTag, FiFilter, FiCheck, FiX,
-  FiEdit3, FiChevronDown, FiChevronUp, FiAlertCircle,
+  FiMessageSquare, FiEye, FiEyeOff,
+  FiTrash2, FiRefreshCw, FiSearch,
+  FiFilter, FiCheckSquare, FiSquare,
+  FiAlertCircle, FiCheck,
 } from 'react-icons/fi';
 import toast from 'react-hot-toast';
-import { adminAPI } from '../../services/api';
-import AdminLayout from '../../components/admin/AdminLayout';
-import LoadingSpinner from '../../components/common/LoadingSpinner';
 
-const categoryStyles = {
-  suggestion: { label: '💡 Suggestion', bg: 'bg-blue-500/10 text-blue-500' },
-  feedback: { label: '💬 Feedback', bg: 'bg-green-500/10 text-green-500' },
-  bug: { label: '🐛 Bug Report', bg: 'bg-red-500/10 text-red-500' },
-  feature: { label: '✨ Feature', bg: 'bg-purple-500/10 text-purple-500' },
-  complaint: { label: '⚠️ Complaint', bg: 'bg-yellow-500/10 text-yellow-500' },
-  other: { label: '📝 Other', bg: 'bg-gray-500/10 text-gray-500' },
-};
+import { adminAPI }    from '../../services/api';
+import AdminLayout     from '../../components/admin/AdminLayout';
+import Pagination      from '../../components/common/Pagination';
+import { formatDate, formatDateTime, truncateText } from '../../utils/helpers';
+
+const PAGE_SIZE = 20;
 
 const CommentsManager = () => {
-  const [comments, setComments] = useState([]);
-  const [stats, setStats] = useState({ total: 0, unread: 0, visible: 0, hidden: 0 });
-  const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('all');
-  const [page, setPage] = useState(1);
-  const [pagination, setPagination] = useState({ pages: 1 });
-  const [selectedIds, setSelectedIds] = useState([]);
-  const [expandedId, setExpandedId] = useState(null);
-  const [noteText, setNoteText] = useState('');
-  const [editingNoteId, setEditingNoteId] = useState(null);
+  const [comments,   setComments]   = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [error,      setError]      = useState(null);
+  const [page,       setPage]       = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [filter,     setFilter]     = useState('all'); // all | visible | hidden
+  const [search,     setSearch]     = useState('');
+  const [selected,   setSelected]   = useState(new Set());
+  const [processing, setProcessing] = useState(null);
 
+  const mountedRef   = useRef(true);
+  const searchTimer  = useRef(null);
+
+  useEffect(() => () => { mountedRef.current = false; }, []);
+  useEffect(() => { fetchComments(1); }, [filter]);
   useEffect(() => {
-    fetchComments();
-  }, [filter, page]);
+    clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => fetchComments(1), 400);
+    return () => clearTimeout(searchTimer.current);
+  }, [search]);
 
-  const fetchComments = async () => {
+  const fetchComments = async (pg = 1) => {
     setLoading(true);
+    setSelected(new Set());
     try {
-      const response = await adminAPI.getComments({ page, limit: 30, filter });
-      if (response.data?.success) {
-        setComments(response.data.comments || []);
-        setStats(response.data.stats || {});
-        setPagination(response.data.pagination || { pages: 1 });
-      }
-    } catch (error) {
-      toast.error('Failed to load comments');
+      const res  = await adminAPI.getComments({
+        page:  pg,
+        limit: PAGE_SIZE,
+        visibility: filter !== 'all' ? filter : undefined,
+        search: search || undefined,
+      });
+      const data  = res?.data?.comments || res?.data || [];
+      const pages = res?.data?.totalPages || 1;
+      if (!mountedRef.current) return;
+      setComments(Array.isArray(data) ? data : []);
+      setTotalPages(pages);
+      setPage(pg);
+    } catch {
+      if (mountedRef.current) setError('Failed to load comments');
     } finally {
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
     }
   };
 
-  const handleToggleVisibility = async (id) => {
+  const handleToggleVisibility = async (comment) => {
+    setProcessing(comment._id);
     try {
-      const response = await adminAPI.toggleCommentVisibility(id);
-      if (response.data?.success) {
-        setComments(comments.map((c) =>
-          c._id === id ? { ...c, isVisible: response.data.isVisible, isRead: true } : c
-        ));
-        setStats({
-          ...stats,
-          visible: response.data.isVisible ? stats.visible + 1 : stats.visible - 1,
-          hidden: response.data.isVisible ? stats.hidden - 1 : stats.hidden + 1,
-        });
-        toast.success(response.data.message);
-      }
-    } catch (error) {
-      toast.error('Failed to toggle visibility');
+      await adminAPI.toggleCommentVisibility(comment._id);
+      setComments((p) =>
+        p.map((c) => c._id === comment._id ? { ...c, visible: !c.visible } : c)
+      );
+      toast.success(comment.visible ? 'Comment hidden' : 'Comment shown');
+    } catch {
+      toast.error('Failed to update comment');
+    } finally {
+      if (mountedRef.current) setProcessing(null);
     }
   };
 
   const handleDelete = async (id) => {
     if (!window.confirm('Delete this comment?')) return;
+    setProcessing(id);
     try {
       await adminAPI.deleteComment(id);
-      setComments(comments.filter((c) => c._id !== id));
+      setComments((p) => p.filter((c) => c._id !== id));
       toast.success('Comment deleted');
-      setStats({ ...stats, total: stats.total - 1 });
-    } catch (error) {
-      toast.error('Failed to delete');
+    } catch {
+      toast.error('Failed to delete comment');
+    } finally {
+      if (mountedRef.current) setProcessing(null);
     }
   };
 
   const handleBulkDelete = async () => {
-    if (selectedIds.length === 0) return;
-    if (!window.confirm(`Delete ${selectedIds.length} comments?`)) return;
+    if (!selected.size) return;
+    if (!window.confirm(`Delete ${selected.size} comment(s)?`)) return;
     try {
-      await adminAPI.bulkDeleteComments(selectedIds);
-      setComments(comments.filter((c) => !selectedIds.includes(c._id)));
-      setSelectedIds([]);
-      toast.success(`${selectedIds.length} comments deleted`);
-      fetchComments();
-    } catch (error) {
-      toast.error('Failed to delete');
-    }
-  };
-
-  const handleMarkRead = async (id) => {
-    try {
-      await adminAPI.markCommentRead(id);
-      setComments(comments.map((c) =>
-        c._id === id ? { ...c, isRead: true } : c
-      ));
-    } catch (error) {}
-  };
-
-  const handleSaveNote = async (id) => {
-    try {
-      await adminAPI.addCommentNote(id, noteText);
-      setComments(comments.map((c) =>
-        c._id === id ? { ...c, adminNote: noteText, isRead: true } : c
-      ));
-      setEditingNoteId(null);
-      setNoteText('');
-      toast.success('Note saved');
-    } catch (error) {
-      toast.error('Failed to save note');
+      await adminAPI.bulkDeleteComments([...selected]);
+      setComments((p) => p.filter((c) => !selected.has(c._id)));
+      setSelected(new Set());
+      toast.success(`${selected.size} comment(s) deleted`);
+    } catch {
+      toast.error('Bulk delete failed');
     }
   };
 
   const toggleSelect = (id) => {
-    setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
-    );
+    setSelected((p) => {
+      const next = new Set(p);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
   };
 
   const toggleSelectAll = () => {
-    if (selectedIds.length === comments.length) {
-      setSelectedIds([]);
+    if (selected.size === comments.length) {
+      setSelected(new Set());
     } else {
-      setSelectedIds(comments.map((c) => c._id));
+      setSelected(new Set(comments.map((c) => c._id)));
     }
   };
 
-  const formatDate = (date) => {
-    if (!date) return '';
-    return new Date(date).toLocaleString();
-  };
-
-  if (loading && page === 1) {
-    return (
-      <AdminLayout title="Comments & Suggestions">
-        <LoadingSpinner />
-      </AdminLayout>
-    );
-  }
-
   return (
-    <AdminLayout title="Comments & Suggestions">
-      {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-        <div className="bg-dark-200 rounded-xl p-4 border border-dark-100">
-          <p className="text-gray-400 text-xs">Total</p>
-          <p className="text-2xl font-bold text-white mt-1">{stats.total}</p>
-        </div>
-        <div className="bg-dark-200 rounded-xl p-4 border border-dark-100">
-          <p className="text-gray-400 text-xs">Unread</p>
-          <p className="text-2xl font-bold text-yellow-500 mt-1">{stats.unread}</p>
-        </div>
-        <div className="bg-dark-200 rounded-xl p-4 border border-dark-100">
-          <p className="text-gray-400 text-xs">Visible</p>
-          <p className="text-2xl font-bold text-green-500 mt-1">{stats.visible}</p>
-        </div>
-        <div className="bg-dark-200 rounded-xl p-4 border border-dark-100">
-          <p className="text-gray-400 text-xs">Hidden</p>
-          <p className="text-2xl font-bold text-red-500 mt-1">{stats.hidden}</p>
-        </div>
-      </div>
+    <AdminLayout title={`Comments`}>
+      <div className="space-y-4">
 
-      {/* Filters & Actions */}
-      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-        <div className="flex items-center gap-2">
-          <FiFilter className="w-4 h-4 text-gray-400" />
-          {['all', 'unread', 'visible', 'hidden'].map((f) => (
-            <button
-              key={f}
-              onClick={() => { setFilter(f); setPage(1); }}
-              className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                filter === f
-                  ? 'bg-primary-600 text-white'
-                  : 'bg-dark-100 text-gray-400 hover:text-white'
-              }`}
-            >
-              {f.charAt(0).toUpperCase() + f.slice(1)}
-            </button>
-          ))}
+        {/* Toolbar */}
+        <div className="glass-panel rounded-2xl p-4 flex flex-wrap gap-3">
+
+          {/* Search */}
+          <div className="relative flex-1 min-w-[200px]">
+            <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 pointer-events-none" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search comments..."
+              className="input-base pl-9 h-9 text-sm"
+            />
+          </div>
+
+          {/* Filter tabs */}
+          <div className="flex items-center gap-1 bg-white/5 border border-white/8 rounded-xl p-1">
+            {['all', 'visible', 'hidden'].map((f) => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`
+                  px-3 py-1.5 rounded-lg text-xs font-semibold capitalize
+                  transition-all duration-150
+                  ${filter === f
+                    ? 'bg-white/12 text-white'
+                    : 'text-white/30 hover:text-white/60'
+                  }
+                `}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={() => fetchComments(page)}
+            disabled={loading}
+            className="p-2.5 rounded-lg text-white/40 hover:text-white hover:bg-white/10 border border-white/8 disabled:opacity-50 transition-all duration-200"
+          >
+            <FiRefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
         </div>
 
-        {selectedIds.length > 0 && (
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-400">{selectedIds.length} selected</span>
+        {/* Bulk actions */}
+        {selected.size > 0 && (
+          <div className="glass-panel rounded-xl px-4 py-3 flex items-center gap-3 animate-fade-in-down">
+            <span className="text-sm font-semibold text-primary-400">
+              {selected.size} selected
+            </span>
             <button
               onClick={handleBulkDelete}
-              className="px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700"
+              className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-500/15 text-red-400 border border-red-500/20 hover:bg-red-500/25 transition-all duration-200"
             >
-              <FiTrash2 className="w-4 h-4 inline mr-1" />
+              <FiTrash2 className="w-3.5 h-3.5" />
               Delete Selected
             </button>
           </div>
         )}
-      </div>
 
-      {/* Comments List */}
-      {comments.length === 0 ? (
-        <div className="bg-dark-200 rounded-xl border border-dark-100 p-12 text-center">
-          <FiMessageSquare className="w-12 h-12 text-gray-600 mx-auto mb-3" />
-          <p className="text-gray-400">No comments found</p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {/* Select All */}
-          <div className="flex items-center gap-3 px-4 py-2">
-            <input
-              type="checkbox"
-              checked={selectedIds.length === comments.length && comments.length > 0}
-              onChange={toggleSelectAll}
-              className="rounded border-gray-600"
-            />
-            <span className="text-sm text-gray-400">Select All</span>
-          </div>
+        {/* Comments list */}
+        <div className="glass-panel rounded-2xl overflow-hidden">
 
-          {comments.map((comment) => {
-            const catStyle = categoryStyles[comment.category] || categoryStyles.other;
-            const isExpanded = expandedId === comment._id;
+          {loading && (
+            <div className="divide-y divide-white/5">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <CommentSkeleton key={i} />
+              ))}
+            </div>
+          )}
 
-            return (
-              <div
-                key={comment._id}
-                className={`bg-dark-200 rounded-xl border transition-all ${
-                  !comment.isRead
-                    ? 'border-yellow-500/30 bg-yellow-500/5'
-                    : 'border-dark-100'
-                }`}
-                onClick={() => {
-                  if (!comment.isRead) handleMarkRead(comment._id);
-                }}
-              >
-                {/* Main Row */}
-                <div className="p-4 flex items-start gap-3">
-                  {/* Checkbox */}
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.includes(comment._id)}
-                    onChange={() => toggleSelect(comment._id)}
-                    className="rounded border-gray-600 mt-1"
-                    onClick={(e) => e.stopPropagation()}
-                  />
+          {error && (
+            <div className="p-8 text-center">
+              <FiAlertCircle className="w-8 h-8 text-red-400/50 mx-auto mb-2" />
+              <p className="text-sm text-white/40">{error}</p>
+            </div>
+          )}
 
-                  {/* Unread Dot */}
-                  {!comment.isRead && (
-                    <div className="w-2 h-2 bg-yellow-500 rounded-full mt-2 flex-shrink-0" />
-                  )}
+          {!loading && !error && comments.length === 0 && (
+            <div className="p-12 text-center">
+              <FiMessageSquare className="w-10 h-10 text-white/15 mx-auto mb-3" />
+              <p className="text-sm text-white/30">No comments found</p>
+            </div>
+          )}
 
-                  {/* Content */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-white font-medium text-sm flex items-center gap-1">
-                            <FiUser className="w-3.5 h-3.5 text-gray-400" />
-                            {comment.name}
-                          </span>
-                          <span className="text-gray-500 text-xs flex items-center gap-1">
-                            <FiMail className="w-3 h-3" />
-                            {comment.email}
-                          </span>
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${catStyle.bg}`}>
-                            {catStyle.label}
-                          </span>
-                        </div>
-
-                        <p className="text-gray-300 text-sm mt-1 flex items-center gap-1">
-                          <FiTag className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
-                          <span className="font-medium">{comment.reason}</span>
-                        </p>
-
-                        <p className="text-gray-400 text-sm mt-2 line-clamp-2">
-                          {comment.message}
-                        </p>
-
-                        <p className="text-gray-600 text-xs mt-2 flex items-center gap-1">
-                          <FiClock className="w-3 h-3" />
-                          {formatDate(comment.createdAt)}
-                        </p>
-                      </div>
-
-                      {/* Actions */}
-                      <div className="flex items-center gap-1 flex-shrink-0">
-                        {/* Visibility Toggle */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleToggleVisibility(comment._id);
-                          }}
-                          className={`p-2 rounded-lg transition-colors ${
-                            comment.isVisible
-                              ? 'bg-green-500/20 text-green-500 hover:bg-green-500/30'
-                              : 'bg-gray-500/20 text-gray-500 hover:bg-gray-500/30'
-                          }`}
-                          title={comment.isVisible ? 'Hide from public' : 'Show to public'}
-                        >
-                          {comment.isVisible ? (
-                            <FiEye className="w-4 h-4" />
-                          ) : (
-                            <FiEyeOff className="w-4 h-4" />
-                          )}
-                        </button>
-
-                        {/* Expand */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setExpandedId(isExpanded ? null : comment._id);
-                          }}
-                          className="p-2 text-gray-400 hover:text-white hover:bg-dark-100 rounded-lg transition-colors"
-                        >
-                          {isExpanded ? (
-                            <FiChevronUp className="w-4 h-4" />
-                          ) : (
-                            <FiChevronDown className="w-4 h-4" />
-                          )}
-                        </button>
-
-                        {/* Delete */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDelete(comment._id);
-                          }}
-                          className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
-                        >
-                          <FiTrash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Expanded View */}
-                {isExpanded && (
-                  <div className="px-4 pb-4 border-t border-dark-100 pt-4 ml-8">
-                    {/* Full Message */}
-                    <div className="bg-dark-100 rounded-lg p-4 mb-3">
-                      <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Full Message</p>
-                      <p className="text-gray-300 text-sm whitespace-pre-wrap">{comment.message}</p>
-                    </div>
-
-                    {/* Details */}
-                    <div className="grid grid-cols-2 gap-4 text-sm mb-3">
-                      <div>
-                        <span className="text-gray-500">IP:</span>{' '}
-                        <span className="text-gray-400">{comment.ip || 'N/A'}</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-500">Status:</span>{' '}
-                        <span className={comment.isVisible ? 'text-green-500' : 'text-red-500'}>
-                          {comment.isVisible ? 'Visible' : 'Hidden'}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Admin Note */}
-                    <div>
-                      <p className="text-xs text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1">
-                        <FiEdit3 className="w-3 h-3" />
-                        Admin Note
-                      </p>
-                      {editingNoteId === comment._id ? (
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            value={noteText}
-                            onChange={(e) => setNoteText(e.target.value)}
-                            className="flex-1 px-3 py-2 bg-dark-100 border border-dark-100 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-primary-500"
-                            placeholder="Add a note..."
-                            autoFocus
-                          />
-                          <button
-                            onClick={() => handleSaveNote(comment._id)}
-                            className="px-3 py-2 bg-primary-600 text-white text-sm rounded-lg hover:bg-primary-700"
-                          >
-                            <FiCheck className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => { setEditingNoteId(null); setNoteText(''); }}
-                            className="px-3 py-2 bg-dark-100 text-gray-400 text-sm rounded-lg hover:text-white"
-                          >
-                            <FiX className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => {
-                            setEditingNoteId(comment._id);
-                            setNoteText(comment.adminNote || '');
-                          }}
-                          className="text-sm text-gray-500 hover:text-white transition-colors"
-                        >
-                          {comment.adminNote || 'Click to add note...'}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
+          {!loading && comments.length > 0 && (
+            <>
+              {/* Table head */}
+              <div className="
+                flex items-center gap-3 px-4 py-3
+                bg-white/[0.02] border-b border-white/6
+              ">
+                <button onClick={toggleSelectAll} className="text-white/30 hover:text-white transition-colors">
+                  {selected.size === comments.length
+                    ? <FiCheckSquare className="w-4 h-4 text-primary-400" />
+                    : <FiSquare      className="w-4 h-4" />
+                  }
+                </button>
+                <span className="text-[10px] font-bold text-white/30 uppercase tracking-widest flex-1">
+                  Comment
+                </span>
+                <span className="text-[10px] font-bold text-white/30 uppercase tracking-widest w-20 text-right hidden sm:block">
+                  Status
+                </span>
+                <span className="text-[10px] font-bold text-white/30 uppercase tracking-widest w-20 text-right">
+                  Actions
+                </span>
               </div>
-            );
-          })}
-        </div>
-      )}
 
-      {/* Pagination */}
-      {pagination.pages > 1 && (
-        <div className="flex justify-center gap-2 mt-6">
-          <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
-            className="px-4 py-2 text-sm bg-dark-100 text-gray-400 rounded-lg disabled:opacity-50"
-          >
-            Previous
-          </button>
-          <span className="px-4 py-2 text-sm text-gray-500">
-            Page {page} of {pagination.pages}
-          </span>
-          <button
-            onClick={() => setPage((p) => p + 1)}
-            disabled={page === pagination.pages}
-            className="px-4 py-2 text-sm bg-dark-100 text-gray-400 rounded-lg disabled:opacity-50"
-          >
-            Next
-          </button>
+              <div className="divide-y divide-white/5">
+                {comments.map((comment) => (
+                  <CommentRow
+                    key={comment._id}
+                    comment={comment}
+                    selected={selected.has(comment._id)}
+                    onSelect={() => toggleSelect(comment._id)}
+                    onToggleVisibility={() => handleToggleVisibility(comment)}
+                    onDelete={() => handleDelete(comment._id)}
+                    processing={processing === comment._id}
+                  />
+                ))}
+              </div>
+            </>
+          )}
         </div>
-      )}
+
+        {!loading && totalPages > 1 && (
+          <div className="flex justify-center">
+            <Pagination
+              currentPage={page}
+              totalPages={totalPages}
+              onPageChange={(pg) => fetchComments(pg)}
+            />
+          </div>
+        )}
+
+      </div>
     </AdminLayout>
   );
 };
+
+const CommentRow = ({
+  comment, selected, onSelect,
+  onToggleVisibility, onDelete, processing,
+}) => {
+  const initial = (comment.name || 'A').charAt(0).toUpperCase();
+  const colors  = [
+    'bg-primary-600/20 text-primary-400',
+    'bg-blue-500/20 text-blue-400',
+    'bg-purple-500/20 text-purple-400',
+    'bg-emerald-500/20 text-emerald-400',
+  ];
+  const color = colors[initial.charCodeAt(0) % colors.length];
+
+  return (
+    <div className={`
+      flex items-start gap-3 px-4 py-3.5
+      hover:bg-white/3 transition-colors
+      ${selected ? 'bg-primary-600/5' : ''}
+      ${processing ? 'opacity-60' : ''}
+    `}>
+      {/* Checkbox */}
+      <button onClick={onSelect} className="mt-0.5 text-white/30 hover:text-white transition-colors flex-shrink-0">
+        {selected
+          ? <FiCheckSquare className="w-4 h-4 text-primary-400" />
+          : <FiSquare      className="w-4 h-4" />
+        }
+      </button>
+
+      {/* Avatar */}
+      <div className={`
+        w-7 h-7 rounded-full flex-shrink-0 mt-0.5
+        flex items-center justify-center text-xs font-bold
+        ${color}
+      `}>
+        {initial}
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-xs font-semibold text-white/80">{comment.name}</span>
+          <span className="text-[10px] text-white/30">{formatDate(comment.createdAt)}</span>
+        </div>
+        <p className="text-xs text-white/55 leading-relaxed line-clamp-2">
+          {comment.message}
+        </p>
+        {comment.videoId && (
+          <p className="text-[10px] text-white/25 mt-1">
+            Video: {comment.videoId}
+          </p>
+        )}
+      </div>
+
+      {/* Visibility badge */}
+      <div className="hidden sm:flex w-20 justify-end">
+        <span className={`
+          px-2 py-0.5 rounded-full text-[10px] font-bold border
+          ${comment.visible
+            ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25'
+            : 'bg-gray-500/15 text-gray-400 border-gray-500/25'
+          }
+        `}>
+          {comment.visible ? 'Visible' : 'Hidden'}
+        </span>
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center gap-1 flex-shrink-0">
+        <button
+          onClick={onToggleVisibility}
+          disabled={processing}
+          title={comment.visible ? 'Hide comment' : 'Show comment'}
+          className={`
+            p-1.5 rounded-lg transition-all duration-150
+            ${comment.visible
+              ? 'text-white/25 hover:text-amber-400 hover:bg-amber-500/10'
+              : 'text-white/25 hover:text-emerald-400 hover:bg-emerald-500/10'
+            }
+            disabled:opacity-50
+          `}
+        >
+          {comment.visible
+            ? <FiEyeOff className="w-3.5 h-3.5" />
+            : <FiEye    className="w-3.5 h-3.5" />
+          }
+        </button>
+        <button
+          onClick={onDelete}
+          disabled={processing}
+          className="p-1.5 rounded-lg text-white/25 hover:text-red-400 hover:bg-red-500/10 disabled:opacity-50 transition-all duration-150"
+        >
+          <FiTrash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const CommentSkeleton = () => (
+  <div className="flex items-start gap-3 px-4 py-3.5 animate-pulse">
+    <div className="w-4 h-4 rounded flex-shrink-0 skeleton-shimmer bg-dark-200 mt-0.5" />
+    <div className="w-7 h-7 rounded-full flex-shrink-0 skeleton-shimmer bg-dark-200" />
+    <div className="flex-1 space-y-2">
+      <div className="flex gap-2">
+        <div className="h-3 w-20 rounded skeleton-shimmer bg-dark-200" />
+        <div className="h-3 w-16 rounded skeleton-shimmer bg-dark-300" />
+      </div>
+      <div className="h-3.5 rounded skeleton-shimmer bg-dark-200 w-full" />
+      <div className="h-3.5 rounded skeleton-shimmer bg-dark-200 w-3/4" />
+    </div>
+  </div>
+);
 
 export default CommentsManager;

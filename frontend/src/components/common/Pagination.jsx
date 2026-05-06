@@ -1,80 +1,148 @@
+// src/components/common/Pagination.jsx
+// Modern premium pagination component
+
 import React from 'react';
-import { FiChevronLeft, FiChevronRight } from 'react-icons/fi';
+import { FiChevronLeft, FiChevronRight, FiChevronsLeft, FiChevronsRight } from 'react-icons/fi';
 
-const Pagination = ({ currentPage, totalPages, onPageChange }) => {
-  if (totalPages <= 1) return null;
+// ============================================================
+// PAGINATION COMPONENT
+// ============================================================
 
-  const getPageNumbers = () => {
-    const pages = [];
-    const maxVisible = 5;
+const Pagination = ({
+  currentPage,
+  totalPages,
+  onPageChange,
+  showFirstLast = true,
+  maxVisible    = 5,
+  className     = '',
+}) => {
+  if (!totalPages || totalPages <= 1) return null;
 
-    if (totalPages <= maxVisible) {
-      for (let i = 1; i <= totalPages; i++) pages.push(i);
-    } else {
-      pages.push(1);
+  // ── Page range calculation ─────────────────────────────────
+  const getPageRange = () => {
+    const half  = Math.floor(maxVisible / 2);
+    let start   = Math.max(1, currentPage - half);
+    let end     = Math.min(totalPages, start + maxVisible - 1);
 
-      let start = Math.max(2, currentPage - 1);
-      let end = Math.min(totalPages - 1, currentPage + 1);
-
-      if (currentPage <= 3) {
-        end = Math.min(4, totalPages - 1);
-      }
-      if (currentPage >= totalPages - 2) {
-        start = Math.max(totalPages - 3, 2);
-      }
-
-      if (start > 2) pages.push('...');
-      for (let i = start; i <= end; i++) pages.push(i);
-      if (end < totalPages - 1) pages.push('...');
-
-      pages.push(totalPages);
+    if (end - start + 1 < maxVisible) {
+      start = Math.max(1, end - maxVisible + 1);
     }
 
+    const pages = [];
+    for (let i = start; i <= end; i++) pages.push(i);
     return pages;
   };
 
+  const pages = getPageRange();
+
+  // ── Button helpers ─────────────────────────────────────────
+
+  const PageBtn = ({ page, active = false, disabled = false, children, label }) => (
+    <button
+      onClick={() => !disabled && !active && onPageChange(page)}
+      disabled={disabled}
+      aria-label={label}
+      aria-current={active ? 'page' : undefined}
+      className={`
+        flex items-center justify-center
+        w-9 h-9 rounded-lg text-sm font-medium
+        transition-all duration-150
+        ${active
+          ? 'bg-primary-600 text-white shadow-glow-sm cursor-default'
+          : disabled
+            ? 'text-white/20 cursor-not-allowed'
+            : 'text-white/60 hover:text-white hover:bg-white/10'
+        }
+      `}
+    >
+      {children ?? page}
+    </button>
+  );
+
   return (
-    <div className="flex items-center justify-center gap-1 sm:gap-2 mt-8">
+    <nav
+      aria-label="Pagination"
+      className={`flex items-center justify-center gap-1 ${className}`}
+    >
+      {/* First page */}
+      {showFirstLast && (
+        <PageBtn
+          page={1}
+          disabled={currentPage === 1}
+          label="First page"
+        >
+          <FiChevronsLeft className="w-4 h-4" />
+        </PageBtn>
+      )}
+
       {/* Previous */}
-      <button
-        onClick={() => onPageChange(currentPage - 1)}
+      <PageBtn
+        page={currentPage - 1}
         disabled={currentPage === 1}
-        className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-dark-200 border border-gray-200 dark:border-dark-100 rounded-lg hover:bg-gray-50 dark:hover:bg-dark-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        label="Previous page"
       >
         <FiChevronLeft className="w-4 h-4" />
-        <span className="hidden sm:inline">Prev</span>
-      </button>
+      </PageBtn>
 
-      {/* Page Numbers */}
-      {getPageNumbers().map((page, i) => (
-        <React.Fragment key={i}>
-          {page === '...' ? (
-            <span className="px-2 py-2 text-gray-500 text-sm">...</span>
-          ) : (
-            <button
-              onClick={() => onPageChange(page)}
-              className={`min-w-[36px] h-9 flex items-center justify-center text-sm font-medium rounded-lg transition-colors ${
-                currentPage === page
-                  ? 'bg-primary-600 text-white'
-                  : 'text-gray-700 dark:text-gray-300 bg-white dark:bg-dark-200 border border-gray-200 dark:border-dark-100 hover:bg-gray-50 dark:hover:bg-dark-100'
-              }`}
-            >
-              {page}
-            </button>
+      {/* Start ellipsis */}
+      {pages[0] > 1 && (
+        <>
+          <PageBtn page={1} label="Page 1" />
+          {pages[0] > 2 && (
+            <span className="w-9 h-9 flex items-center justify-center text-white/30 text-sm">
+              …
+            </span>
           )}
-        </React.Fragment>
+        </>
+      )}
+
+      {/* Page numbers */}
+      {pages.map((page) => (
+        <PageBtn
+          key={page}
+          page={page}
+          active={page === currentPage}
+          label={`Page ${page}`}
+        />
       ))}
 
+      {/* End ellipsis */}
+      {pages[pages.length - 1] < totalPages && (
+        <>
+          {pages[pages.length - 1] < totalPages - 1 && (
+            <span className="w-9 h-9 flex items-center justify-center text-white/30 text-sm">
+              …
+            </span>
+          )}
+          <PageBtn page={totalPages} label={`Page ${totalPages}`} />
+        </>
+      )}
+
       {/* Next */}
-      <button
-        onClick={() => onPageChange(currentPage + 1)}
+      <PageBtn
+        page={currentPage + 1}
         disabled={currentPage === totalPages}
-        className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-dark-200 border border-gray-200 dark:border-dark-100 rounded-lg hover:bg-gray-50 dark:hover:bg-dark-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        label="Next page"
       >
-        <span className="hidden sm:inline">Next</span>
         <FiChevronRight className="w-4 h-4" />
-      </button>
-    </div>
+      </PageBtn>
+
+      {/* Last page */}
+      {showFirstLast && (
+        <PageBtn
+          page={totalPages}
+          disabled={currentPage === totalPages}
+          label="Last page"
+        >
+          <FiChevronsRight className="w-4 h-4" />
+        </PageBtn>
+      )}
+
+      {/* Page info */}
+      <span className="hidden sm:block ml-3 text-xs text-white/30 font-medium">
+        {currentPage} / {totalPages}
+      </span>
+    </nav>
   );
 };
 

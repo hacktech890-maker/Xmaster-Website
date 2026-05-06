@@ -1,7 +1,41 @@
-/*
-  Cache-Control: no-cache, no-store, must-revalidate
-  Service-Worker-Allowed: /
+# frontend/public/_headers
+# FIXED: Previously set no-cache on ALL assets — harmful for performance
+# Now: hashed static files cached forever, HTML/API responses not cached
+
+# Hashed JS bundles — cache forever (hash changes on rebuild)
+/static/js/*
+  Cache-Control: public, max-age=31536000, immutable
+  X-Content-Type-Options: nosniff
+
+# Hashed CSS bundles — cache forever
+/static/css/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Hashed media files
+/static/media/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Logos/icons — cache 7 days (manual assets, may change)
+/logo*
+  Cache-Control: public, max-age=604800
+
+/apple-touch-icon*
+  Cache-Control: public, max-age=604800
+
+# Manifest/SW — short cache
+/manifest.json
+  Cache-Control: public, max-age=86400
 
 /sw.js
   Cache-Control: no-cache, no-store, must-revalidate
-  Service-Worker-Max-Size: 0
+
+# HTML entry point — never cache (must revalidate for new deploys)
+/*.html
+  Cache-Control: no-cache, no-store, must-revalidate
+
+# Default catch-all — don't cache unknown files
+/*
+  Cache-Control: no-cache, no-store, must-revalidate
+  X-Frame-Options: SAMEORIGIN
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin

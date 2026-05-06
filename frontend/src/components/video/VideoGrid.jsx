@@ -1,62 +1,169 @@
+// src/components/video/VideoGrid.jsx
+// Premium responsive video grid
+// Handles: loading states, empty states, error states, pagination
+
 import React from 'react';
-import VideoCard from './VideoCard';
-import LoadingSpinner from '../common/LoadingSpinner';
+import { FiAlertCircle, FiVideo, FiRefreshCw } from 'react-icons/fi';
 
-const VideoGrid = ({ videos = [], loading = false, error = null, emptyMessage = 'No videos found', columns = 4 }) => {
-  if (loading) return <LoadingSpinner />;
+import VideoCard               from './VideoCard';
+import VideoCardSkeleton, { VideoGridSkeleton } from './VideoCardSkeleton';
+import Pagination              from '../common/Pagination';
 
-  if (error) {
-    return (
-      <div className="text-center py-12">
-        <div className="text-red-500 mb-2">⚠️</div>
-        <p className="text-gray-600 dark:text-gray-400">{error}</p>
-      </div>
-    );
-  }
+// ============================================================
+// GRID COLUMN PRESETS
+// ============================================================
 
-  if (!videos || videos.length === 0) {
-    return (
-      <div className="text-center py-12">
-        <div className="text-4xl mb-4">🎬</div>
-        <p className="text-gray-600 dark:text-gray-400">{emptyMessage}</p>
-      </div>
-    );
-  }
-
-  const gridCols = {
-    1: 'grid-cols-1',
-    2: 'grid-cols-1 sm:grid-cols-2',
-    3: 'grid-cols-2 sm:grid-cols-2 lg:grid-cols-3',
-    4: 'grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4',
-    5: 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5',
-    6: 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6',
-  };
-
-  return (
-    <div className={`grid ${gridCols[columns] || gridCols[4]} gap-3 sm:gap-4 md:gap-6`}>
-      {videos.map((video) => (
-        <VideoCard key={video._id} video={video} />
-      ))}
-    </div>
-  );
+const GRID_PRESETS = {
+  // Standard 4-col grid
+  default: `
+    grid grid-cols-1
+    xs:grid-cols-2
+    sm:grid-cols-2
+    md:grid-cols-3
+    lg:grid-cols-4
+    gap-4 sm:gap-5
+  `,
+  // 3-col grid (wider cards)
+  wide: `
+    grid grid-cols-1
+    sm:grid-cols-2
+    lg:grid-cols-3
+    gap-4 sm:gap-6
+  `,
+  // 5-col grid (compact)
+  compact: `
+    grid grid-cols-2
+    sm:grid-cols-3
+    md:grid-cols-4
+    lg:grid-cols-5
+    gap-3 sm:gap-4
+  `,
+  // 2-col grid (large cards)
+  featured: `
+    grid grid-cols-1
+    sm:grid-cols-2
+    gap-5 sm:gap-6
+  `,
 };
 
-export const VideoGridSkeleton = ({ count = 8, columns = 4 }) => {
-  const gridCols = {
-    4: 'grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4',
-  };
+// ============================================================
+// MAIN VIDEO GRID
+// ============================================================
 
-  return (
-    <div className={`grid ${gridCols[columns] || gridCols[4]} gap-3 sm:gap-4 md:gap-6`}>
-      {[...Array(count)].map((_, i) => (
-        <div key={i} className="bg-white dark:bg-dark-200 rounded-xl overflow-hidden animate-pulse">
-          <div className="aspect-video bg-gray-200 dark:bg-dark-100"></div>
-          <div className="p-3 space-y-2">
-            <div className="h-4 bg-gray-200 dark:bg-dark-100 rounded w-3/4"></div>
-            <div className="h-3 bg-gray-200 dark:bg-dark-100 rounded w-1/2"></div>
-          </div>
+const VideoGrid = ({
+  videos        = [],
+  loading       = false,
+  error         = null,
+  onRetry       = null,
+
+  // Pagination
+  currentPage   = 1,
+  totalPages    = 1,
+  onPageChange  = null,
+  showPagination = false,
+
+  // Display options
+  skeletonCount = 12,
+  columns       = 'default',
+  cardSize      = 'default',
+  showDate      = false,
+  showLikes     = false,
+
+  // Empty state
+  emptyTitle    = 'No videos found',
+  emptyMessage  = 'Try a different search or check back later.',
+  emptyIcon     = null,
+
+  className     = '',
+}) => {
+  const gridClass = GRID_PRESETS[columns] || GRID_PRESETS.default;
+
+  // ── Loading State ─────────────────────────────────────────
+  if (loading) {
+    return (
+      <div className={className}>
+        <VideoGridSkeleton count={skeletonCount} size={cardSize} />
+      </div>
+    );
+  }
+
+  // ── Error State ───────────────────────────────────────────
+  if (error) {
+    return (
+      <div className={`flex flex-col items-center justify-center py-20 ${className}`}>
+        <div className="
+          w-16 h-16 rounded-2xl mb-5
+          bg-red-500/10 border border-red-500/20
+          flex items-center justify-center
+        ">
+          <FiAlertCircle className="w-7 h-7 text-red-400" />
         </div>
-      ))}
+        <h3 className="text-lg font-bold text-white mb-2">
+          Failed to load videos
+        </h3>
+        <p className="text-sm text-white/40 text-center max-w-xs mb-6">
+          {typeof error === 'string' ? error : 'Something went wrong. Please try again.'}
+        </p>
+        {onRetry && (
+          <button
+            onClick={onRetry}
+            className="btn-secondary flex items-center gap-2"
+          >
+            <FiRefreshCw className="w-4 h-4" />
+            Try Again
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  // ── Empty State ───────────────────────────────────────────
+  if (!videos || videos.length === 0) {
+    return (
+      <div className={`flex flex-col items-center justify-center py-20 ${className}`}>
+        <div className="
+          w-16 h-16 rounded-2xl mb-5
+          bg-white/5 border border-white/8
+          flex items-center justify-center
+        ">
+          {emptyIcon || <FiVideo className="w-7 h-7 text-white/20" />}
+        </div>
+        <h3 className="text-lg font-bold text-white/60 mb-2">
+          {emptyTitle}
+        </h3>
+        <p className="text-sm text-white/30 text-center max-w-xs">
+          {emptyMessage}
+        </p>
+      </div>
+    );
+  }
+
+  // ── Video Grid ────────────────────────────────────────────
+  return (
+    <div className={className}>
+      <div className={gridClass}>
+        {videos.map((video, i) => (
+          <VideoCard
+            key={video._id || i}
+            video={video}
+            size={cardSize}
+            index={i}
+            showDate={showDate}
+            showLikes={showLikes}
+          />
+        ))}
+      </div>
+
+      {/* Pagination */}
+      {showPagination && totalPages > 1 && (
+        <div className="mt-10 flex justify-center">
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={onPageChange}
+          />
+        </div>
+      )}
     </div>
   );
 };

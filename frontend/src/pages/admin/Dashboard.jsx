@@ -1,227 +1,570 @@
-import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { 
-  FiVideo, FiEye, FiTrendingUp, FiUpload, 
-  FiGrid, FiDollarSign, FiFlag, FiArrowRight 
+// src/pages/admin/Dashboard.jsx
+// Premium admin analytics dashboard
+// Preserves: adminAPI.getDashboard(), adminAPI.getAnalyticsDashboard(),
+//            adminAPI.getTopVideos(), Recharts integration
+
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  FiVideo, FiEye, FiThumbsUp, FiMessageSquare,
+  FiTrendingUp, FiAlertTriangle, FiRefreshCw,
+  FiBarChart2, FiUpload, FiFlag,
+  FiClock, FiUsers,
 } from 'react-icons/fi';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { adminAPI } from '../../services/api';
-import AdminLayout from '../../components/admin/AdminLayout';
-import StatsCard from '../../components/admin/StatsCard';
-import LoadingSpinner from '../../components/common/LoadingSpinner';
-import { formatViews, formatDate } from '../../utils/helpers';
+import {
+  ResponsiveContainer, AreaChart, Area,
+  XAxis, YAxis, CartesianGrid, Tooltip,
+  BarChart, Bar, PieChart, Pie, Cell,
+  Legend,
+} from 'recharts';
+import { Link } from 'react-router-dom';
+
+import { adminAPI }    from '../../services/api';
+import AdminLayout     from '../../components/admin/AdminLayout';
+import StatsCard, { StatsCardSkeleton } from '../../components/admin/StatsCard';
+import {
+  formatViewsShort,
+  formatDate,
+  formatDateAbsolute,
+  truncateText,
+} from '../../utils/helpers';
+
+// ============================================================
+// CHART COLORS
+// ============================================================
+
+const CHART_COLORS = {
+  primary:  '#e11d48',
+  blue:     '#3b82f6',
+  green:    '#10b981',
+  purple:   '#a855f7',
+  amber:    '#f59e0b',
+  cyan:     '#06b6d4',
+};
+
+// Custom tooltip for charts
+const ChartTooltip = ({ active, payload, label }) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="
+      glass-modal rounded-xl px-3 py-2.5
+      border border-white/10
+      shadow-[0_10px_30px_rgba(0,0,0,0.5)]
+      text-xs
+    ">
+      {label && (
+        <p className="text-white/50 mb-1.5 font-medium">{label}</p>
+      )}
+      {payload.map((entry, i) => (
+        <p key={i} className="font-semibold" style={{ color: entry.color }}>
+          {entry.name}: {typeof entry.value === 'number'
+            ? entry.value.toLocaleString()
+            : entry.value
+          }
+        </p>
+      ))}
+    </div>
+  );
+};
+
+// ============================================================
+// DASHBOARD
+// ============================================================
 
 const Dashboard = () => {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [stats,      setStats]      = useState(null);
+  const [analytics,  setAnalytics]  = useState(null);
+  const [topVideos,  setTopVideos]  = useState([]);
+  const [viewsData,  setViewsData]  = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [error,      setError]      = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [period,     setPeriod]     = useState('7d');
 
-  useEffect(() => {
-    const fetchDashboard = async () => {
-      try {
-        const response = await adminAPI.getDashboard();
-        if (response.data.success) {
-          setData(response.data);
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
+
+  useEffect(() => { fetchAll(); }, []);
+
+  // ============================================================
+  // DATA FETCHING — all existing API calls preserved
+  // ============================================================
+
+  const fetchAll = async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else           setLoading(true);
+    setError(null);
+
+    try {
+      const [dashRes, analyticsRes, topRes] = await Promise.allSettled([
+        adminAPI.getDashboard(),
+        adminAPI.getAnalyticsDashboard().catch(() => null),
+        adminAPI.getTopVideos(10).catch(() => ({ data: [] })),
+      ]);
+
+      if (!mountedRef.current) return;
+
+      // Dashboard stats
+      if (dashRes.status === 'fulfilled') {
+        const d = dashRes.value?.data;
+        setStats(d?.stats || d || null);
+        // Views chart data from dashboard
+        if (d?.viewsChart || d?.chartData) {
+          setViewsData(d.viewsChart || d.chartData || []);
         }
-      } catch (error) {
-        console.error('Failed to fetch dashboard:', error);
-      } finally {
-        setLoading(false);
       }
-    };
 
-    fetchDashboard();
-  }, []);
+      // Analytics
+      if (analyticsRes.status === 'fulfilled' && analyticsRes.value) {
+        const a = analyticsRes.value?.data;
+        setAnalytics(a || null);
+        if (a?.viewsData || a?.views) {
+          setViewsData(a.viewsData || a.views || []);
+        }
+      }
 
-  if (loading) {
-    return (
-      <AdminLayout title="Dashboard">
-        <LoadingSpinner />
-      </AdminLayout>
-    );
-  }
+      // Top videos
+      if (topRes.status === 'fulfilled') {
+        const tv = topRes.value?.data?.videos || topRes.value?.data || [];
+        setTopVideos(Array.isArray(tv) ? tv.slice(0, 10) : []);
+      }
 
-  const stats = data?.stats || {};
-  const topVideos = data?.topVideos || [];
-  const recentUploads = data?.recentUploads || [];
-  const viewsByDay = data?.viewsByDay || [];
+    } catch (err) {
+      if (mountedRef.current) setError('Failed to load dashboard data');
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    }
+  };
+
+  // ============================================================
+  // COMPUTED STAT VALUES
+  // ============================================================
+
+  const s = stats || {};
+
+  const statCards = [
+    {
+      title:    'Total Videos',
+      value:    s.totalVideos?.toLocaleString() ?? '—',
+      subtitle: `${s.publicVideos ?? 0} public · ${s.privateVideos ?? 0} private`,
+      icon:     <FiVideo    className="w-5 h-5" />,
+      variant:  'red',
+      trend:    s.videosTrend   || null,
+      trendLabel: 'this week',
+    },
+    {
+      title:    'Total Views',
+      value:    formatViewsShort(s.totalViews),
+      subtitle: `${formatViewsShort(s.todayViews ?? 0)} today`,
+      icon:     <FiEye      className="w-5 h-5" />,
+      variant:  'blue',
+      trend:    s.viewsTrend    || null,
+      trendLabel: 'this week',
+    },
+    {
+      title:    'Total Likes',
+      value:    formatViewsShort(s.totalLikes),
+      subtitle: `${formatViewsShort(s.weekLikes ?? 0)} this week`,
+      icon:     <FiThumbsUp className="w-5 h-5" />,
+      variant:  'green',
+      trend:    s.likesTrend    || null,
+      trendLabel: 'this week',
+    },
+    {
+      title:    'Comments',
+      value:    s.totalComments?.toLocaleString() ?? '—',
+      subtitle: `${s.pendingComments ?? 0} pending review`,
+      icon:     <FiMessageSquare className="w-5 h-5" />,
+      variant:  'purple',
+      trend:    s.commentsTrend || null,
+      trendLabel: 'this week',
+    },
+    {
+      title:    'Reports',
+      value:    s.totalReports?.toLocaleString() ?? '—',
+      subtitle: `${s.pendingReports ?? 0} unresolved`,
+      icon:     <FiFlag     className="w-5 h-5" />,
+      variant:  'amber',
+      trend:    null,
+    },
+    {
+      title:    'Trending Videos',
+      value:    s.trendingCount?.toLocaleString() ?? '—',
+      subtitle: 'In last 24 hours',
+      icon:     <FiTrendingUp className="w-5 h-5" />,
+      variant:  'cyan',
+      trend:    null,
+    },
+  ];
+
+  // ============================================================
+  // RENDER
+  // ============================================================
 
   return (
-    <AdminLayout title="Dashboard">
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <StatsCard
-          title="Total Videos"
-          value={stats.totalVideos || 0}
-          icon={FiVideo}
-          color="primary"
-        />
-        <StatsCard
-          title="Total Views"
-          value={formatViews(stats.totalViews || 0)}
-          icon={FiEye}
-          color="blue"
-        />
-        <StatsCard
-          title="This Week"
-          value={stats.weekVideos || 0}
-          icon={FiTrendingUp}
-          change="videos uploaded"
-          color="green"
-        />
-        <StatsCard
-          title="Pending Reports"
-          value={stats.pendingReports || 0}
-          icon={FiFlag}
-          color="yellow"
-        />
-      </div>
+    <AdminLayout
+      title="Dashboard"
+      actions={
+        <button
+          onClick={() => fetchAll(true)}
+          disabled={refreshing}
+          className="
+            flex items-center gap-2
+            px-3 py-1.5 rounded-lg text-xs font-medium
+            bg-white/8 text-white/60 border border-white/10
+            hover:bg-white/15 hover:text-white
+            disabled:opacity-50
+            transition-all duration-200
+          "
+        >
+          <FiRefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+          {refreshing ? 'Refreshing...' : 'Refresh'}
+        </button>
+      }
+    >
+      <div className="space-y-6">
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Chart */}
-        <div className="lg:col-span-2 bg-dark-200 rounded-xl p-6 border border-dark-100">
-          <h3 className="text-lg font-semibold text-white mb-6">Views & Uploads (Last 7 Days)</h3>
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={viewsByDay}>
-                <defs>
-                  <linearGradient id="colorViews" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                <XAxis dataKey="_id" stroke="#666" fontSize={12} />
-                <YAxis stroke="#666" fontSize={12} />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: '#1e1e1e', 
-                    border: '1px solid #333',
-                    borderRadius: '8px'
-                  }}
+        {/* ── Error banner ─────────────────────────────────── */}
+        {error && (
+          <div className="
+            flex items-center gap-3 p-4 rounded-xl
+            bg-red-500/10 border border-red-500/20
+            text-sm text-red-400
+          ">
+            <FiAlertTriangle className="w-4 h-4 flex-shrink-0" />
+            {error}
+            <button
+              onClick={() => fetchAll()}
+              className="ml-auto text-xs underline hover:no-underline"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {/* ── Stats grid ───────────────────────────────────── */}
+        <div className="
+          grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3
+          gap-4
+        ">
+          {loading
+            ? Array.from({ length: 6 }).map((_, i) => (
+                <StatsCardSkeleton key={i} />
+              ))
+            : statCards.map((card, i) => (
+                <StatsCard
+                  key={i}
+                  {...card}
+                  loading={loading}
                 />
-                <Area 
-                  type="monotone" 
-                  dataKey="views" 
-                  stroke="#ef4444" 
-                  fillOpacity={1} 
-                  fill="url(#colorViews)" 
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+              ))
+          }
+        </div>
+
+        {/* ── Charts row ───────────────────────────────────── */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+          {/* Views over time (2/3 width) */}
+          <div className="lg:col-span-2 glass-panel p-5 rounded-2xl">
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                <FiBarChart2 className="w-4 h-4 text-primary-400" />
+                Views Over Time
+              </h2>
+              <div className="flex items-center gap-1">
+                {['7d', '30d', '90d'].map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setPeriod(p)}
+                    className={`
+                      px-2.5 py-1 rounded-lg text-xs font-medium
+                      transition-all duration-150
+                      ${period === p
+                        ? 'bg-primary-600/20 text-primary-400 border border-primary-600/25'
+                        : 'text-white/30 hover:text-white/60'
+                      }
+                    `}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="h-48 rounded-xl skeleton-shimmer bg-dark-300" />
+            ) : viewsData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={200}>
+                <AreaChart
+                  data={viewsData}
+                  margin={{ top: 5, right: 10, left: -20, bottom: 0 }}
+                >
+                  <defs>
+                    <linearGradient id="viewsGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"   stopColor={CHART_COLORS.primary} stopOpacity={0.3} />
+                      <stop offset="95%"  stopColor={CHART_COLORS.primary} stopOpacity={0}   />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="rgba(255,255,255,0.04)"
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(v) => {
+                      const d = new Date(v);
+                      return isNaN(d) ? v : `${d.getMonth()+1}/${d.getDate()}`;
+                    }}
+                  />
+                  <YAxis
+                    tick={{ fill: 'rgba(255,255,255,0.3)', fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(v) => formatViewsShort(v)}
+                  />
+                  <Tooltip content={<ChartTooltip />} />
+                  <Area
+                    type="monotone"
+                    dataKey="views"
+                    stroke={CHART_COLORS.primary}
+                    strokeWidth={2}
+                    fill="url(#viewsGrad)"
+                    dot={false}
+                    activeDot={{ r: 4, fill: CHART_COLORS.primary }}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <EmptyChart message="No view data available" />
+            )}
+          </div>
+
+          {/* Content breakdown (1/3 width) */}
+          <div className="glass-panel p-5 rounded-2xl">
+            <h2 className="text-sm font-bold text-white mb-5 flex items-center gap-2">
+              <FiVideo className="w-4 h-4 text-blue-400" />
+              Content Status
+            </h2>
+
+            {loading ? (
+              <div className="h-48 rounded-xl skeleton-shimmer bg-dark-300" />
+            ) : (
+              <>
+                <ResponsiveContainer width="100%" height={160}>
+                  <PieChart>
+                    <Pie
+                      data={[
+                        { name: 'Public',  value: s.publicVideos  || 0, color: CHART_COLORS.green  },
+                        { name: 'Private', value: s.privateVideos || 0, color: CHART_COLORS.blue   },
+                        { name: 'Draft',   value: s.draftVideos   || 0, color: CHART_COLORS.amber  },
+                      ]}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={45}
+                      outerRadius={70}
+                      paddingAngle={3}
+                      dataKey="value"
+                    >
+                      {[
+                        CHART_COLORS.green,
+                        CHART_COLORS.blue,
+                        CHART_COLORS.amber,
+                      ].map((color, i) => (
+                        <Cell key={i} fill={color} opacity={0.85} />
+                      ))}
+                    </Pie>
+                    <Tooltip content={<ChartTooltip />} />
+                  </PieChart>
+                </ResponsiveContainer>
+
+                {/* Legend */}
+                <div className="space-y-2 mt-2">
+                  {[
+                    { label: 'Public',  val: s.publicVideos  || 0, color: CHART_COLORS.green  },
+                    { label: 'Private', val: s.privateVideos || 0, color: CHART_COLORS.blue   },
+                    { label: 'Draft',   val: s.draftVideos   || 0, color: CHART_COLORS.amber  },
+                  ].map(({ label, val, color }) => (
+                    <div key={label} className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full" style={{ background: color }} />
+                        <span className="text-white/50">{label}</span>
+                      </div>
+                      <span className="font-semibold text-white/80">
+                        {val.toLocaleString()}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </div>
 
-        {/* Quick Actions */}
-        <div className="bg-dark-200 rounded-xl p-6 border border-dark-100">
-          <h3 className="text-lg font-semibold text-white mb-6">Quick Actions</h3>
-          <div className="space-y-3">
-            <Link
-              to="/admin/upload"
-              className="flex items-center justify-between p-4 bg-dark-100 hover:bg-dark-300 rounded-lg transition-colors group"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-primary-500/20 rounded-lg flex items-center justify-center">
-                  <FiUpload className="w-5 h-5 text-primary-500" />
-                </div>
-                <span className="text-white font-medium">Upload Videos</span>
-              </div>
-              <FiArrowRight className="w-5 h-5 text-gray-500 group-hover:text-white transition-colors" />
-            </Link>
+        {/* ── Bottom row ───────────────────────────────────── */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
-            <Link
-              to="/admin/videos"
-              className="flex items-center justify-between p-4 bg-dark-100 hover:bg-dark-300 rounded-lg transition-colors group"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-blue-500/20 rounded-lg flex items-center justify-center">
-                  <FiVideo className="w-5 h-5 text-blue-500" />
-                </div>
-                <span className="text-white font-medium">Manage Videos</span>
-              </div>
-              <FiArrowRight className="w-5 h-5 text-gray-500 group-hover:text-white transition-colors" />
-            </Link>
+          {/* Top Videos */}
+          <div className="glass-panel rounded-2xl overflow-hidden">
+            <div className="flex items-center justify-between p-5 border-b border-white/6">
+              <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                <FiTrendingUp className="w-4 h-4 text-primary-400" />
+                Top Videos
+              </h2>
+              <Link
+                to="/admin/videos"
+                className="text-xs text-white/30 hover:text-primary-400 transition-colors"
+              >
+                View all
+              </Link>
+            </div>
 
-            <Link
-              to="/admin/categories"
-              className="flex items-center justify-between p-4 bg-dark-100 hover:bg-dark-300 rounded-lg transition-colors group"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-green-500/20 rounded-lg flex items-center justify-center">
-                  <FiGrid className="w-5 h-5 text-green-500" />
-                </div>
-                <span className="text-white font-medium">Categories</span>
+            {loading ? (
+              <div className="p-4 space-y-3">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="flex gap-3 animate-pulse">
+                    <div className="w-6 h-4 rounded skeleton-shimmer bg-dark-200 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1 space-y-1.5">
+                      <div className="h-3.5 rounded skeleton-shimmer bg-dark-200 w-full" />
+                      <div className="h-3 rounded skeleton-shimmer bg-dark-300 w-1/3" />
+                    </div>
+                  </div>
+                ))}
               </div>
-              <FiArrowRight className="w-5 h-5 text-gray-500 group-hover:text-white transition-colors" />
-            </Link>
+            ) : topVideos.length > 0 ? (
+              <div className="divide-y divide-white/5">
+                {topVideos.slice(0, 8).map((video, i) => (
+                  <TopVideoRow key={video._id || i} video={video} rank={i + 1} />
+                ))}
+              </div>
+            ) : (
+              <div className="p-8 text-center text-sm text-white/30">
+                No video data available
+              </div>
+            )}
+          </div>
 
-            <Link
-              to="/admin/ads"
-              className="flex items-center justify-between p-4 bg-dark-100 hover:bg-dark-300 rounded-lg transition-colors group"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-yellow-500/20 rounded-lg flex items-center justify-center">
-                  <FiDollarSign className="w-5 h-5 text-yellow-500" />
-                </div>
-                <span className="text-white font-medium">Manage Ads</span>
-              </div>
-              <FiArrowRight className="w-5 h-5 text-gray-500 group-hover:text-white transition-colors" />
-            </Link>
+          {/* Quick Actions */}
+          <div className="glass-panel rounded-2xl p-5">
+            <h2 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
+              <FiUpload className="w-4 h-4 text-cyan-400" />
+              Quick Actions
+            </h2>
+
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                {
+                  label: 'Upload Video',
+                  desc:  'Add new content',
+                  icon:  <FiUpload      className="w-5 h-5" />,
+                  path:  '/admin/upload',
+                  color: 'bg-primary-600/15 text-primary-400 border-primary-600/20 hover:bg-primary-600/25',
+                },
+                {
+                  label: 'Manage Videos',
+                  desc:  'Edit & organize',
+                  icon:  <FiVideo       className="w-5 h-5" />,
+                  path:  '/admin/videos',
+                  color: 'bg-blue-500/15 text-blue-400 border-blue-500/20 hover:bg-blue-500/25',
+                },
+                {
+                  label: 'View Comments',
+                  desc:  'Moderate comments',
+                  icon:  <FiMessageSquare className="w-5 h-5" />,
+                  path:  '/admin/comments',
+                  color: 'bg-purple-500/15 text-purple-400 border-purple-500/20 hover:bg-purple-500/25',
+                },
+                {
+                  label: 'View Reports',
+                  desc:  'Handle reports',
+                  icon:  <FiFlag        className="w-5 h-5" />,
+                  path:  '/admin/reports',
+                  color: 'bg-amber-500/15 text-amber-400 border-amber-500/20 hover:bg-amber-500/25',
+                },
+                {
+                  label: 'Duplicates',
+                  desc:  'Clean up dupes',
+                  icon:  <FiAlertTriangle className="w-5 h-5" />,
+                  path:  '/admin/duplicates',
+                  color: 'bg-red-500/15 text-red-400 border-red-500/20 hover:bg-red-500/25',
+                },
+                {
+                  label: 'Manage Ads',
+                  desc:  'Ad placements',
+                  icon:  <FiBarChart2   className="w-5 h-5" />,
+                  path:  '/admin/ads',
+                  color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/25',
+                },
+              ].map((action) => (
+                <Link
+                  key={action.path}
+                  to={action.path}
+                  className={`
+                    flex flex-col gap-2 p-4 rounded-xl
+                    border transition-all duration-200
+                    hover:-translate-y-0.5
+                    ${action.color}
+                  `}
+                >
+                  {action.icon}
+                  <div>
+                    <p className="text-xs font-bold">{action.label}</p>
+                    <p className="text-[10px] opacity-60 mt-0.5">{action.desc}</p>
+                  </div>
+                </Link>
+              ))}
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Recent & Top Videos */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
-        {/* Top Videos */}
-        <div className="bg-dark-200 rounded-xl p-6 border border-dark-100">
-          <h3 className="text-lg font-semibold text-white mb-4">Top Performing Videos</h3>
-          <div className="space-y-3">
-            {topVideos.map((video, index) => (
-              <div key={video._id} className="flex items-center gap-3">
-                <span className="w-6 h-6 bg-primary-500/20 text-primary-500 rounded-full flex items-center justify-center text-sm font-medium">
-                  {index + 1}
-                </span>
-                <img 
-                  src={video.thumbnail} 
-                  alt={video.title}
-                  className="w-16 h-10 object-cover rounded"
-                />
-                <div className="flex-1 min-w-0">
-                  <p className="text-white text-sm font-medium truncate">{video.title}</p>
-                  <p className="text-gray-500 text-xs">{formatViews(video.views)} views</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Recent Uploads */}
-        <div className="bg-dark-200 rounded-xl p-6 border border-dark-100">
-          <h3 className="text-lg font-semibold text-white mb-4">Recent Uploads</h3>
-          <div className="space-y-3">
-            {recentUploads.map((video) => (
-              <div key={video._id} className="flex items-center gap-3">
-                <img 
-                  src={video.thumbnail} 
-                  alt={video.title}
-                  className="w-16 h-10 object-cover rounded"
-                />
-                <div className="flex-1 min-w-0">
-                  <p className="text-white text-sm font-medium truncate">{video.title}</p>
-                  <p className="text-gray-500 text-xs">{formatDate(video.uploadDate)}</p>
-                </div>
-                <span className={`badge ${
-                  video.status === 'public' ? 'badge-success' : 'badge-warning'
-                }`}>
-                  {video.status}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
       </div>
     </AdminLayout>
   );
 };
+
+// ============================================================
+// TOP VIDEO ROW
+// ============================================================
+
+const TopVideoRow = ({ video, rank }) => (
+  <div className="flex items-center gap-3 px-5 py-3 hover:bg-white/3 transition-colors">
+    <span className="
+      text-xs font-black text-white/20
+      w-5 text-right flex-shrink-0
+    ">
+      {rank}
+    </span>
+    <div className="flex-1 min-w-0">
+      <p className="text-xs font-semibold text-white/80 truncate">
+        {video.title}
+      </p>
+      <p className="text-[10px] text-white/30 mt-0.5">
+        {formatViewsShort(video.views)} views · {formatDate(video.createdAt)}
+      </p>
+    </div>
+    <span className="
+      text-[10px] font-bold flex-shrink-0
+      px-2 py-0.5 rounded-full
+      bg-emerald-500/10 text-emerald-400
+    ">
+      {formatViewsShort(video.views)}
+    </span>
+  </div>
+);
+
+// ============================================================
+// EMPTY CHART STATE
+// ============================================================
+
+const EmptyChart = ({ message }) => (
+  <div className="h-48 flex items-center justify-center">
+    <p className="text-sm text-white/25">{message}</p>
+  </div>
+);
 
 export default Dashboard;

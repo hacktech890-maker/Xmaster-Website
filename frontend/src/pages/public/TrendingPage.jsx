@@ -1,148 +1,166 @@
+// src/pages/public/TrendingPage.jsx
+// Modern trending page with period selector
+
 import React, { useState, useEffect, useRef } from 'react';
-import { Helmet } from 'react-helmet-async';
-import { FiTrendingUp } from 'react-icons/fi';
+import { Helmet }    from 'react-helmet-async';
+import { FiTrendingUp, FiClock, FiCalendar } from 'react-icons/fi';
+
 import { publicAPI } from '../../services/api';
-import VideoCard from '../../components/video/VideoCard';
-import { VideoGridSkeleton } from '../../components/video/VideoGrid';
-import AdBanner from '../../components/ads/AdBanner';
+import VideoGrid     from '../../components/video/VideoGrid';
+import TrendingTags  from '../../components/home/TrendingTags';
 
-// ==================== NATIVE BANNER AD ====================
-const NativeBannerAd = ({ className = "" }) => {
-  const containerRef = useRef(null);
-  const loaded = useRef(false);
-  const uniqueId = useRef(`native-${Math.random().toString(36).substr(2, 9)}`);
+const PERIODS = [
+  { id: '24h', label: '24 Hours', icon: <FiClock    className="w-3.5 h-3.5" /> },
+  { id: '7d',  label: '7 Days',   icon: <FiCalendar className="w-3.5 h-3.5" /> },
+  { id: '30d', label: '30 Days',  icon: <FiCalendar className="w-3.5 h-3.5" /> },
+];
 
-  useEffect(() => {
-    if (!containerRef.current || loaded.current) return;
-    const container = containerRef.current;
-    container.innerHTML = "";
-    loaded.current = true;
+const LIMITS = [24, 48, 96];
 
-    const containerId = `container-3ebdaa444c50232518b3752efc451cab-${uniqueId.current}`;
-
-    const div = document.createElement("div");
-    div.id = containerId;
-    container.appendChild(div);
-
-    const invokeScript = document.createElement("script");
-    invokeScript.async = true;
-    invokeScript.setAttribute("data-cfasync", "false");
-    invokeScript.src = "https://pl28704186.effectivegatecpm.com/3ebdaa444c50232518b3752efc451cab/invoke.js";
-    container.appendChild(invokeScript);
-
-    return () => {
-      if (container) container.innerHTML = "";
-      loaded.current = false;
-    };
-  }, []);
-
-  return (
-    <div className={`col-span-full py-3 ${className}`}>
-      <div className="bg-gray-100/50 dark:bg-dark-200/50 rounded-xl p-3">
-        <span className="text-[10px] text-gray-500 dark:text-gray-600 uppercase tracking-wider mb-1 block text-center">
-          Sponsored
-        </span>
-        <div ref={containerRef} className="ad-content flex justify-center items-center" />
-      </div>
-    </div>
-  );
-};
-
-// ==================== RENDER VIDEOS WITH ADS ====================
-const VideosWithAds = ({ videos, columns = 4 }) => {
-  const isMobile = window.innerWidth < 1024;
-
-  if (!videos || videos.length === 0) {
-    return (
-      <div className="text-center py-12">
-        <div className="text-4xl mb-4">🎬</div>
-        <p className="text-gray-600 dark:text-gray-400">No trending videos found</p>
-      </div>
-    );
-  }
-
-  const videosPerRow = isMobile ? 2 : 4;
-  const adInterval = videosPerRow * 3; // Every 3 rows
-
-  const items = [];
-  let adCount = 0;
-
-  for (let i = 0; i < videos.length; i++) {
-    items.push(
-      <VideoCard key={videos[i]._id} video={videos[i]} />
-    );
-
-    if ((i + 1) % adInterval === 0 && i < videos.length - 1) {
-      items.push(
-        <NativeBannerAd key={`native-ad-${adCount}`} />
-      );
-      adCount++;
-    }
-  }
-
-  const gridCols = {
-    3: 'grid-cols-2 sm:grid-cols-2 lg:grid-cols-3',
-    4: 'grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4',
-  };
-
-  return (
-    <div className={`grid ${gridCols[columns] || gridCols[4]} gap-3 sm:gap-4 md:gap-6`}>
-      {items}
-    </div>
-  );
-};
-
-// ==================== TRENDING PAGE ====================
 const TrendingPage = () => {
-  const [videos, setVideos] = useState([]);
+  const [period,  setPeriod]  = useState('7d');
+  const [limit,   setLimit]   = useState(24);
+  const [videos,  setVideos]  = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState(null);
+
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
 
   useEffect(() => {
-    const fetchTrending = async () => {
-      setLoading(true);
-      try {
-        const response = await publicAPI.getTrendingVideos(48);
-        if (response.data?.success) {
-          setVideos(response.data.videos || []);
-        }
-      } catch (error) {
-        console.error('Failed to fetch trending:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchTrending();
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period, limit]);
+
+  const fetchTrending = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res  = await publicAPI.getTrendingVideos(limit, period);
+      const data = res?.data?.videos || res?.data || [];
+      if (mountedRef.current) {
+        setVideos(Array.isArray(data) ? data : []);
+      }
+    } catch (err) {
+      if (mountedRef.current) setError('Failed to load trending videos');
+    } finally {
+      if (mountedRef.current) setLoading(false);
+    }
+  };
 
   return (
     <>
       <Helmet>
-        <title>Trending Videos - Xmaster</title>
-        <meta name="description" content="Watch the most popular and trending videos on Xmaster." />
+        <title>Trending Videos — Xmaster</title>
+        <meta name="description" content="Watch the most trending adult videos on Xmaster right now." />
       </Helmet>
 
-      <div className="min-h-screen bg-gray-50 dark:bg-dark-400">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          {/* Header */}
-          <div className="mb-8">
-            <h1 className="flex items-center gap-3 text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
-              <div className="w-10 h-10 bg-red-500/20 rounded-xl flex items-center justify-center">
-                <FiTrendingUp className="w-6 h-6 text-red-500" />
+      <div className="min-h-screen bg-dark-400">
+
+        {/* ── Page Header ────────────────────────────────────── */}
+        <div className="
+          relative bg-gradient-to-b from-dark-500 to-dark-400
+          border-b border-white/5 py-10 sm:py-14
+          overflow-hidden
+        ">
+          {/* Background glow */}
+          <div className="
+            absolute top-0 left-1/2 -translate-x-1/2
+            w-96 h-96 rounded-full
+            bg-primary-600/6 blur-3xl pointer-events-none
+          " />
+
+          <div className="container-site relative z-10">
+            <div className="flex flex-col sm:flex-row sm:items-end gap-6">
+
+              {/* Title */}
+              <div>
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="
+                    w-12 h-12 rounded-xl
+                    bg-primary-600/15 border border-primary-600/20
+                    flex items-center justify-center
+                  ">
+                    <FiTrendingUp className="w-5 h-5 text-primary-400" />
+                  </div>
+                  <div>
+                    <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+                      Trending Now
+                    </h1>
+                    <p className="text-sm text-white/40 mt-0.5">
+                      Most watched videos
+                    </p>
+                  </div>
+                </div>
+
+                {/* Period tabs */}
+                <div className="
+                  inline-flex items-center gap-1
+                  p-1 rounded-xl bg-white/5 border border-white/8
+                ">
+                  {PERIODS.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => setPeriod(p.id)}
+                      className={`
+                        flex items-center gap-1.5
+                        px-3 py-1.5 rounded-lg
+                        text-sm font-semibold
+                        transition-all duration-200
+                        ${period === p.id
+                          ? 'bg-primary-600/20 text-primary-400 border border-primary-600/30'
+                          : 'text-white/40 hover:text-white/70'
+                        }
+                      `}
+                    >
+                      {p.icon}
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-              Trending Videos
-            </h1>
-            <p className="text-gray-500 dark:text-gray-400 mt-2">
-              Most popular videos right now
-            </p>
+
+              {/* Limit selector */}
+              <div className="flex items-center gap-2 sm:ml-auto">
+                <span className="text-xs text-white/30 font-medium">Show:</span>
+                {LIMITS.map((l) => (
+                  <button
+                    key={l}
+                    onClick={() => setLimit(l)}
+                    className={`
+                      px-3 py-1.5 rounded-lg text-xs font-semibold
+                      border transition-all duration-200
+                      ${limit === l
+                        ? 'bg-white/10 text-white border-white/20'
+                        : 'text-white/30 border-white/8 hover:text-white/60'
+                      }
+                    `}
+                  >
+                    {l}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
+        </div>
 
-          <AdBanner placement="search_top" className="mb-6" />
+        {/* ── Trending Tags ──────────────────────────────────── */}
+        <div className="container-site pt-6 pb-2">
+          <TrendingTags title="" maxTags={15} compact />
+        </div>
 
-          {loading ? (
-            <VideoGridSkeleton count={12} />
-          ) : (
-            <VideosWithAds videos={videos} columns={4} />
-          )}
+        {/* ── Video Grid ─────────────────────────────────────── */}
+        <div className="container-site py-6">
+          <VideoGrid
+            videos={videos}
+            loading={loading}
+            error={error}
+            onRetry={fetchTrending}
+            skeletonCount={limit}
+            columns="default"
+            emptyTitle="No trending videos"
+            emptyMessage="Check back soon — trending videos will appear here."
+          />
         </div>
       </div>
     </>

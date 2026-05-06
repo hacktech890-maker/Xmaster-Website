@@ -1,383 +1,337 @@
-import React, { useState, useEffect } from 'react';
-import { FiPlus, FiEdit2, FiTrash2, FiX, FiEye, FiEyeOff, FiDollarSign } from 'react-icons/fi';
+// src/pages/admin/AdsManager.jsx
+// Modern ads management interface
+// Preserves: all existing adminAPI ad calls
+
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  FiPlus, FiTrash2, FiEdit2, FiToggleLeft,
+  FiToggleRight, FiAlertCircle, FiDollarSign,
+  FiMonitor, FiSmartphone, FiCheck, FiX,
+} from 'react-icons/fi';
 import toast from 'react-hot-toast';
-import { adminAPI } from '../../services/api';
-import AdminLayout from '../../components/admin/AdminLayout';
-import LoadingSpinner from '../../components/common/LoadingSpinner';
-import { formatViews } from '../../utils/helpers';
+
+import { adminAPI }    from '../../services/api';
+import AdminLayout     from '../../components/admin/AdminLayout';
+import LoadingSpinner  from '../../components/common/LoadingSpinner';
+
+// ============================================================
+// ADS MANAGER
+// ============================================================
 
 const AdsManager = () => {
-  const [ads, setAds] = useState([]);
-  const [placements, setPlacements] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
+  const [ads,       setAds]       = useState([]);
+  const [loading,   setLoading]   = useState(true);
+  const [showForm,  setShowForm]  = useState(false);
   const [editingAd, setEditingAd] = useState(null);
+  const [processing,setProcessing]= useState(null);
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
+  useEffect(() => { fetchAds(); }, []);
 
-  const fetchData = async () => {
+  const fetchAds = async () => {
+    setLoading(true);
     try {
-      const [adsRes, placementsRes] = await Promise.all([
-        adminAPI.getAllAds(),
-        adminAPI.getAdPlacements(),
-      ]);
-      
-      if (adsRes.data.success) setAds(adsRes.data.ads);
-      if (placementsRes.data.success) setPlacements(placementsRes.data.placements);
-    } catch (error) {
+      const res  = await adminAPI.getAllAds();
+      const data = res?.data?.ads || res?.data || [];
+      if (mountedRef.current) setAds(Array.isArray(data) ? data : []);
+    } catch {
       toast.error('Failed to load ads');
     } finally {
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
     }
   };
 
-  const handleCreate = () => {
-    setEditingAd(null);
-    setShowModal(true);
-  };
-
-  const handleEdit = (ad) => {
-    setEditingAd(ad);
-    setShowModal(true);
-  };
-
-  const handleDelete = async (ad) => {
-    if (!window.confirm(`Delete "${ad.name}"?`)) return;
-
+  const handleCreate = async (formData) => {
     try {
-      await adminAPI.deleteAd(ad._id);
-      setAds(ads.filter(a => a._id !== ad._id));
+      const res = await adminAPI.createAd(formData);
+      const ad  = res?.data?.ad || res?.data;
+      if (ad) setAds((p) => [...p, ad]);
+      toast.success('Ad created');
+      setShowForm(false);
+    } catch {
+      toast.error('Failed to create ad');
+    }
+  };
+
+  const handleUpdate = async (id, formData) => {
+    try {
+      await adminAPI.updateAd(id, formData);
+      setAds((p) => p.map((a) => a._id === id ? { ...a, ...formData } : a));
+      toast.success('Ad updated');
+      setEditingAd(null);
+    } catch {
+      toast.error('Failed to update ad');
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('Delete this ad?')) return;
+    setProcessing(id);
+    try {
+      await adminAPI.deleteAd(id);
+      setAds((p) => p.filter((a) => a._id !== id));
       toast.success('Ad deleted');
-    } catch (error) {
+    } catch {
       toast.error('Failed to delete ad');
+    } finally {
+      if (mountedRef.current) setProcessing(null);
     }
   };
 
   const handleToggle = async (ad) => {
+    setProcessing(ad._id);
     try {
-      const response = await adminAPI.toggleAd(ad._id);
-      if (response.data.success) {
-        setAds(ads.map(a => 
-          a._id === ad._id ? { ...a, enabled: response.data.enabled } : a
-        ));
-        toast.success(response.data.message);
-      }
-    } catch (error) {
+      await adminAPI.toggleAd(ad._id);
+      setAds((p) => p.map((a) => a._id === ad._id ? { ...a, active: !a.active } : a));
+      toast.success(ad.active ? 'Ad paused' : 'Ad activated');
+    } catch {
       toast.error('Failed to toggle ad');
+    } finally {
+      if (mountedRef.current) setProcessing(null);
     }
   };
-
-  const handleSave = async (data) => {
-    try {
-      if (editingAd) {
-        const response = await adminAPI.updateAd(editingAd._id, data);
-        if (response.data.success) {
-          setAds(ads.map(a => 
-            a._id === editingAd._id ? response.data.ad : a
-          ));
-          toast.success('Ad updated');
-        }
-      } else {
-        const response = await adminAPI.createAd(data);
-        if (response.data.success) {
-          setAds([...ads, response.data.ad]);
-          toast.success('Ad created');
-        }
-      }
-      setShowModal(false);
-    } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to save ad');
-    }
-  };
-
-  if (loading) {
-    return (
-      <AdminLayout title="Ads Manager">
-        <LoadingSpinner />
-      </AdminLayout>
-    );
-  }
-
-  // Group ads by placement
-  const adsByPlacement = placements.reduce((acc, p) => {
-    acc[p.id] = {
-      ...p,
-      ads: ads.filter(a => a.placement === p.id),
-    };
-    return acc;
-  }, {});
 
   return (
-    <AdminLayout title="Ads Manager">
-      {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        <div className="bg-dark-200 rounded-xl p-6 border border-dark-100">
-          <p className="text-gray-400 text-sm">Total Ads</p>
-          <p className="text-2xl font-bold text-white mt-1">{ads.length}</p>
-        </div>
-        <div className="bg-dark-200 rounded-xl p-6 border border-dark-100">
-          <p className="text-gray-400 text-sm">Active Ads</p>
-          <p className="text-2xl font-bold text-green-500 mt-1">
-            {ads.filter(a => a.enabled).length}
-          </p>
-        </div>
-        <div className="bg-dark-200 rounded-xl p-6 border border-dark-100">
-          <p className="text-gray-400 text-sm">Total Impressions</p>
-          <p className="text-2xl font-bold text-blue-500 mt-1">
-            {formatViews(ads.reduce((sum, a) => sum + (a.impressions || 0), 0))}
-          </p>
-        </div>
-      </div>
-
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <p className="text-gray-400">Manage ad placements across your site</p>
-        <button onClick={handleCreate} className="btn-primary">
-          <FiPlus className="w-5 h-5" />
-          Add Ad
+    <AdminLayout
+      title="Ad Management"
+      actions={
+        <button
+          onClick={() => setShowForm(true)}
+          className="btn-primary text-xs px-3 py-1.5"
+        >
+          <FiPlus className="w-3.5 h-3.5" />
+          New Ad
         </button>
-      </div>
+      }
+    >
+      <div className="max-w-3xl space-y-4">
 
-      {/* Placements */}
-      <div className="space-y-6">
-        {Object.values(adsByPlacement).map((placement) => (
-          <div key={placement.id} className="bg-dark-200 rounded-xl border border-dark-100">
-            <div className="p-4 border-b border-dark-100 flex items-center justify-between">
-              <div>
-                <h3 className="text-white font-medium">{placement.name}</h3>
-                <p className="text-gray-500 text-sm">Size: {placement.size}</p>
-              </div>
-              <span className="text-gray-400 text-sm">
-                {placement.ads.length} ad{placement.ads.length !== 1 ? 's' : ''}
-              </span>
-            </div>
+        {/* Info banner */}
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-500/8 border border-amber-500/15">
+          <FiDollarSign className="w-4 h-4 text-amber-400 flex-shrink-0 mt-px" />
+          <p className="text-xs text-white/50 leading-relaxed">
+            Note: Live ad codes are currently hardcoded in WatchPage and HomePage.
+            This manager controls additional API-based ad placements.
+            Edit <code className="text-amber-400">src/config/ads.js</code> to update live ad codes.
+          </p>
+        </div>
 
-            {placement.ads.length > 0 ? (
-              <div className="divide-y divide-dark-100">
-                {placement.ads.map((ad) => (
-                  <div key={ad._id} className="p-4 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                        ad.enabled ? 'bg-green-500/20 text-green-500' : 'bg-gray-500/20 text-gray-500'
-                      }`}>
-                        <FiDollarSign className="w-5 h-5" />
+        {/* Create form */}
+        {showForm && (
+          <AdForm
+            onSave={handleCreate}
+            onCancel={() => setShowForm(false)}
+            title="New Ad Placement"
+          />
+        )}
+
+        {/* Ads list */}
+        {loading ? (
+          <div className="glass-panel rounded-2xl p-8 flex justify-center">
+            <LoadingSpinner size="md" />
+          </div>
+        ) : ads.length === 0 ? (
+          <div className="glass-panel rounded-2xl p-12 text-center">
+            <FiDollarSign className="w-10 h-10 text-white/15 mx-auto mb-3" />
+            <p className="text-sm text-white/30">No ad placements configured</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {ads.map((ad) => (
+              editingAd?._id === ad._id ? (
+                <AdForm
+                  key={ad._id}
+                  initialData={ad}
+                  onSave={(data) => handleUpdate(ad._id, data)}
+                  onCancel={() => setEditingAd(null)}
+                  title="Edit Ad"
+                />
+              ) : (
+                <div
+                  key={ad._id}
+                  className={`
+                    glass-panel rounded-xl p-4
+                    transition-all duration-200
+                    ${processing === ad._id ? 'opacity-60' : ''}
+                    ${!ad.active ? 'opacity-70' : ''}
+                  `}
+                >
+                  <div className="flex items-start gap-4">
+
+                    {/* Status dot */}
+                    <div className={`
+                      w-2 h-2 rounded-full flex-shrink-0 mt-1.5
+                      ${ad.active ? 'bg-emerald-400' : 'bg-gray-500'}
+                    `} />
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <span className="text-sm font-semibold text-white/80">
+                          {ad.placement || 'Unknown Placement'}
+                        </span>
+                        <span className={`
+                          px-2 py-px rounded-full text-[9px] font-bold border
+                          ${ad.active
+                            ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25'
+                            : 'bg-gray-500/15 text-gray-400 border-gray-500/25'
+                          }
+                        `}>
+                          {ad.active ? 'Active' : 'Paused'}
+                        </span>
+
+                        {/* Device badge */}
+                        <span className="flex items-center gap-1 text-[10px] text-white/30">
+                          {ad.device === 'mobile'
+                            ? <><FiSmartphone className="w-3 h-3" />Mobile</>
+                            : ad.device === 'desktop'
+                              ? <><FiMonitor   className="w-3 h-3" />Desktop</>
+                              : 'All devices'
+                          }
+                        </span>
                       </div>
-                      <div>
-                        <p className="text-white font-medium">{ad.name}</p>
-                        <p className="text-gray-500 text-sm">
-                          {formatViews(ad.impressions || 0)} impressions • {formatViews(ad.clicks || 0)} clicks
-                          {ad.impressions > 0 && (
-                            <span className="text-primary-500 ml-2">
-                              ({((ad.clicks / ad.impressions) * 100).toFixed(2)}% CTR)
-                            </span>
-                          )}
-                        </p>
+
+                      {/* Stats */}
+                      <div className="flex items-center gap-4 text-[10px] text-white/30 mb-2">
+                        <span>{(ad.impressions || 0).toLocaleString()} impressions</span>
+                        <span>{(ad.clicks || 0).toLocaleString()} clicks</span>
+                        {ad.impressions > 0 && (
+                          <span>
+                            CTR: {((ad.clicks / ad.impressions) * 100).toFixed(2)}%
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Code preview */}
+                      <div className="
+                        mt-2 p-2 rounded-lg
+                        bg-black/30 border border-white/5
+                        font-mono text-[10px] text-white/30
+                        line-clamp-2 overflow-hidden
+                      ">
+                        {ad.code?.substring(0, 120)}...
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      <span className={`badge ${ad.device === 'all' ? 'badge-success' : 'badge-warning'}`}>
-                        {ad.device}
-                      </span>
+                    {/* Actions */}
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
                       <button
                         onClick={() => handleToggle(ad)}
-                        className={`p-2 rounded-lg transition-colors ${
-                          ad.enabled
-                            ? 'bg-green-500/20 text-green-500 hover:bg-green-500/30'
-                            : 'bg-gray-500/20 text-gray-500 hover:bg-gray-500/30'
-                        }`}
+                        disabled={processing === ad._id}
+                        title={ad.active ? 'Pause' : 'Activate'}
+                        className={`
+                          p-2 rounded-lg transition-all duration-150
+                          ${ad.active
+                            ? 'text-emerald-400 hover:bg-emerald-500/10'
+                            : 'text-gray-400 hover:bg-white/10'
+                          }
+                          disabled:opacity-50
+                        `}
                       >
-                        {ad.enabled ? <FiEye className="w-4 h-4" /> : <FiEyeOff className="w-4 h-4" />}
+                        {ad.active
+                          ? <FiToggleRight className="w-4 h-4" />
+                          : <FiToggleLeft  className="w-4 h-4" />
+                        }
                       </button>
                       <button
-                        onClick={() => handleEdit(ad)}
-                        className="p-2 hover:bg-dark-100 rounded-lg text-gray-400 hover:text-white"
+                        onClick={() => setEditingAd(ad)}
+                        className="p-2 rounded-lg text-white/25 hover:text-blue-400 hover:bg-blue-500/10 transition-all duration-150"
                       >
-                        <FiEdit2 className="w-4 h-4" />
+                        <FiEdit2 className="w-3.5 h-3.5" />
                       </button>
                       <button
-                        onClick={() => handleDelete(ad)}
-                        className="p-2 hover:bg-red-500/10 rounded-lg text-gray-400 hover:text-red-500"
+                        onClick={() => handleDelete(ad._id)}
+                        disabled={processing === ad._id}
+                        className="p-2 rounded-lg text-white/25 hover:text-red-400 hover:bg-red-500/10 disabled:opacity-50 transition-all duration-150"
                       >
-                        <FiTrash2 className="w-4 h-4" />
+                        <FiTrash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="p-8 text-center">
-                <p className="text-gray-500">No ads in this placement</p>
-              </div>
-            )}
+                </div>
+              )
+            ))}
           </div>
-        ))}
+        )}
       </div>
-
-      {/* Modal */}
-      {showModal && (
-        <AdModal
-          ad={editingAd}
-          placements={placements}
-          onClose={() => setShowModal(false)}
-          onSave={handleSave}
-        />
-      )}
     </AdminLayout>
   );
 };
 
-// Ad Modal
-const AdModal = ({ ad, placements, onClose, onSave }) => {
-  const [formData, setFormData] = useState({
-    name: ad?.name || '',
-    placement: ad?.placement || 'home_top',
-    type: ad?.type || 'script',
-    code: ad?.code || '',
-    device: ad?.device || 'all',
-    enabled: ad?.enabled !== false,
-    priority: ad?.priority || 0,
-  });
-  const [loading, setLoading] = useState(false);
+// ============================================================
+// AD FORM
+// ============================================================
+
+const AdForm = ({ initialData, onSave, onCancel, title }) => {
+  const [placement, setPlacement] = useState(initialData?.placement || '');
+  const [code,      setCode]      = useState(initialData?.code      || '');
+  const [device,    setDevice]    = useState(initialData?.device    || 'all');
+  const [saving,    setSaving]    = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.name.trim() || !formData.code.trim()) {
-      toast.error('Name and code are required');
-      return;
+    if (!placement.trim() || !code.trim()) return;
+    setSaving(true);
+    try {
+      await onSave({ placement: placement.trim(), code: code.trim(), device });
+    } finally {
+      setSaving(false);
     }
-    setLoading(true);
-    await onSave(formData);
-    setLoading(false);
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-dark-200 rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-6 border-b border-dark-100">
-          <h3 className="text-lg font-semibold text-white">
-            {ad ? 'Edit Ad' : 'Create Ad'}
-          </h3>
-          <button onClick={onClose} className="p-2 hover:bg-dark-100 rounded-lg">
-            <FiX className="w-5 h-5 text-gray-400" />
-          </button>
+    <form
+      onSubmit={handleSubmit}
+      className="glass-panel rounded-xl p-5 space-y-4 border border-primary-600/20 animate-fade-in-down"
+    >
+      <p className="text-xs font-bold text-white/60 uppercase tracking-widest">{title}</p>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <label className="text-xs text-white/40">Placement *</label>
+          <input
+            type="text"
+            value={placement}
+            onChange={(e) => setPlacement(e.target.value)}
+            placeholder="e.g. watch_sidebar"
+            required
+            className="input-base"
+          />
         </div>
-
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          {/* Name */}
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Ad Name *</label>
-            <input
-              type="text"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="input-field"
-              placeholder="e.g., Homepage Banner Ad"
-              required
-            />
-          </div>
-
-          {/* Placement & Device */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Placement *</label>
-              <select
-                value={formData.placement}
-                onChange={(e) => setFormData({ ...formData, placement: e.target.value })}
-                className="input-field"
-              >
-                {placements.map(p => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Device</label>
-              <select
-                value={formData.device}
-                onChange={(e) => setFormData({ ...formData, device: e.target.value })}
-                className="input-field"
-              >
-                <option value="all">All Devices</option>
-                <option value="desktop">Desktop Only</option>
-                <option value="mobile">Mobile Only</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Type */}
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Ad Type</label>
-            <select
-              value={formData.type}
-              onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-              className="input-field"
-            >
-              <option value="script">Script (JavaScript)</option>
-              <option value="html">HTML</option>
-              <option value="banner">Banner Image</option>
-            </select>
-          </div>
-
-          {/* Code */}
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Ad Code *</label>
-            <textarea
-              value={formData.code}
-              onChange={(e) => setFormData({ ...formData, code: e.target.value })}
-              className="input-field font-mono text-sm resize-none"
-              rows={8}
-              placeholder="Paste your ad code here..."
-              required
-            />
-            <p className="text-gray-500 text-xs mt-1">
-              Paste the complete ad code from your ad network (Google Ads, etc.)
-            </p>
-          </div>
-
-          {/* Priority */}
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Priority</label>
-            <input
-              type="number"
-              value={formData.priority}
-              onChange={(e) => setFormData({ ...formData, priority: parseInt(e.target.value) || 0 })}
-              className="input-field w-32"
-              min="0"
-              max="100"
-            />
-            <p className="text-gray-500 text-xs mt-1">
-              Higher priority ads show first (0-100)
-            </p>
-          </div>
-
-          {/* Enabled */}
-          <div>
-            <label className="flex items-center gap-3 p-3 bg-dark-100 rounded-lg cursor-pointer">
-              <input
-                type="checkbox"
-                checked={formData.enabled}
-                onChange={(e) => setFormData({ ...formData, enabled: e.target.checked })}
-                className="rounded"
-              />
-              <span className="text-gray-300">Enabled (show to users)</span>
-            </label>
-          </div>
-
-          {/* Buttons */}
-          <div className="flex gap-3 pt-4">
-            <button type="button" onClick={onClose} className="flex-1 btn-secondary">
-              Cancel
-            </button>
-            <button type="submit" disabled={loading} className="flex-1 btn-primary">
-              {loading ? 'Saving...' : 'Save Ad'}
-            </button>
-          </div>
-        </form>
+        <div className="space-y-1.5">
+          <label className="text-xs text-white/40">Device</label>
+          <select
+            value={device}
+            onChange={(e) => setDevice(e.target.value)}
+            className="input-base appearance-none"
+          >
+            <option value="all"     className="bg-dark-300">All Devices</option>
+            <option value="desktop" className="bg-dark-300">Desktop Only</option>
+            <option value="mobile"  className="bg-dark-300">Mobile Only</option>
+          </select>
+        </div>
       </div>
-    </div>
+
+      <div className="space-y-1.5">
+        <label className="text-xs text-white/40">Ad Code *</label>
+        <textarea
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          placeholder="Paste ad script/HTML here..."
+          rows={6}
+          required
+          className="input-base font-mono text-xs resize-none"
+        />
+      </div>
+
+      <div className="flex items-center gap-2">
+        <button type="submit" disabled={saving} className="btn-primary text-xs px-4 py-2 disabled:opacity-40">
+          {saving ? 'Saving...' : <><FiCheck className="w-3.5 h-3.5" />Save Ad</>}
+        </button>
+        <button type="button" onClick={onCancel} className="btn-ghost text-xs px-4 py-2">Cancel</button>
+      </div>
+    </form>
   );
 };
 

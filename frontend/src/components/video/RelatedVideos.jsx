@@ -1,147 +1,201 @@
-import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { FiEye } from 'react-icons/fi';
-import { publicAPI } from '../../services/api';
-import LoadingSpinner from '../common/LoadingSpinner';
+// src/components/video/RelatedVideos.jsx
+// Modern related videos section
+// Used in WatchPage — sticky sidebar on desktop, row on mobile
 
-const PLACEHOLDER =
-  "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIwIiBoZWlnaHQ9IjE4MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjMWUxZTFlIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNiIgZmlsbD0iIzY2NiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPk5vIFRodW1ibmFpbDwvdGV4dD48L3N2Zz4=";
+import React, { useState } from 'react';
+import { Link }         from 'react-router-dom';
+import { FiChevronRight, FiRefreshCw } from 'react-icons/fi';
 
-const formatViews = (views) => {
-  if (!views) return "0";
-  if (views >= 1000000) return (views / 1000000).toFixed(1).replace(/\.0$/, "") + "M";
-  if (views >= 1000) return (views / 1000).toFixed(1).replace(/\.0$/, "") + "K";
-  return views.toString();
-};
+import VideoCardHorizontal, {
+  VideoCardHorizontalSkeleton,
+} from './VideoCardHorizontal';
+import VideoCard from './VideoCard';
+import { VideoGridSkeleton } from './VideoCardSkeleton';
 
-const formatDate = (date) => {
-  if (!date) return "";
-  const now = new Date();
-  const past = new Date(date);
-  if (isNaN(past.getTime())) return "";
-  const diff = Math.floor((now - past) / 1000);
-  if (diff < 60) return "Just now";
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
-  if (diff < 2592000) return `${Math.floor(diff / 604800)}w ago`;
-  return new Date(date).toLocaleDateString();
-};
+// ============================================================
+// RELATED VIDEOS COMPONENT
+// ============================================================
 
-const formatDuration = (duration) => {
-  if (!duration) return "";
-  if (typeof duration === "string" && duration.includes(":")) {
-    if (duration === "00:00") return "";
-    return duration;
-  }
-  return "";
-};
+const RelatedVideos = ({
+  videos    = [],
+  loading   = false,
+  error     = null,
+  onRetry   = null,
+  title     = 'Related Videos',
+  // Layout: 'sidebar' (horizontal cards) | 'grid' (grid cards) | 'row' (horizontal scroll)
+  layout    = 'sidebar',
+  maxItems  = 15,
+  className = '',
+}) => {
+  const [showAll, setShowAll] = useState(false);
 
-const RelatedVideos = ({ videoId, limit = 12 }) => {
-  const [videos, setVideos] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const displayVideos = showAll
+    ? videos.slice(0, maxItems)
+    : videos.slice(0, layout === 'sidebar' ? 10 : 6);
 
-  useEffect(() => {
-    const fetchRelated = async () => {
-      if (!videoId) return;
-      setLoading(true);
-      try {
-        const response = await publicAPI.getRelatedVideos(videoId, limit);
-        if (response.data?.success) {
-          setVideos(response.data.videos || []);
-        }
-      } catch (error) {
-        // Fallback to latest videos
-        try {
-          const latest = await publicAPI.getLatestVideos(limit);
-          if (latest.data?.success) {
-            setVideos((latest.data.videos || []).filter(v => v._id !== videoId));
-          }
-        } catch (e) {
-          console.error('Failed to fetch related videos:', e);
-        }
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchRelated();
-  }, [videoId, limit]);
-
-  if (loading) return <LoadingSpinner size="sm" />;
-
-  if (videos.length === 0) {
+  // ── Loading ────────────────────────────────────────────────
+  if (loading) {
     return (
-      <div className="text-center py-4 text-gray-500 dark:text-gray-400">
-        <p className="text-sm">No related videos found</p>
+      <div className={className}>
+        <SectionHeader title={title} />
+        {layout === 'sidebar' && (
+          <div className="space-y-1 mt-4">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <VideoCardHorizontalSkeleton key={i} size="sm" />
+            ))}
+          </div>
+        )}
+        {layout === 'grid' && (
+          <VideoGridSkeleton count={6} className="mt-4" />
+        )}
+        {layout === 'row' && (
+          <div className="flex gap-4 mt-4 overflow-hidden">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <VideoCardHorizontalSkeleton key={i} size="md" className="w-48 flex-shrink-0" />
+            ))}
+          </div>
+        )}
       </div>
     );
   }
 
-  return (
-    <div>
-      <h3 className="font-bold text-gray-900 dark:text-white text-base mb-4">
-        Related Videos
-      </h3>
-      <div className="space-y-3">
-        {videos.filter(v => v._id !== videoId).slice(0, 15).map((video) => (
-          <RelatedVideoItem key={video._id} video={video} />
-        ))}
-      </div>
-    </div>
-  );
-};
-
-const RelatedVideoItem = ({ video }) => {
-  const [imgError, setImgError] = useState(false);
-
-  const getThumbnail = () => {
-    if (imgError) return PLACEHOLDER;
-    const thumb = video.thumbnail;
-    if (thumb && thumb.startsWith("http")) return thumb;
-    if (thumb && thumb.length > 3) return `https://abyss.to/splash/${thumb}.jpg`;
-    if (video.file_code) return `https://abyss.to/splash/${video.file_code}.jpg`;
-    return PLACEHOLDER;
-  };
-
-  return (
-    <Link
-      to={`/watch/${video._id}${video.slug ? `/${video.slug}` : ''}`}
-      className="flex gap-3 group rounded-lg hover:bg-gray-100 dark:hover:bg-dark-200 p-1.5 transition-colors"
-    >
-      <div className="relative w-[160px] min-w-[160px] sm:w-[180px] sm:min-w-[180px]">
-        <div className="aspect-video rounded-lg overflow-hidden bg-gray-200 dark:bg-dark-100">
-          <img
-            src={getThumbnail()}
-            alt={video.title}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-            loading="lazy"
-            onError={() => setImgError(true)}
-          />
-        </div>
-        {video.duration && video.duration !== "00:00" && (
-          <span className="absolute bottom-1 right-1 px-1.5 py-0.5 bg-black/80 text-white text-[10px] font-medium rounded">
-            {formatDuration(video.duration)}
-          </span>
+  // ── Error ──────────────────────────────────────────────────
+  if (error) {
+    return (
+      <div className={`${className} py-8 text-center`}>
+        <p className="text-sm text-white/40 mb-3">
+          Could not load related videos
+        </p>
+        {onRetry && (
+          <button
+            onClick={onRetry}
+            className="btn-ghost flex items-center gap-2 mx-auto text-sm"
+          >
+            <FiRefreshCw className="w-3.5 h-3.5" />
+            Retry
+          </button>
         )}
       </div>
+    );
+  }
 
-      <div className="flex-1 min-w-0 py-0.5">
-        <h4 className="text-sm font-medium text-gray-900 dark:text-white group-hover:text-primary-600 dark:group-hover:text-primary-500 line-clamp-2 leading-snug transition-colors">
-          {video.title}
-        </h4>
-        <div className="mt-1.5 space-y-0.5">
-          <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
-            <FiEye className="w-3 h-3" />
-            {formatViews(video.views || 0)} views
-          </p>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            {formatDate(video.uploadDate || video.createdAt)}
-          </p>
+  // ── Empty ──────────────────────────────────────────────────
+  if (!videos || videos.length === 0) {
+    return null;
+  }
+
+  // ── Sidebar layout ─────────────────────────────────────────
+  if (layout === 'sidebar') {
+    return (
+      <div className={className}>
+        <SectionHeader title={title} />
+
+        <div className="mt-3 space-y-0.5">
+          {displayVideos.map((video, i) => (
+            <VideoCardHorizontal
+              key={video._id || i}
+              video={video}
+              size="sm"
+              showDate={false}
+              index={i}
+            />
+          ))}
+        </div>
+
+        {/* Show more */}
+        {videos.length > displayVideos.length && (
+          <button
+            onClick={() => setShowAll(true)}
+            className="
+              w-full mt-3 py-2.5 rounded-xl
+              text-xs font-medium text-white/40
+              hover:text-white/70
+              hover:bg-white/5
+              border border-white/6
+              hover:border-white/12
+              flex items-center justify-center gap-1.5
+              transition-all duration-200
+            "
+          >
+            Show more
+            <FiChevronRight className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  // ── Grid layout ────────────────────────────────────────────
+  if (layout === 'grid') {
+    return (
+      <div className={className}>
+        <SectionHeader title={title} />
+        <div className="
+          grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4
+          gap-4 mt-4
+        ">
+          {displayVideos.map((video, i) => (
+            <VideoCard
+              key={video._id || i}
+              video={video}
+              size="default"
+              index={i}
+            />
+          ))}
         </div>
       </div>
-    </Link>
-  );
+    );
+  }
+
+  // ── Row layout (horizontal scroll) ────────────────────────
+  if (layout === 'row') {
+    return (
+      <div className={className}>
+        <SectionHeader title={title} />
+        <div className="
+          flex gap-4 mt-4
+          overflow-x-auto no-scrollbar
+          pb-2
+        ">
+          {displayVideos.map((video, i) => (
+            <VideoCard
+              key={video._id || i}
+              video={video}
+              size="wide"
+              index={i}
+            />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return null;
 };
+
+// ============================================================
+// SECTION HEADER
+// ============================================================
+
+const SectionHeader = ({ title, link, linkLabel = 'See all' }) => (
+  <div className="flex items-center justify-between mb-1">
+    <h3 className="section-title text-sm sm:text-base">
+      {title}
+    </h3>
+    {link && (
+      <Link
+        to={link}
+        className="
+          text-xs text-white/40 hover:text-primary-400
+          flex items-center gap-1
+          transition-colors duration-200
+        "
+      >
+        {linkLabel}
+        <FiChevronRight className="w-3 h-3" />
+      </Link>
+    )}
+  </div>
+);
 
 export default RelatedVideos;

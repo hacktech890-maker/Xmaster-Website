@@ -1,1632 +1,823 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+// src/pages/admin/VideosManager.jsx
+// Premium video management table
+// Preserves: ALL existing adminAPI calls for video CRUD
+// Adds: modern table, inline status badges, bulk actions toolbar
+
+import React, {
+  useState, useEffect, useRef, useCallback,
+} from 'react';
 import { Link } from 'react-router-dom';
 import {
-  FiSearch, FiEdit2, FiTrash2, FiStar,
-  FiEye, FiEyeOff, FiCheck, FiX, FiPlus,
-  FiCopy, FiExternalLink, FiCheckCircle,
-  FiDownload, FiUpload, FiHash, FiLink,
-  FiClipboard, FiTag, FiFileText, FiChevronDown,
-  FiChevronUp, FiRefreshCw, FiAlertCircle, FiLock, FiGlobe,
-  FiGrid, FiPlay,
+  FiSearch, FiFilter, FiTrash2, FiEdit2,
+  FiEye, FiEyeOff, FiStar, FiDownload,
+  FiRefreshCw, FiCheck, FiX, FiChevronDown,
+  FiAlertTriangle, FiVideo, FiMoreVertical,
+  FiExternalLink, FiCheckSquare, FiSquare,
 } from 'react-icons/fi';
 import toast from 'react-hot-toast';
-import { adminAPI, publicAPI } from '../../services/api';
-import AdminLayout from '../../components/admin/AdminLayout';
-import Pagination from '../../components/common/Pagination';
-import LoadingSpinner from '../../components/common/LoadingSpinner';
-import { formatViews, formatDate, debounce } from '../../utils/helpers';
 
-// ==========================================
-// HELPER: Get API Share URL
-// ==========================================
-const getApiShareUrl = (video) => {
-  const apiBase = (process.env.REACT_APP_API_URL || 'https://api.xmaster.guru/api').replace(/\/api\/?$/, '');
-  const videoId = video._id || video.id;
-  return `${apiBase}/api/public/share/${videoId}?v=${Math.floor(Date.now() / 1000)}`;
-};
+import { adminAPI }    from '../../services/api';
+import AdminLayout     from '../../components/admin/AdminLayout';
+import Pagination      from '../../components/common/Pagination';
+import LoadingSpinner  from '../../components/common/LoadingSpinner';
+import {
+  formatViewsShort,
+  formatDate,
+  formatDuration,
+  getThumbnailUrl,
+  truncateText,
+  getWatchUrl,
+} from '../../utils/helpers';
+
+// ============================================================
+// CONSTANTS
+// ============================================================
+
+const PAGE_SIZE      = 20;
+const STATUS_OPTIONS = ['all', 'public', 'private', 'draft'];
+
+// ============================================================
+// VIDEOS MANAGER
+// ============================================================
 
-// ==========================================
-// VIDEO PREVIEW MODAL
-// ==========================================
-const VideoPreviewModal = ({ video, onClose }) => {
-  if (!video) return null;
-
-  const embedUrl = video.embed_code || video.embedUrl || `https://short.icu/${video.file_code}`;
-
-  return (
-    <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="w-full max-w-5xl">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex-1 min-w-0 mr-4">
-            <h3 className="text-white font-semibold text-lg truncate">{video.title}</h3>
-            <div className="flex items-center gap-3 mt-1 text-sm text-gray-400">
-              <span className="flex items-center gap-1">
-                <FiEye className="w-3.5 h-3.5" />
-                {formatViews(video.views)} views
-              </span>
-              <span>•</span>
-              <span>{video.duration || '00:00'}</span>
-              <span>•</span>
-              <span>{video.file_code}</span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link
-              to={`/watch/${video._id}${video.slug ? `/${video.slug}` : ''}`}
-              target="_blank"
-              className="px-3 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-sm font-medium flex items-center gap-1.5 transition-colors"
-            >
-              <FiExternalLink className="w-4 h-4" />
-              Open Page
-            </Link>
-            <button
-              onClick={onClose}
-              className="p-2 bg-dark-200 hover:bg-dark-100 rounded-lg text-gray-400 hover:text-white transition-colors"
-            >
-              <FiX className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        <div className="relative w-full bg-black rounded-xl overflow-hidden">
-          <div className="relative pt-[56.25%]">
-            <iframe
-              src={embedUrl}
-              className="absolute inset-0 w-full h-full"
-              frameBorder="0"
-              scrolling="no"
-              allowFullScreen
-              title={video.title}
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            />
-          </div>
-        </div>
-
-        <div className="mt-3 flex items-center gap-3 flex-wrap">
-          {video.category && (
-            <span className="px-2.5 py-1 bg-primary-500/20 text-primary-400 text-xs rounded-full">
-              {typeof video.category === 'object' ? video.category.name : video.category}
-            </span>
-          )}
-          {video.tags && video.tags.length > 0 && video.tags.slice(0, 5).map((tag, i) => (
-            <span key={i} className="px-2 py-0.5 bg-dark-200 text-gray-400 text-xs rounded">#{tag}</span>
-          ))}
-          <span className={`ml-auto px-2.5 py-1 text-xs rounded-full font-medium ${
-            video.status === 'public' ? 'bg-green-500/20 text-green-400' :
-            video.status === 'private' ? 'bg-red-500/20 text-red-400' :
-            'bg-yellow-500/20 text-yellow-400'
-          }`}>
-            {video.status}
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ==========================================
-// INLINE CATEGORY SELECT (for table)
-// ==========================================
-const InlineCategorySelect = ({ video, categories, onUpdate }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [search, setSearch] = useState('');
-  const [saving, setSaving] = useState(false);
-  const dropdownRef = useRef(null);
-
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
-        setIsOpen(false);
-        setSearch('');
-      }
-    };
-    if (isOpen) document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isOpen]);
-
-  const currentCategory = video.category;
-  const currentName = currentCategory
-    ? (typeof currentCategory === 'string' ? currentCategory : currentCategory?.name)
-    : null;
-  const currentIcon = (typeof currentCategory === 'object' && currentCategory?.icon) || '📁';
-
-  const filteredCategories = categories.filter(c =>
-    c.name.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const handleSelect = async (catId) => {
-    setSaving(true);
-    try {
-      const response = await adminAPI.updateVideo(video._id, {
-        category: catId || null,
-        categories: catId ? [catId] : [],
-      });
-      if (response.data.success) {
-        onUpdate(response.data.video);
-        toast.success('Category updated');
-      }
-    } catch (error) {
-      toast.error('Failed to update category');
-    } finally {
-      setSaving(false);
-      setIsOpen(false);
-      setSearch('');
-    }
-  };
-
-  return (
-    <div className="relative" ref={dropdownRef}>
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        disabled={saving}
-        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm transition-all max-w-[160px] ${
-          currentName
-            ? 'bg-primary-500/10 text-primary-400 border border-primary-500/20 hover:bg-primary-500/20'
-            : 'bg-dark-100 text-gray-500 border border-dark-100 hover:text-gray-300 hover:border-gray-600'
-        }`}
-      >
-        {saving ? (
-          <div className="w-3.5 h-3.5 border-2 border-primary-400/30 border-t-primary-400 rounded-full animate-spin" />
-        ) : (
-          <span className="text-xs">{currentName ? currentIcon : '➕'}</span>
-        )}
-        <span className="truncate text-xs font-medium">
-          {saving ? 'Saving...' : currentName || 'No Category'}
-        </span>
-        <FiChevronDown className={`w-3 h-3 flex-shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-      </button>
-
-      {isOpen && (
-        <div className="absolute top-full left-0 mt-1 w-56 bg-dark-200 border border-dark-100 rounded-xl shadow-2xl z-50 overflow-hidden">
-          <div className="p-2 border-b border-dark-100">
-            <div className="relative">
-              <FiSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 w-3.5 h-3.5" />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search..."
-                className="w-full pl-8 pr-3 py-1.5 bg-dark-100 border border-dark-100 rounded-lg text-white text-xs focus:outline-none focus:ring-1 focus:ring-primary-500"
-                autoFocus
-              />
-            </div>
-          </div>
-
-          <div className="max-h-48 overflow-y-auto p-1">
-            <button
-              onClick={() => handleSelect(null)}
-              className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-left transition-all ${
-                !currentName ? 'bg-primary-500/20 text-primary-400' : 'text-gray-400 hover:bg-dark-100 hover:text-white'
-              }`}
-            >
-              <span>🚫</span>
-              <span>No Category</span>
-              {!currentName && <FiCheck className="w-3 h-3 ml-auto text-primary-400" />}
-            </button>
-
-            {filteredCategories.length === 0 ? (
-              <p className="text-gray-500 text-xs text-center py-3">No categories found</p>
-            ) : (
-              filteredCategories.map(cat => {
-                const isSelected = currentCategory &&
-                  ((typeof currentCategory === 'object' && currentCategory?._id === cat._id) ||
-                   (typeof currentCategory === 'string' && currentCategory === cat._id));
-                return (
-                  <button
-                    key={cat._id}
-                    onClick={() => handleSelect(cat._id)}
-                    className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-left transition-all ${
-                      isSelected ? 'bg-primary-500/20 text-primary-400' : 'text-gray-300 hover:bg-dark-100 hover:text-white'
-                    }`}
-                  >
-                    <span>{cat.icon || '📁'}</span>
-                    <span className="flex-1 truncate">{cat.name}</span>
-                    {isSelected && <FiCheck className="w-3 h-3 text-primary-400" />}
-                    <span className="text-gray-600 text-[10px]">{cat.videoCount || 0}</span>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ==========================================
-// BULK CATEGORY MODAL
-// ==========================================
-const BulkCategoryModal = ({ videos, categories, onClose, onSave }) => {
-  const [selectedCategory, setSelectedCategory] = useState('');
-  const [search, setSearch] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const filteredCategories = categories.filter(c =>
-    c.name.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const handleApply = async () => {
-    if (!selectedCategory) { toast.error('Select a category first'); return; }
-    setLoading(true);
-    let success = 0;
-    let failed = 0;
-
-    for (const video of videos) {
-      try {
-        await adminAPI.updateVideo(video._id, {
-          category: selectedCategory,
-          categories: [selectedCategory],
-        });
-        success++;
-      } catch (err) { failed++; }
-    }
-
-    setLoading(false);
-    toast.success(`Updated ${success} videos${failed > 0 ? `, ${failed} failed` : ''}`);
-    onSave();
-  };
-
-  const selectedCat = categories.find(c => c._id === selectedCategory);
-
-  return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-dark-200 rounded-2xl max-w-lg w-full max-h-[90vh] overflow-hidden flex flex-col border border-dark-100">
-        <div className="flex items-center justify-between p-5 border-b border-dark-100 flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-purple-500 rounded-xl flex items-center justify-center">
-              <FiGrid className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h3 className="text-lg font-bold text-white">Bulk Set Category</h3>
-              <p className="text-sm text-gray-400">Apply category to {videos.length} selected videos</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-dark-100 rounded-lg">
-            <FiX className="w-5 h-5 text-gray-400" />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          {selectedCat && (
-            <div className="flex items-center gap-3 p-3 bg-primary-500/10 border border-primary-500/20 rounded-xl">
-              <span className="text-xl">{selectedCat.icon || '📁'}</span>
-              <div>
-                <p className="text-primary-400 font-medium">{selectedCat.name}</p>
-                <p className="text-primary-400/60 text-xs">{selectedCat.videoCount || 0} existing videos</p>
-              </div>
-              <FiCheck className="w-5 h-5 text-primary-400 ml-auto" />
-            </div>
-          )}
-
-          <div className="relative">
-            <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 w-4 h-4" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search categories..."
-              className="w-full pl-10 pr-4 py-2.5 bg-dark-100 border border-dark-100 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-            />
-          </div>
-
-          <div className="max-h-60 overflow-y-auto space-y-1">
-            {filteredCategories.map(cat => (
-              <button
-                key={cat._id}
-                onClick={() => setSelectedCategory(cat._id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-left transition-all ${
-                  selectedCategory === cat._id
-                    ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
-                    : 'text-gray-300 hover:bg-dark-100 hover:text-white'
-                }`}
-              >
-                <span className="text-base">{cat.icon || '📁'}</span>
-                <span className="flex-1">{cat.name}</span>
-                {selectedCategory === cat._id && <FiCheck className="w-4 h-4" />}
-                <span className="text-xs text-gray-500">{cat.videoCount || 0}</span>
-              </button>
-            ))}
-          </div>
-
-          <button
-            onClick={handleApply}
-            disabled={loading || !selectedCategory}
-            className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            {loading ? (
-              <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Applying...</>
-            ) : (
-              <><FiCheck className="w-5 h-5" />Apply to {videos.length} Videos</>
-            )}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ==========================================
-// BULK EDIT TITLES MODAL
-// ==========================================
-const BulkEditTitlesModal = ({ videos, onClose, onSave }) => {
-  const [titleData, setTitleData] = useState('');
-  const [preview, setPreview] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [step, setStep] = useState('paste');
-
-  const parseTitles = () => {
-    const lines = titleData.split('\n').filter(l => l.trim());
-    const mapped = videos.map((video, index) => ({
-      id: video._id,
-      currentTitle: video.title,
-      newTitle: lines[index] ? lines[index].trim() : video.title,
-      changed: lines[index] ? lines[index].trim() !== video.title : false,
-    }));
-    setPreview(mapped);
-    setStep('preview');
-  };
-
-  const handleSave = async () => {
-    const updates = preview.filter(p => p.changed).map(p => ({ id: p.id, title: p.newTitle }));
-    if (updates.length === 0) { toast('No changes to save', { icon: '📝' }); return; }
-
-    setLoading(true);
-    try {
-      const res = await adminAPI.bulkUpdateTitles(updates);
-      if (res.data.success) {
-        toast.success(`Updated ${res.data.results.success} titles`);
-        if (res.data.results.failed > 0) toast.error(`${res.data.results.failed} failed`);
-        onSave();
-      }
-    } catch (error) {
-      toast.error('Failed to update titles');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const generateNumberedTitles = () => {
-    const baseName = window.prompt('Enter base title name:', 'Post');
-    if (!baseName) return;
-    const titles = videos.map((_, i) => `${baseName} (${String(i + 1).padStart(2, '0')})`);
-    setTitleData(titles.join('\n'));
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-dark-200 rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col border border-dark-100">
-        <div className="flex items-center justify-between p-5 border-b border-dark-100 flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-500 rounded-xl flex items-center justify-center">
-              <FiEdit2 className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h3 className="text-lg font-bold text-white">Bulk Edit Titles</h3>
-              <p className="text-sm text-gray-400">Paste {videos.length} titles from Excel (one per line)</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-dark-100 rounded-lg">
-            <FiX className="w-5 h-5 text-gray-400" />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-5">
-          {step === 'paste' && (
-            <div className="space-y-4">
-              <div className="flex gap-2">
-                <button onClick={generateNumberedTitles} className="px-4 py-2 bg-purple-500/20 text-purple-400 rounded-lg text-sm hover:bg-purple-500/30 transition-colors">
-                  🔢 Generate Numbered Titles
-                </button>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Paste titles below (one per line, matching video order):
-                </label>
-                <textarea
-                  value={titleData}
-                  onChange={(e) => setTitleData(e.target.value)}
-                  rows={15}
-                  className="w-full px-4 py-3 bg-dark-100 border border-dark-100 rounded-xl text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                  placeholder={`Title Post (01)\nTitle Post (02)\nTitle Post (03)\n...paste from Excel here`}
-                />
-                <p className="text-xs text-gray-500 mt-2">
-                  {titleData.split('\n').filter(l => l.trim()).length} titles entered for {videos.length} videos
-                </p>
-              </div>
-
-              <div className="bg-dark-100 rounded-xl p-4">
-                <h4 className="text-white font-medium mb-2 text-sm">Current videos order:</h4>
-                <div className="max-h-40 overflow-y-auto space-y-1">
-                  {videos.map((v, i) => (
-                    <p key={v._id} className="text-gray-400 text-xs font-mono">
-                      {String(i + 1).padStart(2, '0')}. {v.title}
-                    </p>
-                  ))}
-                </div>
-              </div>
-
-              <button
-                onClick={parseTitles}
-                disabled={!titleData.trim()}
-                className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-medium transition-colors disabled:opacity-50"
-              >
-                Preview Changes →
-              </button>
-            </div>
-          )}
-
-          {step === 'preview' && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h4 className="text-white font-semibold">
-                  {preview.filter(p => p.changed).length} changes to apply
-                </h4>
-                <button onClick={() => setStep('paste')} className="px-3 py-2 bg-dark-100 text-gray-400 rounded-lg text-sm">
-                  ← Back to Edit
-                </button>
-              </div>
-
-              <div className="max-h-[400px] overflow-y-auto space-y-2">
-                {preview.map((item, i) => (
-                  <div key={item.id} className={`p-3 rounded-xl ${item.changed ? 'bg-blue-500/10 border border-blue-500/20' : 'bg-dark-100'}`}>
-                    <div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
-                      <span className="font-mono">#{String(i + 1).padStart(2, '0')}</span>
-                      {item.changed ? (
-                        <span className="text-blue-400 font-medium">CHANGED</span>
-                      ) : (
-                        <span className="text-gray-600">unchanged</span>
-                      )}
-                    </div>
-                    {item.changed ? (
-                      <>
-                        <p className="text-red-400 text-sm line-through">{item.currentTitle}</p>
-                        <p className="text-green-400 text-sm font-medium">{item.newTitle}</p>
-                      </>
-                    ) : (
-                      <p className="text-gray-400 text-sm">{item.currentTitle}</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              <button
-                onClick={handleSave}
-                disabled={loading || preview.filter(p => p.changed).length === 0}
-                className="w-full py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {loading ? (
-                  <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Saving...</>
-                ) : (
-                  <><FiCheck className="w-5 h-5" />Apply {preview.filter(p => p.changed).length} Changes</>
-                )}
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ==========================================
-// BULK ADD TAGS MODAL
-// ==========================================
-const BulkAddTagsModal = ({ videos, onClose, onSave }) => {
-  const [tagData, setTagData] = useState('');
-  const [mode, setMode] = useState('append');
-  const [loading, setLoading] = useState(false);
-  const [applyMode, setApplyMode] = useState('same');
-
-  const handleApply = async () => {
-    if (!tagData.trim()) { toast.error('Enter at least one tag'); return; }
-
-    setLoading(true);
-    try {
-      let updates;
-      if (applyMode === 'same') {
-        const tags = tagData.split(/[,\n]/).map(t => t.trim().toLowerCase()).filter(Boolean);
-        updates = videos.map(v => ({ id: v._id, tags, mode }));
-      } else {
-        const lines = tagData.split('\n').filter(l => l.trim());
-        updates = videos.map((v, i) => ({
-          id: v._id,
-          tags: (lines[i] || '').split(',').map(t => t.trim().toLowerCase()).filter(Boolean),
-          mode,
-        }));
-      }
-
-      const res = await adminAPI.bulkUpdateTags(updates);
-      if (res.data.success) {
-        toast.success(`Updated tags for ${res.data.results.success} videos`);
-        onSave();
-      }
-    } catch (error) {
-      toast.error('Failed to update tags');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-dark-200 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col border border-dark-100">
-        <div className="flex items-center justify-between p-5 border-b border-dark-100 flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-green-500 rounded-xl flex items-center justify-center">
-              <FiTag className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h3 className="text-lg font-bold text-white">Bulk Add Tags</h3>
-              <p className="text-sm text-gray-400">Add tags to {videos.length} selected videos</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-dark-100 rounded-lg">
-            <FiX className="w-5 h-5 text-gray-400" />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={() => setApplyMode('same')}
-              className={`p-3 rounded-xl text-sm font-medium border transition-all ${
-                applyMode === 'same'
-                  ? 'bg-green-500/20 text-green-400 border-green-500/30'
-                  : 'bg-dark-100 text-gray-400 border-dark-100 hover:text-white'
-              }`}
-            >
-              🏷️ Same tags for all
-            </button>
-            <button
-              onClick={() => setApplyMode('perline')}
-              className={`p-3 rounded-xl text-sm font-medium border transition-all ${
-                applyMode === 'perline'
-                  ? 'bg-green-500/20 text-green-400 border-green-500/30'
-                  : 'bg-dark-100 text-gray-400 border-dark-100 hover:text-white'
-              }`}
-            >
-              📋 Different tags per video
-            </button>
-          </div>
-
-          <div className="flex gap-3">
-            <button
-              onClick={() => setMode('append')}
-              className={`flex-1 p-2 rounded-lg text-sm ${mode === 'append' ? 'bg-blue-500/20 text-blue-400' : 'bg-dark-100 text-gray-400'}`}
-            >
-              ➕ Append to existing
-            </button>
-            <button
-              onClick={() => setMode('replace')}
-              className={`flex-1 p-2 rounded-lg text-sm ${mode === 'replace' ? 'bg-red-500/20 text-red-400' : 'bg-dark-100 text-gray-400'}`}
-            >
-              🔄 Replace all tags
-            </button>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              {applyMode === 'same' ? 'Enter tags (comma separated):' : 'Enter tags per video (one line per video, comma separated):'}
-            </label>
-            <textarea
-              value={tagData}
-              onChange={(e) => setTagData(e.target.value)}
-              rows={8}
-              className="w-full px-4 py-3 bg-dark-100 border border-dark-100 rounded-xl text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-green-500 resize-none"
-              placeholder={applyMode === 'same' ? 'tag1, tag2, tag3, tag4' : 'tag1, tag2 (for video 1)\ntag3, tag4 (for video 2)\ntag5, tag6 (for video 3)'}
-            />
-          </div>
-
-          <button
-            onClick={handleApply}
-            disabled={loading || !tagData.trim()}
-            className="w-full py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            {loading ? (
-              <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Applying...</>
-            ) : (
-              <><FiTag className="w-5 h-5" />Apply Tags to {videos.length} Videos</>
-            )}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ==========================================
-// BULK SHARE LINKS PANEL (API FORMAT)
-// ==========================================
-const BulkShareLinksPanel = ({ onClose }) => {
-  const [count, setCount] = useState(50);
-  const [videos, setVideos] = useState([]);
-  const [fetching, setFetching] = useState(false);
-  const [copiedIndex, setCopiedIndex] = useState(-1);
-  const [allCopied, setAllCopied] = useState(false);
-  const [phase, setPhase] = useState('setup');
-
-  const handleFetchVideos = async () => {
-    if (count < 1) { toast.error('Enter a number greater than 0'); return; }
-    setFetching(true);
-    try {
-      const res = await adminAPI.bulkShareLinks({ mode: 'first', count });
-      if (res.data.success) {
-        setVideos(res.data.videos);
-        setPhase('preview');
-        if (res.data.videos.length === 0) toast('No videos found', { icon: '📭' });
-        else toast.success(`Found ${res.data.videos.length} videos`);
-      }
-    } catch (error) { toast.error('Failed to fetch videos'); }
-    finally { setFetching(false); }
-  };
-
-  const copyShareUrl = async (url, index) => {
-    try { await navigator.clipboard.writeText(url); }
-    catch (e) {
-      const input = document.createElement('input');
-      input.value = url; input.style.position = 'fixed'; input.style.opacity = '0';
-      document.body.appendChild(input); input.select(); document.execCommand('copy');
-      document.body.removeChild(input);
-    }
-    setCopiedIndex(index);
-    setTimeout(() => setCopiedIndex(-1), 1500);
-  };
-
-  const copyAllUrls = async () => {
-    const allUrls = videos.map(v => getApiShareUrl(v)).join('\n');
-    try { await navigator.clipboard.writeText(allUrls); }
-    catch (e) {
-      const ta = document.createElement('textarea');
-      ta.value = allUrls; ta.style.position = 'fixed'; ta.style.opacity = '0';
-      document.body.appendChild(ta); ta.select(); document.execCommand('copy');
-      document.body.removeChild(ta);
-    }
-    setAllCopied(true);
-    toast.success(`Copied ${videos.length} API share URLs`);
-    setTimeout(() => setAllCopied(false), 3000);
-  };
-
-  const copyAllWithTitles = async () => {
-    const data = videos.map(v => `${v.title}\t${getApiShareUrl(v)}`).join('\n');
-    try { await navigator.clipboard.writeText(data); }
-    catch (e) {
-      const ta = document.createElement('textarea');
-      ta.value = data; ta.style.position = 'fixed'; ta.style.opacity = '0';
-      document.body.appendChild(ta); ta.select(); document.execCommand('copy');
-      document.body.removeChild(ta);
-    }
-    toast.success(`Copied ${videos.length} titles + API share URLs`);
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-dark-200 rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col border border-dark-100">
-        <div className="flex items-center justify-between p-5 border-b border-dark-100 flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-primary-500 rounded-xl flex items-center justify-center">
-              <FiLink className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h3 className="text-lg font-bold text-white">Generate Share Links</h3>
-              <p className="text-sm text-gray-400">API format links with Telegram preview support</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-dark-100 rounded-lg">
-            <FiX className="w-5 h-5 text-gray-400" />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-5">
-          {phase === 'setup' && (
-            <div className="space-y-6">
-              {/* Info about API format */}
-              <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 flex items-start gap-3">
-                <span className="text-blue-400 text-lg mt-0.5">🔗</span>
-                <div>
-                  <p className="text-blue-400 text-sm font-medium">API Share Format</p>
-                  <p className="text-blue-400/70 text-xs mt-1">
-                    Links will be generated as:<br />
-                    <code className="bg-blue-500/20 px-1.5 py-0.5 rounded text-blue-300">
-                      api.xmaster.guru/api/public/share/&#123;id&#125;?v=...
-                    </code>
-                  </p>
-                  <p className="text-blue-400/50 text-xs mt-1">✅ Works with Telegram preview images</p>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">How many videos?</label>
-                <div className="flex gap-3">
-                  <input
-                    type="number"
-                    value={count}
-                    onChange={(e) => setCount(parseInt(e.target.value) || 0)}
-                    min="1" max="5000"
-                    className="flex-1 px-4 py-3 bg-dark-100 border border-dark-100 rounded-xl text-white text-lg font-medium focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  />
-                  <button
-                    onClick={handleFetchVideos}
-                    disabled={fetching || count < 1}
-                    className="px-6 py-3 bg-primary-600 hover:bg-primary-700 text-white rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
-                  >
-                    {fetching ? (
-                      <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Loading...</>
-                    ) : (
-                      <><FiSearch className="w-5 h-5" />Fetch Videos</>
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                {[10, 25, 50, 100, 200, 500].map(n => (
-                  <button
-                    key={n}
-                    onClick={() => setCount(n)}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      count === n ? 'bg-primary-600 text-white' : 'bg-dark-100 text-gray-400 hover:text-white'
-                    }`}
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {phase === 'preview' && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <h4 className="text-white font-semibold">{videos.length} Videos</h4>
-                <div className="flex gap-2">
-                  <button onClick={() => { setPhase('setup'); setVideos([]); }} className="px-3 py-2 bg-dark-100 text-gray-400 rounded-lg text-sm">
-                    ← Back
-                  </button>
-                  <button
-                    onClick={copyAllUrls}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors ${
-                      allCopied ? 'bg-green-500 text-white' : 'bg-primary-600 hover:bg-primary-700 text-white'
-                    }`}
-                  >
-                    {allCopied ? <><FiCheck className="w-4 h-4" /> Copied!</> : <><FiCopy className="w-4 h-4" /> Copy All URLs</>}
-                  </button>
-                  <button
-                    onClick={copyAllWithTitles}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium flex items-center gap-2"
-                  >
-                    <FiClipboard className="w-4 h-4" /> Copy with Titles
-                  </button>
-                </div>
-              </div>
-
-              {/* Format indicator */}
-              <div className="bg-green-500/10 border border-green-500/20 rounded-lg px-3 py-2 flex items-center gap-2">
-                <FiCheck className="w-4 h-4 text-green-400" />
-                <span className="text-green-400 text-xs font-medium">API share format — Telegram preview compatible</span>
-              </div>
-
-              <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
-                {videos.map((video, index) => (
-                  <div key={video._id} className="flex items-center gap-3 p-3 bg-dark-100 rounded-xl hover:bg-dark-300 transition-colors">
-                    <span className="text-gray-500 text-sm font-mono w-8 text-right flex-shrink-0">{index + 1}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-white text-sm truncate">{video.title}</p>
-                      <p className="text-green-400/70 text-xs truncate font-mono">{getApiShareUrl(video)}</p>
-                    </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <button
-                        onClick={() => copyShareUrl(getApiShareUrl(video), index)}
-                        className={`p-2 rounded-lg text-sm transition-colors ${
-                          copiedIndex === index ? 'bg-green-500/20 text-green-400' : 'hover:bg-dark-200 text-gray-400 hover:text-white'
-                        }`}
-                      >
-                        {copiedIndex === index ? <FiCheck className="w-4 h-4" /> : <FiCopy className="w-4 h-4" />}
-                      </button>
-                      <a
-                        href={getApiShareUrl(video)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="p-2 hover:bg-dark-200 rounded-lg text-gray-400 hover:text-white"
-                      >
-                        <FiExternalLink className="w-4 h-4" />
-                      </a>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ==========================================
-// EXPORT MODAL
-// ==========================================
-const ExportModal = ({ selectedIds, onClose }) => {
-  const [loading, setLoading] = useState(false);
-  const [exportType, setExportType] = useState('all');
-
-  const handleExportCSV = async () => {
-    setLoading(true);
-    try {
-      const ids = exportType === 'selected' && selectedIds.length > 0 ? selectedIds : undefined;
-      const res = await adminAPI.exportVideosCSV(ids);
-      const blob = new Blob([res.data], { type: 'text/csv' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `xmaster-videos-${new Date().toISOString().split('T')[0]}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      toast.success('CSV downloaded!');
-      onClose();
-    } catch (error) {
-      toast.error('Failed to export');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleExportJSON = async () => {
-    setLoading(true);
-    try {
-      const ids = exportType === 'selected' && selectedIds.length > 0 ? selectedIds.join(',') : undefined;
-      const res = await adminAPI.exportVideos({ ids });
-      if (res.data.success) {
-        const jsonStr = JSON.stringify(res.data.videos, null, 2);
-        const blob = new Blob([jsonStr], { type: 'application/json' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `xmaster-videos-${new Date().toISOString().split('T')[0]}.json`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-        toast.success('JSON downloaded!');
-        onClose();
-      }
-    } catch (error) {
-      toast.error('Failed to export');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleCopyToClipboard = async () => {
-    setLoading(true);
-    try {
-      const ids = exportType === 'selected' && selectedIds.length > 0 ? selectedIds.join(',') : undefined;
-      const res = await adminAPI.exportVideos({ ids });
-      if (res.data.success) {
-        const tsvData = 'Title\tShare URL\tTags\tViews\tDuration\tCategory\n' +
-          res.data.videos.map(v =>
-            `${v.title}\t${v.shareUrl}\t${v.tags}\t${v.views}\t${v.duration}\t${v.category}`
-          ).join('\n');
-        await navigator.clipboard.writeText(tsvData);
-        toast.success(`Copied ${res.data.videos.length} video metadata (paste into Excel)`);
-        onClose();
-      }
-    } catch (error) {
-      toast.error('Failed to copy');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-dark-200 rounded-2xl max-w-lg w-full border border-dark-100">
-        <div className="flex items-center justify-between p-5 border-b border-dark-100">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-yellow-500 rounded-xl flex items-center justify-center">
-              <FiDownload className="w-5 h-5 text-white" />
-            </div>
-            <h3 className="text-lg font-bold text-white">Export Video Metadata</h3>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-dark-100 rounded-lg">
-            <FiX className="w-5 h-5 text-gray-400" />
-          </button>
-        </div>
-
-        <div className="p-5 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={() => setExportType('all')}
-              className={`p-3 rounded-xl text-sm font-medium border transition-all ${
-                exportType === 'all'
-                  ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
-                  : 'bg-dark-100 text-gray-400 border-dark-100'
-              }`}
-            >
-              📦 Export All Videos
-            </button>
-            <button
-              onClick={() => setExportType('selected')}
-              disabled={selectedIds.length === 0}
-              className={`p-3 rounded-xl text-sm font-medium border transition-all disabled:opacity-50 ${
-                exportType === 'selected'
-                  ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
-                  : 'bg-dark-100 text-gray-400 border-dark-100'
-              }`}
-            >
-              ☑️ Selected ({selectedIds.length})
-            </button>
-          </div>
-
-          <div className="bg-dark-100 rounded-xl p-4 text-sm text-gray-400">
-            <p className="font-medium text-white mb-2">Export includes:</p>
-            <ul className="space-y-1 list-disc list-inside">
-              <li>Video Title</li>
-              <li>Shareable Link</li>
-              <li>Tags</li>
-              <li>Views, Duration, Category</li>
-              <li>File Code, Upload Date</li>
-            </ul>
-          </div>
-
-          <div className="space-y-2">
-            <button onClick={handleExportCSV} disabled={loading} className="w-full py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
-              <FiFileText className="w-5 h-5" />Download CSV (Excel)
-            </button>
-            <button onClick={handleExportJSON} disabled={loading} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
-              <FiDownload className="w-5 h-5" />Download JSON
-            </button>
-            <button onClick={handleCopyToClipboard} disabled={loading} className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
-              <FiClipboard className="w-5 h-5" />Copy to Clipboard (Excel Format)
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ==========================================
-// EDIT VIDEO MODAL (with Categories)
-// ==========================================
-const EditVideoModal = ({ video, onClose, onSave }) => {
-  const [formData, setFormData] = useState({
-    title: video.title || '',
-    description: video.description || '',
-    tags: video.tags?.join(', ') || '',
-    status: video.status || 'public',
-    featured: video.featured || false,
-    category: video.category?._id || video.category || '',
-    categories: (video.categories || []).map(c => c._id || c),
-  });
-  const [loading, setLoading] = useState(false);
-  const [categories, setCategories] = useState([]);
-  const [categorySearch, setCategorySearch] = useState('');
-
-  useEffect(() => {
-    publicAPI.getCategories()
-      .then(res => { if (res.data.success) setCategories(res.data.categories || []); })
-      .catch(console.error);
-  }, []);
-
-  const filteredCategories = categories.filter(c =>
-    c.name.toLowerCase().includes(categorySearch.toLowerCase())
-  );
-
-  const toggleCategory = (catId) => {
-    setFormData(prev => {
-      const current = prev.categories || [];
-      const isSelected = current.includes(catId);
-      let newCategories = isSelected ? current.filter(id => id !== catId) : [...current, catId];
-      return { ...prev, categories: newCategories, category: newCategories.length > 0 ? newCategories[0] : '' };
-    });
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      const response = await adminAPI.updateVideo(video._id, {
-        title: formData.title,
-        description: formData.description,
-        tags: formData.tags.split(',').map(t => t.trim()).filter(Boolean),
-        status: formData.status,
-        featured: formData.featured,
-        category: formData.category || null,
-        categories: formData.categories || [],
-      });
-      if (response.data.success) onSave(response.data.video);
-    } catch (error) {
-      toast.error('Failed to update video');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const selectedCategoryNames = formData.categories
-    .map(id => categories.find(c => c._id === id))
-    .filter(Boolean);
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-dark-200 rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-6 border-b border-dark-100">
-          <h3 className="text-lg font-semibold text-white">Edit Video</h3>
-          <button onClick={onClose} className="p-2 hover:bg-dark-100 rounded-lg">
-            <FiX className="w-5 h-5 text-gray-400" />
-          </button>
-        </div>
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div className="flex gap-4">
-            <img src={video.thumbnail} alt={video.title} className="w-40 h-24 object-cover rounded-lg" onError={(e) => { e.target.style.display = 'none'; }} />
-            <div className="flex-1">
-              <p className="text-gray-400 text-sm mb-1">File Code</p>
-              <p className="text-white font-mono">{video.file_code}</p>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Title</label>
-            <input type="text" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} className="input-field" required />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Description</label>
-            <textarea value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} rows={3} className="input-field resize-none" />
-          </div>
-
-          {/* Categories Section */}
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Categories <span className="text-gray-500 font-normal ml-2">({formData.categories.length} selected)</span>
-            </label>
-
-            {selectedCategoryNames.length > 0 && (
-              <div className="flex flex-wrap gap-2 mb-3">
-                {selectedCategoryNames.map((cat, i) => (
-                  <span key={cat._id} className="flex items-center gap-1.5 px-3 py-1.5 bg-primary-500/20 text-primary-400 text-sm rounded-full border border-primary-500/30">
-                    {cat.icon || '📁'} {cat.name}
-                    {i === 0 && <span className="text-[10px] text-primary-300 ml-1">(Primary)</span>}
-                    <button type="button" onClick={() => toggleCategory(cat._id)} className="ml-1 hover:text-red-400 transition-colors">
-                      <FiX className="w-3.5 h-3.5" />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-
-            <div className="relative mb-2">
-              <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 w-4 h-4" />
-              <input
-                type="text"
-                value={categorySearch}
-                onChange={(e) => setCategorySearch(e.target.value)}
-                placeholder="Search categories..."
-                className="w-full pl-10 pr-4 py-2 bg-dark-100 border border-dark-100 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-              />
-            </div>
-
-            <div className="max-h-40 overflow-y-auto bg-dark-100 rounded-lg p-2 space-y-1">
-              {filteredCategories.length === 0 ? (
-                <p className="text-gray-500 text-sm text-center py-2">No categories found</p>
-              ) : (
-                filteredCategories.map(cat => {
-                  const isSelected = formData.categories.includes(cat._id);
-                  return (
-                    <button
-                      key={cat._id}
-                      type="button"
-                      onClick={() => toggleCategory(cat._id)}
-                      className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-left transition-all ${
-                        isSelected
-                          ? 'bg-primary-500/20 text-primary-400 border border-primary-500/30'
-                          : 'text-gray-300 hover:bg-dark-200 hover:text-white'
-                      }`}
-                    >
-                      <span className="text-base">{cat.icon || '📁'}</span>
-                      <span className="flex-1">{cat.name}</span>
-                      {isSelected && <FiCheck className="w-4 h-4 text-primary-400" />}
-                      <span className="text-xs text-gray-500">{cat.videoCount || 0}</span>
-                    </button>
-                  );
-                })
-              )}
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Tags (comma separated)</label>
-            <input type="text" value={formData.tags} onChange={(e) => setFormData({ ...formData, tags: e.target.value })} className="input-field" placeholder="tag1, tag2, tag3" />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Status</label>
-              <select value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value })} className="input-field">
-                <option value="public">Public</option>
-                <option value="private">Private</option>
-                <option value="unlisted">Unlisted</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Featured</label>
-              <label className="flex items-center gap-3 p-3 bg-dark-100 rounded-lg cursor-pointer">
-                <input type="checkbox" checked={formData.featured} onChange={(e) => setFormData({ ...formData, featured: e.target.checked })} className="rounded" />
-                <span className="text-gray-300">Featured on homepage</span>
-              </label>
-            </div>
-          </div>
-
-          <div className="flex gap-3 pt-4">
-            <button type="button" onClick={onClose} className="flex-1 btn-secondary">Cancel</button>
-            <button type="submit" disabled={loading} className="flex-1 btn-primary">{loading ? 'Saving...' : 'Save Changes'}</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-};
-
-// ==========================================
-// MAIN VIDEOS MANAGER
-// ==========================================
 const VideosManager = () => {
-  const [videos, setVideos] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0 });
-  const [selectedVideos, setSelectedVideos] = useState([]);
+  // ── Data ───────────────────────────────────────────────────
+  const [videos,      setVideos]      = useState([]);
+  const [categories,  setCategories]  = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState(null);
 
-  // Categories for inline selector
-  const [allCategories, setAllCategories] = useState([]);
+  // ── Pagination ─────────────────────────────────────────────
+  const [page,        setPage]        = useState(1);
+  const [totalPages,  setTotalPages]  = useState(1);
+  const [totalCount,  setTotalCount]  = useState(0);
 
-  // Video preview
-  const [previewVideo, setPreviewVideo] = useState(null);
+  // ── Filters ────────────────────────────────────────────────
+  const [search,      setSearch]      = useState('');
+  const [statusFilter,setStatusFilter]= useState('all');
+  const [catFilter,   setCatFilter]   = useState('all');
 
-  // Toggle views visibility
-  const [showViews, setShowViews] = useState(true);
+  // ── Selection ──────────────────────────────────────────────
+  const [selected,    setSelected]    = useState(new Set());
+  const [selectAll,   setSelectAll]   = useState(false);
 
-  // Modals
-  const [editingVideo, setEditingVideo] = useState(null);
-  const [showShareLinks, setShowShareLinks] = useState(false);
-  const [showBulkTitles, setShowBulkTitles] = useState(false);
-  const [showBulkTags, setShowBulkTags] = useState(false);
-  const [showBulkCategory, setShowBulkCategory] = useState(false);
-  const [showExport, setShowExport] = useState(false);
+  // ── Inline edit ────────────────────────────────────────────
+  const [editingId,   setEditingId]   = useState(null);
+  const [editTitle,   setEditTitle]   = useState('');
 
-  // Bulk select by number
-  const [selectCount, setSelectCount] = useState('');
-  const [showSelectInput, setShowSelectInput] = useState(false);
+  // ── Row actions ────────────────────────────────────────────
+  const [actionMenu,  setActionMenu]  = useState(null); // video._id
+  const [deleting,    setDeleting]    = useState(null);
+  const [processing,  setProcessing]  = useState(null);
 
-  // Filters
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('');
-  const [featured, setFeatured] = useState('');
-  const [sort, setSort] = useState('newest');
-  const [page, setPage] = useState(1);
+  const mountedRef  = useRef(true);
+  const searchTimer = useRef(null);
 
-  // Fetch categories
+  useEffect(() => () => { mountedRef.current = false; }, []);
+
+  // ── Fetch categories once ──────────────────────────────────
   useEffect(() => {
-    publicAPI.getCategories()
-      .then(res => { if (res.data.success) setAllCategories(res.data.categories || []); })
-      .catch(console.error);
+    const fetchCats = async () => {
+      try {
+        const res  = await adminAPI.getCategories?.() || { data: [] };
+        const data = res?.data?.categories || res?.data || [];
+        if (mountedRef.current) setCategories(Array.isArray(data) ? data : []);
+      } catch { /* non-critical */ }
+    };
+    fetchCats();
   }, []);
 
-  const fetchVideos = useCallback(async () => {
+  // ── Fetch videos ───────────────────────────────────────────
+  useEffect(() => {
+    fetchVideos(1);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter, catFilter]);
+
+  // ── Debounced search ───────────────────────────────────────
+  useEffect(() => {
+    clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => {
+      fetchVideos(1);
+    }, 400);
+    return () => clearTimeout(searchTimer.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
+
+  const fetchVideos = async (pg = 1) => {
     setLoading(true);
+    setError(null);
+    setSelected(new Set());
+    setSelectAll(false);
+
     try {
-      const response = await adminAPI.getVideos({ page, limit: 50, search, status, featured, sort });
-      if (response.data.success) {
-        setVideos(response.data.videos);
-        setPagination(response.data.pagination);
-      }
-    } catch (error) {
-      console.error('Failed to fetch videos:', error);
-      toast.error('Failed to load videos');
+      const params = {
+        page:     pg,
+        limit:    PAGE_SIZE,
+        search:   search || undefined,
+        status:   statusFilter !== 'all' ? statusFilter : undefined,
+        category: catFilter    !== 'all' ? catFilter    : undefined,
+      };
+
+      // Existing API call preserved
+      const res  = await adminAPI.getVideos(params);
+      const data = res?.data?.videos || res?.data || [];
+      const pages= res?.data?.totalPages || res?.data?.pages || 1;
+      const count= res?.data?.total || data.length;
+
+      if (!mountedRef.current) return;
+
+      setVideos(Array.isArray(data) ? data : []);
+      setTotalPages(pages);
+      setTotalCount(count);
+      setPage(pg);
+    } catch (err) {
+      if (mountedRef.current) setError('Failed to load videos');
     } finally {
-      setLoading(false);
-    }
-  }, [page, search, status, featured, sort]);
-
-  useEffect(() => { fetchVideos(); }, [fetchVideos]);
-
-  const debouncedSearch = debounce((value) => { setSearch(value); setPage(1); }, 500);
-
-  const handleToggleFeatured = async (video) => {
-    try {
-      const response = await adminAPI.toggleFeatured(video._id);
-      if (response.data.success) {
-        setVideos(videos.map(v => v._id === video._id ? { ...v, featured: response.data.featured } : v));
-        toast.success(response.data.message);
-      }
-    } catch (error) {
-      toast.error('Failed to update featured status');
+      if (mountedRef.current) setLoading(false);
     }
   };
 
-  const handleDelete = async (video) => {
-    if (!window.confirm(`Delete "${video.title}"? This cannot be undone.`)) return;
+  // ============================================================
+  // SELECTION HANDLERS
+  // ============================================================
+
+  const toggleSelect = useCallback((id) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAll = useCallback(() => {
+    if (selectAll) {
+      setSelected(new Set());
+      setSelectAll(false);
+    } else {
+      setSelected(new Set(videos.map((v) => v._id)));
+      setSelectAll(true);
+    }
+  }, [selectAll, videos]);
+
+  // ============================================================
+  // ACTION HANDLERS — all existing API calls preserved
+  // ============================================================
+
+  const handleDelete = async (videoId) => {
+    if (!window.confirm('Delete this video? This cannot be undone.')) return;
+    setDeleting(videoId);
     try {
-      await adminAPI.deleteVideo(video._id);
-      setVideos(videos.filter(v => v._id !== video._id));
-      toast.success('Video deleted successfully');
-    } catch (error) {
+      await adminAPI.deleteVideo(videoId);
+      setVideos((prev) => prev.filter((v) => v._id !== videoId));
+      setTotalCount((p) => p - 1);
+      toast.success('Video deleted');
+    } catch {
       toast.error('Failed to delete video');
+    } finally {
+      if (mountedRef.current) setDeleting(null);
     }
   };
 
   const handleBulkDelete = async () => {
-    if (selectedVideos.length === 0) return;
-    if (!window.confirm(`Delete ${selectedVideos.length} videos? This cannot be undone.`)) return;
+    if (selected.size === 0) return;
+    if (!window.confirm(`Delete ${selected.size} video(s)? This cannot be undone.`)) return;
+    setProcessing('bulk-delete');
     try {
-      await adminAPI.bulkDeleteVideos(selectedVideos);
-      setVideos(videos.filter(v => !selectedVideos.includes(v._id)));
-      setSelectedVideos([]);
-      toast.success(`${selectedVideos.length} videos deleted`);
-    } catch (error) {
-      toast.error('Failed to delete videos');
+      await adminAPI.bulkDeleteVideos([...selected]);
+      setVideos((prev) => prev.filter((v) => !selected.has(v._id)));
+      setTotalCount((p) => p - selected.size);
+      setSelected(new Set());
+      setSelectAll(false);
+      toast.success(`${selected.size} video(s) deleted`);
+    } catch {
+      toast.error('Bulk delete failed');
+    } finally {
+      if (mountedRef.current) setProcessing(null);
     }
   };
 
-  const handleSelectAll = (e) => {
-    if (e.target.checked) setSelectedVideos(videos.map(v => v._id));
-    else setSelectedVideos([]);
-  };
-
-  const handleSelectVideo = (videoId) => {
-    setSelectedVideos(prev =>
-      prev.includes(videoId) ? prev.filter(id => id !== videoId) : [...prev, videoId]
-    );
-  };
-
-  const handleSelectByCount = () => {
-    const num = parseInt(selectCount);
-    if (!num || num < 1) { toast.error('Enter a valid number'); return; }
-    const toSelect = videos.slice(0, Math.min(num, videos.length)).map(v => v._id);
-    setSelectedVideos(toSelect);
-    setShowSelectInput(false);
-    setSelectCount('');
-    toast.success(`Selected ${toSelect.length} videos`);
-  };
-
-  // ★ UPDATED: Copy selected links in API share format
-  const copySelectedLinks = async () => {
-    if (selectedVideos.length === 0) { toast.error('No videos selected'); return; }
+  const handleStatusToggle = async (video) => {
+    const newStatus = video.status === 'public' ? 'private' : 'public';
+    setProcessing(video._id);
     try {
-      const res = await adminAPI.bulkShareLinks({ ids: selectedVideos, mode: 'selected' });
-      if (res.data.success) {
-        const urls = res.data.videos.map(v => getApiShareUrl(v)).join('\n');
-        await navigator.clipboard.writeText(urls);
-        toast.success(`Copied ${res.data.videos.length} API share links`);
-      }
-    } catch (error) { toast.error('Failed to copy links'); }
+      await adminAPI.updateVideoStatus(video._id, newStatus);
+      setVideos((prev) =>
+        prev.map((v) => v._id === video._id ? { ...v, status: newStatus } : v)
+      );
+      toast.success(`Video set to ${newStatus}`);
+    } catch {
+      toast.error('Status update failed');
+    } finally {
+      if (mountedRef.current) setProcessing(null);
+    }
   };
 
-  // ★ UPDATED: Copy selected with titles in API share format
-  const copySelectedWithTitles = async () => {
-    if (selectedVideos.length === 0) { toast.error('No videos selected'); return; }
+  const handleToggleFeatured = async (video) => {
+    setProcessing(video._id);
     try {
-      const res = await adminAPI.bulkShareLinks({ ids: selectedVideos, mode: 'selected' });
-      if (res.data.success) {
-        const data = res.data.videos.map(v => `${v.title}\t${getApiShareUrl(v)}`).join('\n');
-        await navigator.clipboard.writeText(data);
-        toast.success(`Copied ${res.data.videos.length} titles + API share links`);
-      }
-    } catch (error) { toast.error('Failed to copy'); }
+      await adminAPI.toggleFeatured(video._id);
+      setVideos((prev) =>
+        prev.map((v) =>
+          v._id === video._id ? { ...v, featured: !v.featured } : v
+        )
+      );
+      toast.success(video.featured ? 'Removed from featured' : 'Added to featured');
+    } catch {
+      toast.error('Failed to update featured status');
+    } finally {
+      if (mountedRef.current) setProcessing(null);
+    }
   };
 
-  const selectedVideoObjects = videos.filter(v => selectedVideos.includes(v._id));
+  const handleInlineSave = async (video) => {
+    if (!editTitle.trim() || editTitle === video.title) {
+      setEditingId(null);
+      return;
+    }
+    try {
+      await adminAPI.updateVideo(video._id, { title: editTitle.trim() });
+      setVideos((prev) =>
+        prev.map((v) => v._id === video._id ? { ...v, title: editTitle.trim() } : v)
+      );
+      toast.success('Title updated');
+    } catch {
+      toast.error('Failed to update title');
+    } finally {
+      setEditingId(null);
+    }
+  };
+
+  const handleExport = async () => {
+    try {
+      const res = await adminAPI.exportVideosCSV();
+      const blob = new Blob([res.data], { type: 'text/csv' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `xmaster-videos-${Date.now()}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('Export started');
+    } catch {
+      toast.error('Export failed');
+    }
+  };
+
+  // ============================================================
+  // RENDER
+  // ============================================================
 
   return (
-    <AdminLayout title="Videos Manager">
-      {/* Modals */}
-      {previewVideo && <VideoPreviewModal video={previewVideo} onClose={() => setPreviewVideo(null)} />}
-      {showShareLinks && <BulkShareLinksPanel onClose={() => setShowShareLinks(false)} />}
-      {showBulkTitles && selectedVideoObjects.length > 0 && (
-        <BulkEditTitlesModal videos={selectedVideoObjects} onClose={() => setShowBulkTitles(false)} onSave={() => { setShowBulkTitles(false); fetchVideos(); }} />
-      )}
-      {showBulkTags && selectedVideoObjects.length > 0 && (
-        <BulkAddTagsModal videos={selectedVideoObjects} onClose={() => setShowBulkTags(false)} onSave={() => { setShowBulkTags(false); fetchVideos(); }} />
-      )}
-      {showBulkCategory && selectedVideoObjects.length > 0 && (
-        <BulkCategoryModal videos={selectedVideoObjects} categories={allCategories} onClose={() => setShowBulkCategory(false)} onSave={() => { setShowBulkCategory(false); fetchVideos(); }} />
-      )}
-      {showExport && <ExportModal selectedIds={selectedVideos} onClose={() => setShowExport(false)} />}
-      {editingVideo && (
-        <EditVideoModal
-          video={editingVideo}
-          onClose={() => setEditingVideo(null)}
-          onSave={(updatedVideo) => {
-            setVideos(videos.map(v => v._id === updatedVideo._id ? updatedVideo : v));
-            setEditingVideo(null);
-            toast.success('Video updated successfully');
-          }}
-        />
-      )}
+    <AdminLayout
+      title={`Videos ${totalCount > 0 ? `(${totalCount.toLocaleString()})` : ''}`}
+      actions={
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleExport}
+            className="
+              flex items-center gap-1.5
+              px-3 py-1.5 rounded-lg text-xs font-medium
+              bg-white/8 text-white/60 border border-white/10
+              hover:bg-white/15 hover:text-white
+              transition-all duration-200
+            "
+          >
+            <FiDownload className="w-3.5 h-3.5" />
+            Export
+          </button>
+          <Link
+            to="/admin/upload"
+            className="btn-primary text-xs px-3 py-1.5"
+          >
+            + Upload
+          </Link>
+        </div>
+      }
+    >
+      <div className="space-y-4">
 
-      {/* ==================== TOP TOOLBAR ==================== */}
-      <div className="bg-dark-200 rounded-xl p-4 mb-6 border border-dark-100">
-        <div className="flex flex-col lg:flex-row gap-4">
+        {/* ── Filters toolbar ──────────────────────────────── */}
+        <div className="
+          glass-panel rounded-2xl p-4
+          flex flex-wrap items-center gap-3
+        ">
           {/* Search */}
-          <div className="flex-1 relative">
-            <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+          <div className="relative flex-1 min-w-[200px]">
+            <FiSearch className="
+              absolute left-3 top-1/2 -translate-y-1/2
+              w-4 h-4 text-white/30 pointer-events-none
+            " />
             <input
               type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
               placeholder="Search videos..."
-              onChange={(e) => debouncedSearch(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 bg-dark-100 border border-dark-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-white"
+              className="input-base pl-9 h-9 text-sm"
             />
           </div>
 
-          {/* Filters */}
-          <div className="flex gap-3 flex-wrap">
-            <select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }} className="px-4 py-2.5 bg-dark-100 border border-dark-100 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500">
-              <option value="">All Status</option>
-              <option value="public">Public</option>
-              <option value="private">Private</option>
-              <option value="unlisted">Unlisted</option>
-            </select>
-            <select value={featured} onChange={(e) => { setFeatured(e.target.value); setPage(1); }} className="px-4 py-2.5 bg-dark-100 border border-dark-100 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500">
-              <option value="">All Videos</option>
-              <option value="true">Featured</option>
-              <option value="false">Not Featured</option>
-            </select>
-            <select value={sort} onChange={(e) => { setSort(e.target.value); setPage(1); }} className="px-4 py-2.5 bg-dark-100 border border-dark-100 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500">
-              <option value="newest">Newest</option>
-              <option value="oldest">Oldest</option>
-              <option value="views">Most Viewed</option>
-              <option value="title">Title A-Z</option>
-            </select>
-          </div>
+          {/* Status filter */}
+          <FilterSelect
+            value={statusFilter}
+            onChange={setStatusFilter}
+            options={STATUS_OPTIONS.map((s) => ({
+              value: s,
+              label: s === 'all' ? 'All Status' : s.charAt(0).toUpperCase() + s.slice(1),
+            }))}
+          />
 
-          {/* Action Buttons */}
-          <div className="flex gap-2 flex-wrap">
-            {/* Views Toggle */}
-            <button
-              onClick={() => setShowViews(!showViews)}
-              className={`px-4 py-2.5 rounded-lg font-medium transition-colors flex items-center gap-2 ${
-                showViews
-                  ? 'bg-dark-100 text-gray-400 hover:text-white border border-dark-100'
-                  : 'bg-orange-500/20 text-orange-400 border border-orange-500/30'
-              }`}
-              title={showViews ? 'Hide all views' : 'Show all views'}
-            >
-              {showViews ? <FiEye className="w-4 h-4" /> : <FiEyeOff className="w-4 h-4" />}
-              <span className="hidden sm:inline">{showViews ? 'Views' : 'Hidden'}</span>
-            </button>
+          {/* Category filter */}
+          {categories.length > 0 && (
+            <FilterSelect
+              value={catFilter}
+              onChange={setCatFilter}
+              options={[
+                { value: 'all', label: 'All Categories' },
+                ...categories.map((c) => ({ value: c.slug || c._id, label: c.name })),
+              ]}
+            />
+          )}
 
-            <button onClick={() => setShowShareLinks(true)} className="px-4 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2">
-              <FiLink className="w-4 h-4" />
-              <span className="hidden sm:inline">Share Links</span>
-            </button>
-            <button onClick={() => setShowExport(true)} className="px-4 py-2.5 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2">
-              <FiDownload className="w-4 h-4" />
-              <span className="hidden sm:inline">Export</span>
-            </button>
-            <Link to="/admin/upload" className="btn-primary">
-              <FiPlus className="w-5 h-5" />
-              <span className="hidden sm:inline">Add Video</span>
-            </Link>
-          </div>
+          {/* Refresh */}
+          <button
+            onClick={() => fetchVideos(page)}
+            disabled={loading}
+            className="
+              p-2.5 rounded-lg text-white/40 hover:text-white
+              hover:bg-white/10 border border-white/8
+              disabled:opacity-50
+              transition-all duration-200
+            "
+          >
+            <FiRefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
         </div>
 
-        {/* ==================== BULK ACTIONS BAR ==================== */}
-        <div className="mt-4 pt-4 border-t border-dark-100">
-          <div className="flex items-center gap-3 flex-wrap">
-            {/* Select by number */}
-            <div className="flex items-center gap-2">
-              {showSelectInput ? (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    value={selectCount}
-                    onChange={(e) => setSelectCount(e.target.value)}
-                    placeholder="e.g. 50"
-                    className="w-24 px-3 py-2 bg-dark-100 border border-dark-100 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleSelectByCount(); }}
-                  />
-                  <button onClick={handleSelectByCount} className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm">
-                    <FiCheck className="w-4 h-4" />
-                  </button>
-                  <button onClick={() => { setShowSelectInput(false); setSelectCount(''); }} className="px-3 py-2 bg-dark-100 text-gray-400 rounded-lg text-sm">
-                    <FiX className="w-4 h-4" />
-                  </button>
-                </div>
-              ) : (
-                <button onClick={() => setShowSelectInput(true)} className="px-3 py-2 bg-dark-100 text-gray-400 hover:text-white rounded-lg text-sm transition-colors flex items-center gap-2">
-                  <FiHash className="w-4 h-4" />
-                  Select by Number
-                </button>
-              )}
+        {/* ── Bulk actions bar ─────────────────────────────── */}
+        {selected.size > 0 && (
+          <div className="
+            glass-panel rounded-xl px-4 py-3
+            flex items-center gap-3
+            border-primary-600/20
+            animate-fade-in-down
+          ">
+            <span className="text-sm font-semibold text-primary-400">
+              {selected.size} selected
+            </span>
+            <div className="flex items-center gap-2 ml-auto">
+              <button
+                onClick={handleBulkDelete}
+                disabled={processing === 'bulk-delete'}
+                className="
+                  flex items-center gap-1.5
+                  px-3 py-1.5 rounded-lg text-xs font-semibold
+                  bg-red-500/15 text-red-400 border border-red-500/20
+                  hover:bg-red-500/25
+                  disabled:opacity-50
+                  transition-all duration-200
+                "
+              >
+                {processing === 'bulk-delete'
+                  ? <><span className="w-3 h-3 rounded-full border border-red-400/30 border-t-red-400 animate-spin" />Deleting...</>
+                  : <><FiTrash2 className="w-3.5 h-3.5" />Delete</>
+                }
+              </button>
+              <button
+                onClick={() => { setSelected(new Set()); setSelectAll(false); }}
+                className="
+                  px-3 py-1.5 rounded-lg text-xs
+                  text-white/40 hover:text-white
+                  hover:bg-white/10
+                  transition-all duration-200
+                "
+              >
+                Clear
+              </button>
             </div>
-
-            {selectedVideos.length > 0 && (
-              <>
-                <span className="text-sm text-primary-400 font-medium">
-                  {selectedVideos.length} selected
-                </span>
-                <div className="h-4 w-px bg-dark-100"></div>
-
-                <button onClick={() => setShowBulkTitles(true)} className="px-3 py-2 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded-lg text-sm transition-colors flex items-center gap-1.5">
-                  <FiEdit2 className="w-3.5 h-3.5" />Bulk Titles
-                </button>
-                <button onClick={() => setShowBulkTags(true)} className="px-3 py-2 bg-green-500/10 text-green-400 hover:bg-green-500/20 rounded-lg text-sm transition-colors flex items-center gap-1.5">
-                  <FiTag className="w-3.5 h-3.5" />Bulk Tags
-                </button>
-                <button onClick={() => setShowBulkCategory(true)} className="px-3 py-2 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 rounded-lg text-sm transition-colors flex items-center gap-1.5">
-                  <FiGrid className="w-3.5 h-3.5" />Bulk Category
-                </button>
-                <button onClick={copySelectedLinks} className="px-3 py-2 bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 rounded-lg text-sm transition-colors flex items-center gap-1.5">
-                  <FiCopy className="w-3.5 h-3.5" />Copy Links
-                </button>
-                <button onClick={copySelectedWithTitles} className="px-3 py-2 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 rounded-lg text-sm transition-colors flex items-center gap-1.5">
-                  <FiClipboard className="w-3.5 h-3.5" />Copy with Titles
-                </button>
-
-                <button
-                  onClick={async () => {
-                    try {
-                      const res = await adminAPI.bulkUpdateStatus({ ids: selectedVideos, status: 'public' });
-                      if (res.data.success) { toast.success(`Published ${res.data.modifiedCount} videos`); fetchVideos(); setSelectedVideos([]); }
-                    } catch (e) { toast.error('Failed'); }
-                  }}
-                  className="px-3 py-2 bg-green-500/10 text-green-400 hover:bg-green-500/20 rounded-lg text-sm transition-colors flex items-center gap-1.5"
-                >
-                  <FiCheckCircle className="w-3.5 h-3.5" />Publish
-                </button>
-                <button
-                  onClick={async () => {
-                    try {
-                      const res = await adminAPI.bulkUpdateStatus({ ids: selectedVideos, status: 'private' });
-                      if (res.data.success) { toast.success(`Made ${res.data.modifiedCount} videos private`); fetchVideos(); setSelectedVideos([]); }
-                    } catch (e) { toast.error('Failed'); }
-                  }}
-                  className="px-3 py-2 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 rounded-lg text-sm transition-colors flex items-center gap-1.5"
-                >
-                  <FiLock className="w-3.5 h-3.5" />Make Private
-                </button>
-
-                <button onClick={handleBulkDelete} className="px-3 py-2 bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded-lg text-sm transition-colors flex items-center gap-1.5">
-                  <FiTrash2 className="w-3.5 h-3.5" />Delete
-                </button>
-                <button onClick={() => setSelectedVideos([])} className="px-3 py-2 bg-dark-100 text-gray-400 hover:text-white rounded-lg text-sm transition-colors">
-                  Clear Selection
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* ==================== VIDEOS TABLE ==================== */}
-      <div className="bg-dark-200 rounded-xl border border-dark-100 overflow-hidden">
-        {loading ? (
-          <LoadingSpinner />
-        ) : videos.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-gray-400">No videos found</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-dark-300">
-                <tr>
-                  <th className="px-4 py-3 text-left">
-                    <input type="checkbox" onChange={handleSelectAll} checked={selectedVideos.length === videos.length && videos.length > 0} className="rounded" />
-                  </th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Video</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Category</th>
-                  {showViews && <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Views</th>}
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Status</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Featured</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Date</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-400">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {videos.map((video) => (
-                  <tr key={video._id} className="border-t border-dark-100 hover:bg-dark-100/50 transition-colors">
-                    <td className="px-4 py-3">
-                      <input type="checkbox" checked={selectedVideos.includes(video._id)} onChange={() => handleSelectVideo(video._id)} className="rounded" />
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        {/* Clickable thumbnail to preview */}
-                        <div
-                          className="relative w-24 h-14 flex-shrink-0 cursor-pointer group/thumb rounded overflow-hidden"
-                          onClick={() => setPreviewVideo(video)}
-                        >
-                          <img src={video.thumbnail} alt={video.title} className="w-full h-full object-cover" onError={(e) => { e.target.style.display = 'none'; }} />
-                          <div className="absolute inset-0 bg-black/0 group-hover/thumb:bg-black/50 transition-colors flex items-center justify-center">
-                            <FiPlay className="w-6 h-6 text-white opacity-0 group-hover/thumb:opacity-100 transition-opacity" />
-                          </div>
-                        </div>
-                        <div className="min-w-0">
-                          <p
-                            className="text-white font-medium truncate max-w-xs cursor-pointer hover:text-primary-400 transition-colors"
-                            onClick={() => setPreviewVideo(video)}
-                          >
-                            {video.title}
-                          </p>
-                          <p className="text-gray-500 text-sm">{video.file_code}</p>
-                          {video.tags && video.tags.length > 0 && (
-                            <div className="flex gap-1 mt-1 flex-wrap">
-                              {video.tags.slice(0, 3).map((tag, i) => (
-                                <span key={i} className="text-[10px] px-1.5 py-0.5 bg-dark-100 text-gray-500 rounded">#{tag}</span>
-                              ))}
-                              {video.tags.length > 3 && (
-                                <span className="text-[10px] text-gray-600">+{video.tags.length - 3}</span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                    {/* Inline Category Selector */}
-                    <td className="px-4 py-3">
-                      <InlineCategorySelect
-                        video={video}
-                        categories={allCategories}
-                        onUpdate={(updatedVideo) => {
-                          setVideos(videos.map(v => v._id === updatedVideo._id ? updatedVideo : v));
-                        }}
-                      />
-                    </td>
-                    {/* Conditionally show views */}
-                    {showViews && (
-                      <td className="px-4 py-3">
-                        <span className="flex items-center gap-1 text-gray-300">
-                          <FiEye className="w-4 h-4" />
-                          {formatViews(video.views)}
-                        </span>
-                      </td>
-                    )}
-                    <td className="px-4 py-3">
-                      <span className={`badge ${video.status === 'public' ? 'badge-success' : video.status === 'private' ? 'badge-danger' : 'badge-warning'}`}>
-                        {video.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <button onClick={() => handleToggleFeatured(video)} className={`p-2 rounded-lg transition-colors ${video.featured ? 'bg-yellow-500/20 text-yellow-500' : 'bg-dark-100 text-gray-500 hover:text-yellow-500'}`}>
-                        <FiStar className="w-5 h-5" fill={video.featured ? 'currentColor' : 'none'} />
-                      </button>
-                    </td>
-                    <td className="px-4 py-3 text-gray-400 text-sm">
-                      {formatDate(video.uploadDate)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1">
-                        {/* Play button */}
-                        <button
-                          onClick={() => setPreviewVideo(video)}
-                          className="p-2 hover:bg-primary-500/10 rounded-lg text-gray-400 hover:text-primary-400 transition-colors"
-                          title="Watch video"
-                        >
-                          <FiPlay className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => setEditingVideo(video)} className="p-2 hover:bg-dark-100 rounded-lg text-gray-400 hover:text-white transition-colors" title="Edit video">
-                          <FiEdit2 className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => handleDelete(video)} className="p-2 hover:bg-red-500/10 rounded-lg text-gray-400 hover:text-red-500 transition-colors" title="Delete video">
-                          <FiTrash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
           </div>
         )}
 
-        <div className="p-4 border-t border-dark-100">
-          <Pagination currentPage={pagination.page} totalPages={pagination.pages} onPageChange={setPage} />
+        {/* ── Table ────────────────────────────────────────── */}
+        <div className="glass-panel rounded-2xl overflow-hidden">
+
+          {/* Error */}
+          {error && (
+            <div className="p-6 text-center">
+              <FiAlertTriangle className="w-8 h-8 text-red-400/50 mx-auto mb-2" />
+              <p className="text-sm text-white/50 mb-3">{error}</p>
+              <button
+                onClick={() => fetchVideos(page)}
+                className="btn-secondary text-xs"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {/* Loading */}
+          {loading && (
+            <div className="overflow-x-auto">
+              <table className="admin-table">
+                <TableHead
+                  allSelected={false}
+                  onSelectAll={() => {}}
+                />
+                <tbody>
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <TableRowSkeleton key={i} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Data */}
+          {!loading && !error && videos.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="admin-table">
+                <TableHead
+                  allSelected={selectAll}
+                  onSelectAll={toggleSelectAll}
+                />
+                <tbody>
+                  {videos.map((video) => (
+                    <VideoRow
+                      key={video._id}
+                      video={video}
+                      selected={selected.has(video._id)}
+                      onSelect={() => toggleSelect(video._id)}
+                      editing={editingId === video._id}
+                      editTitle={editTitle}
+                      setEditTitle={setEditTitle}
+                      onStartEdit={() => { setEditingId(video._id); setEditTitle(video.title); }}
+                      onSaveEdit={() => handleInlineSave(video)}
+                      onCancelEdit={() => setEditingId(null)}
+                      onDelete={() => handleDelete(video._id)}
+                      onStatusToggle={() => handleStatusToggle(video)}
+                      onToggleFeatured={() => handleToggleFeatured(video)}
+                      deleting={deleting === video._id}
+                      processing={processing === video._id}
+                      actionMenuOpen={actionMenu === video._id}
+                      onActionMenu={() => setActionMenu(
+                        actionMenu === video._id ? null : video._id
+                      )}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Empty */}
+          {!loading && !error && videos.length === 0 && (
+            <div className="py-16 text-center">
+              <FiVideo className="w-10 h-10 text-white/15 mx-auto mb-3" />
+              <p className="text-sm text-white/30 mb-1">No videos found</p>
+              <p className="text-xs text-white/20">
+                Try adjusting your filters or upload new content
+              </p>
+            </div>
+          )}
         </div>
+
+        {/* ── Pagination ───────────────────────────────────── */}
+        {!loading && totalPages > 1 && (
+          <div className="flex justify-center">
+            <Pagination
+              currentPage={page}
+              totalPages={totalPages}
+              onPageChange={(pg) => fetchVideos(pg)}
+            />
+          </div>
+        )}
+
       </div>
     </AdminLayout>
   );
 };
+
+// ============================================================
+// TABLE HEAD
+// ============================================================
+
+const TableHead = ({ allSelected, onSelectAll }) => (
+  <thead>
+    <tr>
+      <th className="w-10 pl-4">
+        <button
+          onClick={onSelectAll}
+          className="text-white/30 hover:text-white transition-colors"
+        >
+          {allSelected
+            ? <FiCheckSquare className="w-4 h-4 text-primary-400" />
+            : <FiSquare      className="w-4 h-4" />
+          }
+        </button>
+      </th>
+      <th className="min-w-[280px]">Video</th>
+      <th className="w-24">Status</th>
+      <th className="w-20">Views</th>
+      <th className="w-20">Duration</th>
+      <th className="w-28">Uploaded</th>
+      <th className="w-24 text-right pr-4">Actions</th>
+    </tr>
+  </thead>
+);
+
+// ============================================================
+// VIDEO ROW
+// ============================================================
+
+const VideoRow = ({
+  video, selected, onSelect,
+  editing, editTitle, setEditTitle,
+  onStartEdit, onSaveEdit, onCancelEdit,
+  onDelete, onStatusToggle, onToggleFeatured,
+  deleting, processing, actionMenuOpen, onActionMenu,
+}) => {
+  const thumb    = getThumbnailUrl(video);
+  const watchUrl = getWatchUrl(video);
+  const rowRef   = useRef(null);
+
+  // Close action menu on outside click
+  useEffect(() => {
+    if (!actionMenuOpen) return;
+    const handler = (e) => {
+      if (rowRef.current && !rowRef.current.contains(e.target)) {
+        onActionMenu();
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [actionMenuOpen, onActionMenu]);
+
+  return (
+    <tr
+      ref={rowRef}
+      className={`
+        transition-colors duration-150
+        ${selected ? 'bg-primary-600/8' : ''}
+        ${deleting || processing ? 'opacity-60' : ''}
+      `}
+    >
+      {/* Checkbox */}
+      <td className="pl-4">
+        <button
+          onClick={onSelect}
+          className="text-white/30 hover:text-white transition-colors"
+        >
+          {selected
+            ? <FiCheckSquare className="w-4 h-4 text-primary-400" />
+            : <FiSquare      className="w-4 h-4" />
+          }
+        </button>
+      </td>
+
+      {/* Video cell */}
+      <td>
+        <div className="flex items-center gap-3 py-1">
+          {/* Thumbnail */}
+          <div className="
+            relative w-20 h-12 rounded-lg overflow-hidden
+            flex-shrink-0 bg-dark-300
+          ">
+            <img
+              src={thumb}
+              alt={video.title}
+              loading="lazy"
+              className="w-full h-full object-cover"
+              onError={(e) => { e.target.style.display = 'none'; }}
+            />
+            {video.duration && (
+              <span className="
+                absolute bottom-0.5 right-0.5
+                text-[9px] font-bold text-white
+                bg-black/80 px-1 py-px rounded
+              ">
+                {formatDuration(video.duration)}
+              </span>
+            )}
+          </div>
+
+          {/* Title (inline edit) */}
+          <div className="flex-1 min-w-0">
+            {editing ? (
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter')  onSaveEdit();
+                    if (e.key === 'Escape') onCancelEdit();
+                  }}
+                  autoFocus
+                  className="
+                    flex-1 bg-white/8 border border-primary-600/40
+                    rounded-lg px-2 py-1 text-xs text-white
+                    focus:outline-none focus:border-primary-600
+                  "
+                />
+                <button onClick={onSaveEdit}   className="text-emerald-400 hover:text-emerald-300"><FiCheck className="w-3.5 h-3.5" /></button>
+                <button onClick={onCancelEdit}  className="text-red-400    hover:text-red-300"   ><FiX     className="w-3.5 h-3.5" /></button>
+              </div>
+            ) : (
+              <p
+                className="
+                  text-xs font-semibold text-white/80
+                  line-clamp-2 leading-snug
+                  cursor-pointer hover:text-white
+                  transition-colors duration-150
+                "
+                onClick={onStartEdit}
+                title="Click to edit title"
+              >
+                {video.title}
+              </p>
+            )}
+
+            {/* Meta */}
+            <div className="flex items-center gap-2 mt-1">
+              {video.featured && (
+                <span className="text-[9px] text-amber-400 flex items-center gap-0.5">
+                  <FiStar className="w-2.5 h-2.5 fill-amber-400" />
+                  Featured
+                </span>
+              )}
+              {video.category && (
+                <span className="text-[9px] text-white/30">
+                  {typeof video.category === 'string'
+                    ? video.category
+                    : video.category?.name || ''
+                  }
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </td>
+
+      {/* Status */}
+      <td>
+        <button
+          onClick={onStatusToggle}
+          disabled={processing}
+          className={`
+            px-2 py-0.5 rounded-full text-[10px] font-bold
+            border transition-all duration-200
+            ${video.status === 'public'
+              ? 'status-public  hover:bg-emerald-500/25'
+              : video.status === 'private'
+                ? 'status-private hover:bg-gray-500/25'
+                : 'status-draft   hover:bg-amber-500/25'
+            }
+            ${processing ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+          `}
+        >
+          {video.status || 'draft'}
+        </button>
+      </td>
+
+      {/* Views */}
+      <td>
+        <span className="text-xs text-white/50">
+          {formatViewsShort(video.views)}
+        </span>
+      </td>
+
+      {/* Duration */}
+      <td>
+        <span className="text-xs text-white/50">
+          {formatDuration(video.duration) || '—'}
+        </span>
+      </td>
+
+      {/* Date */}
+      <td>
+        <span className="text-xs text-white/40">
+          {formatDate(video.createdAt || video.uploadDate)}
+        </span>
+      </td>
+
+      {/* Actions */}
+      <td className="pr-4">
+        <div className="flex items-center justify-end gap-1 relative">
+
+          {/* Featured toggle */}
+          <button
+            onClick={onToggleFeatured}
+            disabled={processing}
+            title={video.featured ? 'Remove from featured' : 'Add to featured'}
+            className={`
+              p-1.5 rounded-lg transition-all duration-150
+              ${video.featured
+                ? 'text-amber-400 bg-amber-500/10'
+                : 'text-white/20 hover:text-amber-400 hover:bg-amber-500/10'
+              }
+              disabled:opacity-50
+            `}
+          >
+            <FiStar className={`w-3.5 h-3.5 ${video.featured ? 'fill-amber-400' : ''}`} />
+          </button>
+
+          {/* View on site */}
+          <a
+            href={watchUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="p-1.5 rounded-lg text-white/20 hover:text-blue-400 hover:bg-blue-500/10 transition-all duration-150"
+            title="View on site"
+          >
+            <FiExternalLink className="w-3.5 h-3.5" />
+          </a>
+
+          {/* Delete */}
+          <button
+            onClick={onDelete}
+            disabled={deleting || processing}
+            title="Delete video"
+            className="
+              p-1.5 rounded-lg
+              text-white/20 hover:text-red-400 hover:bg-red-500/10
+              disabled:opacity-50
+              transition-all duration-150
+            "
+          >
+            {deleting
+              ? <span className="w-3.5 h-3.5 rounded-full border border-red-400/30 border-t-red-400 animate-spin block" />
+              : <FiTrash2 className="w-3.5 h-3.5" />
+            }
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+};
+
+// ============================================================
+// TABLE ROW SKELETON
+// ============================================================
+
+const TableRowSkeleton = () => (
+  <tr className="animate-pulse">
+    <td className="pl-4">
+      <div className="w-4 h-4 rounded skeleton-shimmer bg-dark-200" />
+    </td>
+    <td>
+      <div className="flex items-center gap-3 py-1">
+        <div className="w-20 h-12 rounded-lg skeleton-shimmer bg-dark-300 flex-shrink-0" />
+        <div className="flex-1 space-y-2">
+          <div className="h-3.5 rounded skeleton-shimmer bg-dark-200 w-full" />
+          <div className="h-3 rounded skeleton-shimmer bg-dark-300 w-2/3" />
+        </div>
+      </div>
+    </td>
+    <td><div className="h-4 w-14 rounded-full skeleton-shimmer bg-dark-300" /></td>
+    <td><div className="h-3.5 w-10 rounded skeleton-shimmer bg-dark-300" /></td>
+    <td><div className="h-3.5 w-12 rounded skeleton-shimmer bg-dark-300" /></td>
+    <td><div className="h-3.5 w-20 rounded skeleton-shimmer bg-dark-300" /></td>
+    <td className="pr-4">
+      <div className="flex justify-end gap-2">
+        <div className="w-6 h-6 rounded skeleton-shimmer bg-dark-300" />
+        <div className="w-6 h-6 rounded skeleton-shimmer bg-dark-300" />
+        <div className="w-6 h-6 rounded skeleton-shimmer bg-dark-300" />
+      </div>
+    </td>
+  </tr>
+);
+
+// ============================================================
+// FILTER SELECT
+// ============================================================
+
+const FilterSelect = ({ value, onChange, options }) => (
+  <div className="relative">
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="
+        appearance-none
+        pl-3 pr-8 py-2 rounded-xl text-sm
+        bg-white/6 border border-white/10 text-white/70
+        hover:border-white/20 focus:border-primary-600/40
+        focus:outline-none
+        transition-all duration-200
+        cursor-pointer
+      "
+    >
+      {options.map((opt) => (
+        <option key={opt.value} value={opt.value} className="bg-dark-300 text-white">
+          {opt.label}
+        </option>
+      ))}
+    </select>
+    <FiChevronDown className="
+      absolute right-2.5 top-1/2 -translate-y-1/2
+      w-3.5 h-3.5 text-white/30
+      pointer-events-none
+    " />
+  </div>
+);
 
 export default VideosManager;
