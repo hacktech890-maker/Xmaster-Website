@@ -1,0 +1,23 @@
+A
+Method 1 — pass files directly as arguments
+Run from VS Code terminal in your project folder:
+
+python copy_files.py src/App.jsx src/components/Nav.jsx src/pages/Home.jsx
+The first file is instantly on your clipboard. Press Enter after pasting each one.
+
+B
+Method 2 — use a files.txt list
+Create files.txt in your project root — one path per line:
+
+frontend/src/App.jsx
+frontend/src/components/Nav.jsx
+frontend/src/pages/Home.jsx
+backend/server.js
+Then just run:
+
+python copy_files.py
+C
+Method 3 — copy all files at once
+Add --all to merge everything into one clipboard paste:
+
+python copy_files.py src/App.jsx src/Nav.jsx --all

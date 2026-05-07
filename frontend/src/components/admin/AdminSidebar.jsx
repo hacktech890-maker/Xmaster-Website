@@ -1,157 +1,90 @@
 // src/components/admin/AdminSidebar.jsx
-// Premium collapsible admin sidebar
-// Preserves: all existing navigation links
-
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
-  FiHome, FiVideo, FiUpload, FiTag,
+  FiHome, FiVideo, FiUpload,
   FiMessageSquare, FiBarChart2, FiAlertTriangle,
-  FiCopy, FiSettings, FiChevronLeft, FiChevronRight,
+  FiCopy, FiChevronLeft, FiChevronRight,
   FiX, FiDollarSign, FiLayers,
 } from 'react-icons/fi';
-
-// ============================================================
-// NAV ITEMS CONFIG
-// ============================================================
 
 const NAV_GROUPS = [
   {
     label: 'Main',
     items: [
-      {
-        label: 'Dashboard',
-        path:  '/admin/dashboard',
-        icon:  <FiHome      className="w-4 h-4" />,
-      },
+      { label: 'Dashboard',  path: '/admin/dashboard', icon: <FiHome className="w-4 h-4" /> },
     ],
   },
   {
     label: 'Content',
     items: [
-      {
-        label: 'Videos',
-        path:  '/admin/videos',
-        icon:  <FiVideo     className="w-4 h-4" />,
-      },
-      {
-        label: 'Upload',
-        path:  '/admin/upload',
-        icon:  <FiUpload    className="w-4 h-4" />,
-        badge: 'NEW',
-      },
-      {
-        label: 'Categories',
-        path:  '/admin/categories',
-        icon:  <FiLayers    className="w-4 h-4" />,
-      },
-      {
-        label: 'Duplicates',
-        path:  '/admin/duplicates',
-        icon:  <FiCopy      className="w-4 h-4" />,
-      },
+      { label: 'Videos',     path: '/admin/videos',     icon: <FiVideo   className="w-4 h-4" /> },
+      { label: 'Upload',     path: '/admin/upload',     icon: <FiUpload  className="w-4 h-4" />, badge: 'NEW' },
+      { label: 'Categories', path: '/admin/categories', icon: <FiLayers  className="w-4 h-4" /> },
+      { label: 'Duplicates', path: '/admin/duplicates', icon: <FiCopy    className="w-4 h-4" /> },
     ],
   },
   {
     label: 'Engagement',
     items: [
-      {
-        label: 'Comments',
-        path:  '/admin/comments',
-        icon:  <FiMessageSquare className="w-4 h-4" />,
-      },
-      {
-        label: 'Reports',
-        path:  '/admin/reports',
-        icon:  <FiAlertTriangle className="w-4 h-4" />,
-      },
+      { label: 'Comments', path: '/admin/comments', icon: <FiMessageSquare className="w-4 h-4" /> },
+      { label: 'Reports',  path: '/admin/reports',  icon: <FiAlertTriangle className="w-4 h-4" /> },
     ],
   },
   {
     label: 'Monetization',
     items: [
-      {
-        label: 'Analytics',
-        path:  '/admin/dashboard',
-        icon:  <FiBarChart2 className="w-4 h-4" />,
-      },
-      {
-        label: 'Ads',
-        path:  '/admin/ads',
-        icon:  <FiDollarSign className="w-4 h-4" />,
-      },
+      { label: 'Analytics', path: '/admin/dashboard', icon: <FiBarChart2  className="w-4 h-4" /> },
+      { label: 'Ads',       path: '/admin/ads',       icon: <FiDollarSign className="w-4 h-4" /> },
     ],
   },
 ];
 
-// ============================================================
-// ADMIN SIDEBAR COMPONENT
-// ============================================================
-
 const AdminSidebar = ({ collapsed, onToggleCollapse, onClose }) => {
   const location = useLocation();
-
   const isActive = (path) => location.pathname === path;
 
   return (
-    <div className="
-      h-full flex flex-col
-      glass-sidebar
-      overflow-hidden
-    ">
-      {/* ── Logo / Brand ─────────────────────────────────────── */}
+    <div className="h-full flex flex-col glass-sidebar overflow-hidden">
       <div className="
         flex items-center gap-3
         px-4 h-14 sm:h-16
-        border-b border-white/6
+        border-b border-white/[0.06]
         flex-shrink-0
       ">
-        {/* Logo mark */}
         <div className="
           w-8 h-8 rounded-xl flex-shrink-0
           bg-gradient-to-br from-primary-600 to-primary-800
-          flex items-center justify-center
-          shadow-glow-sm
+          flex items-center justify-center shadow-glow-sm
         ">
           <span className="text-white font-black text-sm">X</span>
         </div>
 
-        {/* Brand text */}
         {!collapsed && (
           <div className="flex-1 min-w-0 animate-fade-in">
-            <p className="text-sm font-bold text-white truncate">
-              Xmaster
-            </p>
-            <p className="text-[10px] text-white/30">
-              Admin Panel
-            </p>
+            <p className="text-sm font-bold text-white truncate">Xmaster</p>
+            <p className="text-[10px] text-white/30">Admin Panel</p>
           </div>
         )}
 
-        {/* Mobile close */}
         <button
           onClick={onClose}
           className="
-            lg:hidden ml-auto
-            w-7 h-7 rounded-lg
+            lg:hidden ml-auto w-7 h-7 rounded-lg
             flex items-center justify-center
-            text-white/40 hover:text-white
-            hover:bg-white/10
+            text-white/40 hover:text-white hover:bg-white/10
             transition-all duration-200
           "
         >
           <FiX className="w-4 h-4" />
         </button>
 
-        {/* Desktop collapse toggle */}
         <button
           onClick={onToggleCollapse}
           className="
-            hidden lg:flex ml-auto
-            w-7 h-7 rounded-lg
+            hidden lg:flex ml-auto w-7 h-7 rounded-lg
             items-center justify-center
-            text-white/30 hover:text-white
-            hover:bg-white/10
+            text-white/30 hover:text-white hover:bg-white/10
             transition-all duration-200
           "
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
@@ -163,28 +96,14 @@ const AdminSidebar = ({ collapsed, onToggleCollapse, onClose }) => {
         </button>
       </div>
 
-      {/* ── Nav ──────────────────────────────────────────────── */}
-      <nav className="
-        flex-1 overflow-y-auto
-        py-3 px-2
-        space-y-1
-        no-scrollbar
-      ">
+      <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-1 no-scrollbar">
         {NAV_GROUPS.map((group) => (
           <div key={group.label} className="mb-3">
-
-            {/* Group label */}
             {!collapsed && (
-              <p className="
-                px-3 mb-1.5
-                text-[9px] font-bold text-white/25
-                uppercase tracking-widest
-              ">
+              <p className="px-3 mb-1.5 text-[9px] font-bold text-white/25 uppercase tracking-widest">
                 {group.label}
               </p>
             )}
-
-            {/* Group items */}
             {group.items.map((item) => {
               const active = isActive(item.path);
               return (
@@ -193,18 +112,15 @@ const AdminSidebar = ({ collapsed, onToggleCollapse, onClose }) => {
                   to={item.path}
                   title={collapsed ? item.label : undefined}
                   className={`
-                    flex items-center gap-3
-                    px-3 py-2.5 rounded-xl
-                    transition-all duration-150
-                    group relative
+                    flex items-center gap-3 px-3 py-2.5 rounded-xl
+                    transition-all duration-150 group relative
                     ${active
                       ? 'bg-primary-600/15 text-white border border-primary-600/20'
-                      : 'text-white/50 hover:text-white hover:bg-white/8'
+                      : 'text-white/50 hover:text-white hover:bg-white/[0.08]'
                     }
                     ${collapsed ? 'justify-center' : ''}
                   `}
                 >
-                  {/* Icon */}
                   <span className={`
                     flex-shrink-0 transition-colors duration-150
                     ${active ? 'text-primary-400' : 'text-white/40 group-hover:text-white/70'}
@@ -212,52 +128,39 @@ const AdminSidebar = ({ collapsed, onToggleCollapse, onClose }) => {
                     {item.icon}
                   </span>
 
-                  {/* Label */}
                   {!collapsed && (
-                    <span className="text-sm font-medium flex-1 truncate">
-                      {item.label}
-                    </span>
+                    <span className="text-sm font-medium flex-1 truncate">{item.label}</span>
                   )}
 
-                  {/* Badge */}
                   {!collapsed && item.badge && (
                     <span className="
-                      px-1.5 py-px rounded-full
-                      text-[9px] font-bold
-                      bg-primary-600/20 text-primary-400
-                      border border-primary-600/25
+                      px-1.5 py-px rounded-full text-[9px] font-bold
+                      bg-primary-600/20 text-primary-400 border border-primary-600/25
                     ">
                       {item.badge}
                     </span>
                   )}
 
-                  {/* Active indicator */}
                   {active && (
                     <span className="
                       absolute left-0 top-1/2 -translate-y-1/2
-                      w-0.5 h-5 rounded-full
-                      bg-primary-600
+                      w-0.5 h-5 rounded-full bg-primary-600
                     " />
                   )}
 
-                  {/* Collapsed tooltip */}
                   {collapsed && (
                     <div className="
                       absolute left-full ml-3 z-50
                       px-2.5 py-1.5 rounded-lg
                       bg-dark-100 border border-white/10
-                      text-xs font-medium text-white
-                      whitespace-nowrap
+                      text-xs font-medium text-white whitespace-nowrap
                       shadow-[0_8px_25px_rgba(0,0,0,0.5)]
                       opacity-0 pointer-events-none
-                      group-hover:opacity-100
-                      transition-opacity duration-200
+                      group-hover:opacity-100 transition-opacity duration-200
                     ">
                       {item.label}
                       {item.badge && (
-                        <span className="ml-1.5 text-primary-400">
-                          {item.badge}
-                        </span>
+                        <span className="ml-1.5 text-primary-400">{item.badge}</span>
                       )}
                     </div>
                   )}
@@ -268,19 +171,12 @@ const AdminSidebar = ({ collapsed, onToggleCollapse, onClose }) => {
         ))}
       </nav>
 
-      {/* ── Footer ───────────────────────────────────────────── */}
-      <div className="
-        flex-shrink-0
-        border-t border-white/6
-        p-3
-      ">
+      <div className="flex-shrink-0 border-t border-white/[0.06] p-3">
         {!collapsed ? (
           <div className="
-            flex items-center gap-3
-            px-3 py-2.5 rounded-xl
-            bg-white/4 border border-white/6
+            flex items-center gap-3 px-3 py-2.5 rounded-xl
+            bg-white/[0.04] border border-white/[0.06]
           ">
-            {/* Avatar */}
             <div className="
               w-7 h-7 rounded-full flex-shrink-0
               bg-gradient-to-br from-primary-600/30 to-primary-800/30
@@ -290,12 +186,8 @@ const AdminSidebar = ({ collapsed, onToggleCollapse, onClose }) => {
               <span className="text-xs font-bold text-primary-400">A</span>
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-white/80 truncate">
-                Administrator
-              </p>
-              <p className="text-[10px] text-white/30 truncate">
-                xmaster.guru
-              </p>
+              <p className="text-xs font-semibold text-white/80 truncate">Administrator</p>
+              <p className="text-[10px] text-white/30 truncate">xmaster.guru</p>
             </div>
           </div>
         ) : (

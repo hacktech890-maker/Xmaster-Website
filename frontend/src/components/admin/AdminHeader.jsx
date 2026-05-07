@@ -1,17 +1,10 @@
 // src/components/admin/AdminHeader.jsx
-// Top header bar for admin panel
-
 import React from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import {
   FiMenu, FiExternalLink, FiLogOut,
-  FiBell, FiUser,
 } from 'react-icons/fi';
 import { useAuth } from '../../context/AuthContext';
-
-// ============================================================
-// ADMIN HEADER
-// ============================================================
 
 const AdminHeader = ({ title, actions, onMenuToggle }) => {
   const { logout } = useAuth();
@@ -29,11 +22,10 @@ const AdminHeader = ({ title, actions, onMenuToggle }) => {
       flex items-center
       px-4 sm:px-6
       bg-dark-300/95 backdrop-blur-md
-      border-b border-white/6
+      border-b border-white/[0.06]
       shadow-[0_2px_20px_rgba(0,0,0,0.3)]
       gap-4
     ">
-      {/* ── Mobile menu button ──────────────────────────────── */}
       <button
         onClick={onMenuToggle}
         className="
@@ -48,29 +40,21 @@ const AdminHeader = ({ title, actions, onMenuToggle }) => {
         <FiMenu className="w-4 h-4" />
       </button>
 
-      {/* ── Page title ──────────────────────────────────────── */}
       <div className="flex-1 min-w-0">
         {title && (
-          <h1 className="
-            text-sm sm:text-base font-bold text-white
-            truncate
-          ">
+          <h1 className="text-sm sm:text-base font-bold text-white truncate">
             {title}
           </h1>
         )}
       </div>
 
-      {/* ── Actions slot ────────────────────────────────────── */}
       {actions && (
         <div className="flex items-center gap-2 flex-shrink-0">
           {actions}
         </div>
       )}
 
-      {/* ── Right controls ──────────────────────────────────── */}
       <div className="flex items-center gap-2 flex-shrink-0">
-
-        {/* View site */}
         <a
           href="https://xmaster.guru"
           target="_blank"
@@ -80,7 +64,7 @@ const AdminHeader = ({ title, actions, onMenuToggle }) => {
             px-3 py-1.5 rounded-lg text-xs font-medium
             text-white/40 hover:text-white
             bg-white/5 hover:bg-white/10
-            border border-white/8
+            border border-white/[0.08]
             transition-all duration-200
           "
         >
@@ -88,7 +72,6 @@ const AdminHeader = ({ title, actions, onMenuToggle }) => {
           View Site
         </a>
 
-        {/* Logout */}
         <button
           onClick={handleLogout}
           className="
