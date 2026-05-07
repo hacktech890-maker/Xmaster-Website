@@ -1,5 +1,5 @@
 // src/components/video/VideoCard.jsx
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Link }          from 'react-router-dom';
 import { FiPlay, FiEye, FiClock, FiHeart, FiStar, FiTag } from 'react-icons/fi';
 import {
@@ -11,6 +11,17 @@ import {
 } from '../../utils/helpers';
 import { useIntersection } from '../../hooks/useIntersection';
 import Badge, { HDBadge, PremiumBadge } from '../common/Badge';
+// ── Fallback thumbnail (defined at top so it's always available) ─────────────
+const getFallbackThumb = () =>
+  `data:image/svg+xml;base64,${btoa(`
+    <svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180">
+      <rect width="320" height="180" fill="#141414"/>
+      <rect x="125" y="65" width="70" height="50" rx="8" fill="#1a1a1a"/>
+      <polygon points="142,78 170,90 142,102" fill="#e11d48" opacity="0.7"/>
+      <text x="160" y="148" font-family="Inter,sans-serif" font-size="10" fill="#333" text-anchor="middle">No Preview</text>
+    </svg>
+  `)}`;
+// ── Card size presets ────────────────────────────────────────────────────────
 const CARD_SIZES = {
   default: { card: 'w-full', thumb: 'aspect-video', title: 'text-sm',    meta: 'text-xs',     padding: 'p-3'   },
   large:   { card: 'w-full', thumb: 'aspect-video', title: 'text-base',  meta: 'text-xs',     padding: 'p-4'   },
@@ -23,7 +34,7 @@ const HoverPreview = ({ video, visible, parentRef }) => {
   const previewRef = useRef(null);
   useEffect(() => {
     if (!visible || !parentRef?.current || !previewRef?.current) return;
-    const rect = parentRef.current.getBoundingClientRect();
+    const rect     = parentRef.current.getBoundingClientRect();
     const previewH = previewRef.current.offsetHeight || 200;
     const spaceBelow = window.innerHeight - rect.bottom;
     const spaceAbove = rect.top;
@@ -34,11 +45,13 @@ const HoverPreview = ({ video, visible, parentRef }) => {
     }
   }, [visible, parentRef]);
   if (!video) return null;
-  const duration   = formatDuration(video.duration);
-  const views      = formatViewsShort(video.views);
-  const category   = typeof video.category === 'string' ? video.category : video.category?.name || '';
-  const tags       = video.tags?.slice(0, 5) || [];
-  const desc       = video.description?.trim();
+  const duration = formatDuration(video.duration);
+  const views    = formatViewsShort(video.views);
+  const category = typeof video.category === 'string'
+    ? video.category
+    : video.category?.name || '';
+  const tags = video.tags?.slice(0, 5) || [];
+  const desc = video.description?.trim();
   return (
     <div
       ref={previewRef}
@@ -59,8 +72,10 @@ const HoverPreview = ({ video, visible, parentRef }) => {
           : '-bottom-1.5 border-b border-r'}
       `} />
       {/* Card */}
-      <div className="rounded-xl overflow-hidden border border-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.8)]"
-           style={{ background: 'rgba(16,16,30,0.97)', backdropFilter: 'blur(20px)' }}>
+      <div
+        className="rounded-xl overflow-hidden border border-white/10 shadow-[0_20px_60px_rgba(0,0,0,0.8)]"
+        style={{ background: 'rgba(16,16,30,0.97)', backdropFilter: 'blur(20px)' }}
+      >
         {/* Header row */}
         <div className="flex items-center justify-between px-3 pt-3 pb-2 border-b border-white/[0.06]">
           <div className="flex items-center gap-2">
@@ -140,16 +155,21 @@ const VideoCard = ({
   const [imgLoaded, setImgLoaded] = useState(false);
   const [imgError,  setImgError]  = useState(false);
   const [hovered,   setHovered]   = useState(false);
-  const cardRef2 = useRef(null);
+  // cardRef2 holds the actual DOM element for the HoverPreview parentRef
+  const cardRef2   = useRef(null);
   const hoverTimer = useRef(null);
+  // useIntersection now returns a CALLBACK REF (function) — safe to call as cardRef(el)
   const [cardRef, , hasIntersected] = useIntersection({
     threshold: 0.1, rootMargin: '200px', triggerOnce: true,
   });
-  // Combine refs
-  const setRefs = (el) => {
-    cardRef(el);
-    cardRef2.current = el;
-  };
+  // Combine the intersection callback ref with our local DOM ref
+  const setRefs = useCallback(
+    (el) => {
+      cardRef(el);            // registers element with IntersectionObserver
+      cardRef2.current = el;  // keeps a direct DOM reference for HoverPreview
+    },
+    [cardRef]
+  );
   const handleMouseEnter = () => {
     hoverTimer.current = setTimeout(() => setHovered(true), 350);
   };
@@ -180,6 +200,7 @@ const VideoCard = ({
       onMouseLeave={handleMouseLeave}
     >
       <Link to={watchUrl} className="block" tabIndex={0} aria-label={`Watch ${title}`}>
+        {/* Thumbnail */}
         <div className={`relative ${s.thumb} rounded-xl overflow-hidden bg-dark-300 shadow-card group-hover:shadow-card-hover transition-shadow duration-300`}>
           {hasIntersected && (
             <img
@@ -192,7 +213,9 @@ const VideoCard = ({
               className={`absolute inset-0 w-full h-full object-cover transition-all duration-500 group-hover:scale-[1.06] ${imgLoaded ? 'opacity-100' : 'opacity-0'}`}
             />
           )}
-          {!imgLoaded && <div className="absolute inset-0 skeleton-shimmer bg-dark-300" />}
+          {!imgLoaded && (
+            <div className="absolute inset-0 skeleton-shimmer bg-dark-300" />
+          )}
           <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/90 via-black/30 to-transparent pointer-events-none" />
           <div className="absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/60 to-transparent pointer-events-none" />
           <div className={`absolute inset-0 bg-primary-600/10 transition-opacity duration-300 pointer-events-none ${hovered ? 'opacity-100' : 'opacity-0'}`} />
@@ -221,8 +244,10 @@ const VideoCard = ({
               </span>
             )}
           </div>
+          {/* Hover underline bar */}
           <div className={`absolute bottom-0 left-0 right-0 h-0.5 bg-primary-600/80 transition-all duration-500 ${hovered ? 'opacity-100' : 'opacity-0'}`} />
         </div>
+        {/* Info */}
         <div className={`${s.padding} pt-2.5`}>
           <h3 className={`${s.title} font-semibold leading-snug text-white/85 group-hover:text-white line-clamp-2 transition-colors duration-200 mb-1.5`}>
             {title}
@@ -258,10 +283,14 @@ const VideoCard = ({
               </>
             )}
           </div>
+          {/* Inline tags on hover */}
           {video.tags && video.tags.length > 0 && size !== 'small' && size !== 'wide' && (
             <div className={`flex gap-1.5 mt-2 overflow-hidden transition-all duration-300 ${hovered ? 'opacity-100 max-h-8' : 'opacity-0 max-h-0'}`}>
               {video.tags.slice(0, 3).map((tag) => (
-                <span key={tag} className="px-1.5 py-0.5 rounded-md text-[9px] font-medium bg-white/[0.06] text-white/40 border border-white/[0.08] truncate max-w-[60px]">
+                <span
+                  key={tag}
+                  className="px-1.5 py-0.5 rounded-md text-[9px] font-medium bg-white/[0.06] text-white/40 border border-white/[0.08] truncate max-w-[60px]"
+                >
                   {tag}
                 </span>
               ))}
@@ -280,13 +309,4 @@ const VideoCard = ({
     </div>
   );
 };
-const getFallbackThumb = () =>
-  `data:image/svg+xml;base64,${btoa(`
-    <svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180">
-      <rect width="320" height="180" fill="#141414"/>
-      <rect x="125" y="65" width="70" height="50" rx="8" fill="#1a1a1a"/>
-      <polygon points="142,78 170,90 142,102" fill="#e11d48" opacity="0.7"/>
-      <text x="160" y="148" font-family="Inter,sans-serif" font-size="10" fill="#333" text-anchor="middle">No Preview</text>
-    </svg>
-  `)}`;
 export default VideoCard;

@@ -1,8 +1,4 @@
-../frontend/src/components/common/Navbar.jsx
-../frontend/src/App.jsx
 ../frontend/src/components/video/VideoCard.jsx
-../frontend/src/components/video/VideoCardHorizontal.jsx
-../frontend/public/index.html
-../frontend/functions/sitemap.xml.js
-../frontend/functions/robots.txt.js
+../frontend/src/context/AuthContext.jsx
+../frontend/src/hooks/useIntersection.js
 ../frontend/src/services/api.js
