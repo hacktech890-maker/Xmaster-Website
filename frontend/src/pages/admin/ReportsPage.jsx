@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   FiFlag, FiCheck, FiX,
-  FiRefreshCw, FiExternalLink,
+  FiExternalLink,           // ✅ FiRefreshCw removed from here
 } from 'react-icons/fi';
 import toast from 'react-hot-toast';
 
