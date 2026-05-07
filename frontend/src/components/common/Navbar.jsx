@@ -3,33 +3,26 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import {
   FiSearch, FiX, FiMenu, FiTrendingUp,
-  FiHome, FiStar, FiGrid, FiZap,
+  FiStar, FiZap,
 } from 'react-icons/fi';
-
 import { useDebounce }    from '../../hooks/useDebounce';
 import { useIsMobile }    from '../../hooks/useMediaQuery';
 import ThemeToggle        from './ThemeToggle';
 import { publicAPI }      from '../../services/api';
 import {
-  CATEGORIES_ENABLED,
   PREMIUM_SECTION_ENABLED,
   FREE_SECTION_ENABLED,
 } from '../../config/features';
-
 const NAV_LINKS = [
-  { label: 'Home',    path: '/',         icon: <FiHome      className="w-4 h-4" />, exact: true },
-  { label: 'Trending',path: '/trending', icon: <FiTrendingUp className="w-4 h-4" /> },
-  ...(FREE_SECTION_ENABLED    ? [{ label: 'Free',       path: '/free',     icon: <FiZap  className="w-4 h-4" /> }] : []),
-  ...(PREMIUM_SECTION_ENABLED ? [{ label: 'Premium',    path: '/premium',  icon: <FiStar className="w-4 h-4" />, badge: 'HOT' }] : []),
-  ...(CATEGORIES_ENABLED      ? [{ label: 'Categories', path: '/category', icon: <FiGrid className="w-4 h-4" /> }] : []),
+  { label: 'Trending', path: '/trending', icon: <FiTrendingUp className="w-4 h-4" /> },
+  ...(FREE_SECTION_ENABLED    ? [{ label: 'Free',    path: '/free',    icon: <FiZap  className="w-4 h-4" /> }] : []),
+  ...(PREMIUM_SECTION_ENABLED ? [{ label: 'Premium', path: '/premium', icon: <FiStar className="w-4 h-4" />, badge: 'HOT' }] : []),
 ];
-
 const Navbar = () => {
   const navigate = useNavigate();
   const location = useLocation();
   // eslint-disable-next-line no-unused-vars
   const isMobile = useIsMobile();
-
   const [scrolled,           setScrolled]           = useState(false);
   const [searchOpen,         setSearchOpen]          = useState(false);
   const [searchQuery,        setSearchQuery]         = useState('');
@@ -38,25 +31,20 @@ const Navbar = () => {
   const [loadingSuggestions, setLoadingSuggestions]  = useState(false);
   const [mobileMenuOpen,     setMobileMenuOpen]      = useState(false);
   const [activeSuggestion,   setActiveSuggestion]    = useState(-1);
-
-  const searchRef  = useRef(null);
-  const inputRef   = useRef(null);
-
+  const searchRef = useRef(null);
+  const inputRef  = useRef(null);
   const debouncedQuery = useDebounce(searchQuery, 350);
-
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
-
   useEffect(() => {
     setMobileMenuOpen(false);
     setSearchOpen(false);
     setSearchQuery('');
     setSuggestionsOpen(false);
   }, [location.pathname]);
-
   useEffect(() => {
     if (!debouncedQuery || debouncedQuery.length < 2) {
       setSuggestions([]);
@@ -78,7 +66,6 @@ const Navbar = () => {
     };
     fetchSuggestions();
   }, [debouncedQuery]);
-
   useEffect(() => {
     const handleClick = (e) => {
       if (searchRef.current && !searchRef.current.contains(e.target)) {
@@ -89,13 +76,11 @@ const Navbar = () => {
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
-
   useEffect(() => {
     if (searchOpen && inputRef.current) {
       setTimeout(() => inputRef.current?.focus(), 150);
     }
   }, [searchOpen]);
-
   const handleSearch = useCallback((query) => {
     if (!query.trim()) return;
     setSuggestionsOpen(false);
@@ -103,7 +88,6 @@ const Navbar = () => {
     navigate(`/search?q=${encodeURIComponent(query.trim())}`);
     setSearchQuery('');
   }, [navigate]);
-
   const handleSuggestionClick = useCallback((suggestion) => {
     const query = typeof suggestion === 'string'
       ? suggestion
@@ -113,7 +97,6 @@ const Navbar = () => {
     navigate(`/search?q=${encodeURIComponent(query)}`);
     setSearchQuery('');
   }, [navigate]);
-
   const handleKeyDown = useCallback((e) => {
     if (!suggestionsOpen || suggestions.length === 0) {
       if (e.key === 'Enter' && searchQuery.trim()) handleSearch(searchQuery.trim());
@@ -142,19 +125,13 @@ const Navbar = () => {
         break;
     }
   }, [suggestionsOpen, suggestions, activeSuggestion, searchQuery, handleSearch, handleSuggestionClick]);
-
   const clearSearch = () => {
     setSearchQuery('');
     setSuggestions([]);
     setSuggestionsOpen(false);
     inputRef.current?.focus();
   };
-
-  const isActive = (path, exact = false) => {
-    if (exact) return location.pathname === path;
-    return location.pathname.startsWith(path);
-  };
-
+  const isActive = (path) => location.pathname.startsWith(path);
   return (
     <>
       <header
@@ -166,7 +143,8 @@ const Navbar = () => {
         style={{ height: '64px' }}
       >
         <div className="container-site h-full flex items-center gap-4">
-          <Link to="/" className="flex items-center gap-2.5 flex-shrink-0 group" aria-label="Xmaster Home">
+          {/* Logo */}
+          <Link to="/trending" className="flex items-center gap-2.5 flex-shrink-0 group" aria-label="Xmaster Home">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary-600 to-primary-800 flex items-center justify-center shadow-glow-sm group-hover:shadow-glow transition-shadow duration-300">
               <span className="text-white font-black text-base leading-none">X</span>
             </div>
@@ -174,15 +152,14 @@ const Navbar = () => {
               xmaster
             </span>
           </Link>
-
+          {/* Desktop Nav */}
           <nav className="hidden lg:flex items-center gap-1 ml-2">
             {NAV_LINKS.map((link) => (
-              <NavLink key={link.path} link={link} isActive={isActive(link.path, link.exact)} />
+              <NavLink key={link.path} link={link} isActive={isActive(link.path)} />
             ))}
           </nav>
-
           <div className="flex-1" />
-
+          {/* Desktop Search */}
           <div className="hidden md:block flex-1 max-w-sm" ref={searchRef}>
             <DesktopSearchBar
               query={searchQuery}
@@ -200,8 +177,8 @@ const Navbar = () => {
               onKeyDown={handleKeyDown}
             />
           </div>
-
           <div className="flex items-center gap-2">
+            {/* Mobile search toggle */}
             <button
               onClick={() => setSearchOpen(!searchOpen)}
               aria-label="Search"
@@ -209,9 +186,8 @@ const Navbar = () => {
             >
               {searchOpen ? <FiX className="w-4 h-4" /> : <FiSearch className="w-4 h-4" />}
             </button>
-
             <ThemeToggle size="md" />
-
+            {/* Mobile menu toggle */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               aria-label="Menu"
@@ -221,7 +197,7 @@ const Navbar = () => {
             </button>
           </div>
         </div>
-
+        {/* Mobile Search Bar */}
         <div className={`md:hidden overflow-hidden transition-all duration-300 ${searchOpen ? 'max-h-20 opacity-100' : 'max-h-0 opacity-0'}`}>
           <div className="px-4 pb-3 pt-1">
             <MobileSearchBar
@@ -235,19 +211,16 @@ const Navbar = () => {
           </div>
         </div>
       </header>
-
       <MobileMenu
         open={mobileMenuOpen}
         onClose={() => setMobileMenuOpen(false)}
         links={NAV_LINKS}
         isActive={isActive}
       />
-
       <div style={{ height: '64px' }} />
     </>
   );
 };
-
 const NavLink = ({ link, isActive }) => (
   <Link
     to={link.path}
@@ -267,7 +240,6 @@ const NavLink = ({ link, isActive }) => (
     {isActive && <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary-600" />}
   </Link>
 );
-
 const DesktopSearchBar = ({
   query, setQuery, suggestions, suggestionsOpen,
   setSuggestionsOpen, loadingSuggestions, activeSuggestion,
@@ -313,7 +285,6 @@ const DesktopSearchBar = ({
     )}
   </div>
 );
-
 const MobileSearchBar = ({ query, setQuery, inputRef, onSearch, onClear, onKeyDown }) => (
   <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-white/[0.08] border border-white/15 focus-within:border-primary-600/50 transition-all duration-200">
     <FiSearch className="w-4 h-4 text-white/40 flex-shrink-0" />
@@ -341,7 +312,6 @@ const MobileSearchBar = ({ query, setQuery, inputRef, onSearch, onClear, onKeyDo
     </button>
   </div>
 );
-
 const SearchSuggestions = ({ suggestions, activeSuggestion, setActiveSuggestion, onSuggestionClick }) => (
   <div className="absolute top-full left-0 right-0 mt-2 z-50 glass-modal rounded-xl overflow-hidden shadow-[0_20px_60px_rgba(0,0,0,0.6)] border border-white/10 animate-fade-in-down">
     {suggestions.map((suggestion, i) => {
@@ -361,10 +331,12 @@ const SearchSuggestions = ({ suggestions, activeSuggestion, setActiveSuggestion,
     })}
   </div>
 );
-
 const MobileMenu = ({ open, onClose, links, isActive }) => (
   <>
-    <div onClick={onClose} className={`fixed inset-0 z-[290] bg-black/60 backdrop-blur-sm transition-opacity duration-300 ${open ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`} />
+    <div
+      onClick={onClose}
+      className={`fixed inset-0 z-[290] bg-black/60 backdrop-blur-sm transition-opacity duration-300 ${open ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+    />
     <div className={`fixed top-0 right-0 bottom-0 z-[295] w-72 glass-sidebar shadow-[0_0_60px_rgba(0,0,0,0.8)] transition-transform duration-300 ${open ? 'translate-x-0' : 'translate-x-full'}`}>
       <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.08]">
         <div className="flex items-center gap-2.5">
@@ -373,7 +345,10 @@ const MobileMenu = ({ open, onClose, links, isActive }) => (
           </div>
           <span className="text-white font-bold tracking-tight">xmaster</span>
         </div>
-        <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 transition-all duration-200">
+        <button
+          onClick={onClose}
+          className="w-8 h-8 rounded-lg flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 transition-all duration-200"
+        >
           <FiX className="w-4 h-4" />
         </button>
       </div>
@@ -383,9 +358,9 @@ const MobileMenu = ({ open, onClose, links, isActive }) => (
             key={link.path}
             to={link.path}
             onClick={onClose}
-            className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${isActive(link.path, link.exact) ? 'bg-primary-600/15 text-white border border-primary-600/25' : 'text-white/60 hover:text-white hover:bg-white/[0.08]'}`}
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${isActive(link.path) ? 'bg-primary-600/15 text-white border border-primary-600/25' : 'text-white/60 hover:text-white hover:bg-white/[0.08]'}`}
           >
-            <span className={isActive(link.path, link.exact) ? 'text-primary-400' : 'text-white/40'}>{link.icon}</span>
+            <span className={isActive(link.path) ? 'text-primary-400' : 'text-white/40'}>{link.icon}</span>
             {link.label}
             {link.badge && (
               <span className="ml-auto px-1.5 py-px rounded-full text-[9px] font-bold bg-primary-600 text-white">{link.badge}</span>
@@ -399,5 +374,4 @@ const MobileMenu = ({ open, onClose, links, isActive }) => (
     </div>
   </>
 );
-
 export default Navbar;

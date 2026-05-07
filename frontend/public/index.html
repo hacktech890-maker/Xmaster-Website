@@ -5,10 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f0f0f" />
   <meta name="color-scheme" content="dark" />
-
   <!-- =========================================================
        PERFORMANCE: DNS prefetch + preconnect
-       Saves 50-200ms per external domain on first request
        ========================================================= -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -17,7 +15,6 @@
   <link rel="dns-prefetch" href="https://api.xmaster.guru" />
   <link rel="dns-prefetch" href="https://www.highperformanceformat.com" />
   <link rel="dns-prefetch" href="https://effectivegatecpm.com" />
-
   <!-- =========================================================
        FONTS
        ========================================================= -->
@@ -25,48 +22,46 @@
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
     rel="stylesheet"
   />
-
   <!-- =========================================================
        PWA
        ========================================================= -->
   <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
   <link rel="apple-touch-icon" href="%PUBLIC_URL%/apple-touch-icon.png" />
   <link rel="icon" type="image/x-icon" href="%PUBLIC_URL%/favicon.ico" />
-
   <!-- =========================================================
        SEO META TAGS
+       IMPORTANT: robots must be "index, follow" — not noindex!
        ========================================================= -->
-  <title>Xmaster - Free Adult Videos & Indian MMS Clips</title>
-
+  <title>Xmaster - Free Adult Videos &amp; Indian MMS Clips</title>
   <meta name="description"
-    content="Watch free adult videos, Indian MMS clips, desi XXX videos and more on Xmaster. Stream HD porn videos online free." />
-
+    content="Watch free adult videos, Indian MMS clips, desi XXX videos and more on Xmaster. Stream HD videos online free." />
   <meta name="keywords"
-    content="xmaster, free porn, indian mms, desi xxx, adult videos, hindi sex videos, 
-             indian sex, bhabhi videos, tamil sex, telugu sex, free streaming" />
-
-  <meta name="robots" content="index, follow" />
+    content="xmaster, xmaster.guru, free adult videos, indian mms, desi videos, hindi videos,
+             indian sex, bhabhi videos, tamil videos, telugu videos, free streaming, trending videos" />
+  <!-- CRITICAL: Must be index, follow for Google to crawl -->
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+  <meta name="googlebot" content="index, follow" />
   <meta name="author" content="Xmaster" />
   <link rel="canonical" href="https://xmaster.guru" />
-
   <!-- =========================================================
        OPEN GRAPH
        ========================================================= -->
   <meta property="og:type"        content="website" />
   <meta property="og:site_name"   content="Xmaster" />
-  <meta property="og:title"       content="Xmaster - Free Adult Videos" />
-  <meta property="og:description" content="Watch free adult videos, Indian MMS clips online." />
+  <meta property="og:title"       content="Xmaster - Free Adult Videos &amp; Indian MMS Clips" />
+  <meta property="og:description" content="Watch free adult videos, Indian MMS clips, desi XXX videos and more on Xmaster." />
   <meta property="og:url"         content="https://xmaster.guru" />
   <meta property="og:image"       content="https://xmaster.guru/logo.jpg" />
-
+  <meta property="og:image:width"  content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:locale"      content="en_US" />
   <!-- =========================================================
        TWITTER CARD
        ========================================================= -->
   <meta name="twitter:card"        content="summary_large_image" />
   <meta name="twitter:title"       content="Xmaster - Free Adult Videos" />
-  <meta name="twitter:description" content="Watch free adult videos, Indian MMS clips online." />
+  <meta name="twitter:description" content="Watch free adult videos, Indian MMS clips online on Xmaster." />
   <meta name="twitter:image"       content="https://xmaster.guru/logo.jpg" />
-
   <!-- =========================================================
        JSON-LD STRUCTURED DATA
        ========================================================= -->
@@ -75,8 +70,10 @@
     "@context": "https://schema.org",
     "@type": "WebSite",
     "name": "Xmaster",
+    "alternateName": "xmaster.guru",
     "url": "https://xmaster.guru",
-    "description": "Free adult video streaming platform",
+    "description": "Free adult video streaming platform with Indian MMS clips and desi videos",
+    "inLanguage": "en",
     "potentialAction": {
       "@type": "SearchAction",
       "target": {
@@ -87,17 +84,14 @@
     }
   }
   </script>
-
   <!-- =========================================================
        ANTI-FLASH: Apply dark class before React renders
-       Prevents white flash on initial load
        ========================================================= -->
   <script>
     (function() {
       document.documentElement.classList.add('dark');
     })();
   </script>
-
   <style>
     /* Critical CSS — prevents FOUC */
     body {
