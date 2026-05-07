@@ -39,7 +39,8 @@ import {
 } from '../../utils/helpers';
 import { useIntersection }   from '../../hooks/useIntersection';
 import { useVideoPreview }   from '../../hooks/useVideoPreview';
-import Badge, { HDBadge, PremiumBadge } from '../common/Badge';
+// ─── FIX: Removed unused PremiumBadge import ────────────────
+import Badge, { HDBadge } from '../common/Badge';
 // ─────────────────────────────────────────────────────────────
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────
