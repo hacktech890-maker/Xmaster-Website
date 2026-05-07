@@ -1,201 +1,235 @@
 /* src/styles/glassmorphism.css */
-/* Premium glassmorphism utility classes */
-
+/* Glassmorphism design system — reusable glass UI components */
 /* ============================================================
-   BASE GLASS EFFECTS
+   BASE GLASS LAYERS
    ============================================================ */
-
-.glass {
-  background: rgba(255, 255, 255, 0.05);
+.glass-1 {
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+.glass-2 {
+  background: rgba(255, 255, 255, 0.07);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.10);
 }
-
-.glass-dark {
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+.glass-3 {
+  background: rgba(255, 255, 255, 0.10);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+.glass-dark-1 {
+  background: rgba(10, 10, 10, 0.70);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
-
-.glass-heavy {
-  background: rgba(0, 0, 0, 0.65);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+.glass-dark-2 {
+  background: rgba(10, 10, 10, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
-
+.glass-dark-3 {
+  background: rgba(8, 8, 16, 0.95);
+  backdrop-filter: blur(32px);
+  -webkit-backdrop-filter: blur(32px);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+}
+/* ============================================================
+   GLASS CARDS
+   ============================================================ */
 .glass-card {
-  background: rgba(255, 255, 255, 0.04);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 14px;
-  transition: all 0.25s ease;
+  background: rgba(20, 20, 30, 0.80);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
-
-.glass-card:hover {
+.glass-card-hover {
+  background: rgba(20, 20, 30, 0.92);
+  backdrop-filter: blur(32px);
+  -webkit-backdrop-filter: blur(32px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  box-shadow:
+    0 32px 80px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(225, 29, 72, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+.glass-pill {
   background: rgba(255, 255, 255, 0.07);
-  border-color: rgba(255, 255, 255, 0.12);
-  transform: translateY(-2px);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 9999px;
 }
-
+/* ============================================================
+   PREMIUM HOVER PREVIEW PANEL GLASS
+   Specific to the VideoCard hover preview overlay
+   ============================================================ */
+/* Main panel that slides up over the card thumbnail */
+.preview-glass-panel {
+  background: linear-gradient(
+    180deg,
+    rgba(8, 8, 18, 0.0)  0%,
+    rgba(8, 8, 18, 0.5)  25%,
+    rgba(8, 8, 18, 0.88) 55%,
+    rgba(8, 8, 18, 0.97) 100%
+  );
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+/* Info card below the thumbnail (expanded area) */
+.preview-info-glass {
+  background: rgba(10, 10, 20, 0.97);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+}
+/* Top badge strip */
+.preview-badge-strip {
+  background: linear-gradient(
+    180deg,
+    rgba(0,0,0,0.70) 0%,
+    rgba(0,0,0,0.0)  100%
+  );
+}
+/* Cinematic edge vignette */
+.preview-vignette {
+  background: radial-gradient(
+    ellipse at center,
+    rgba(0,0,0,0)   40%,
+    rgba(0,0,0,0.6) 100%
+  );
+}
+/* Primary glow border */
+.preview-glow-border {
+  box-shadow:
+    0 0 0 1.5px rgba(225,29,72,0.5),
+    0 0 40px rgba(225,29,72,0.12),
+    0 40px 100px rgba(0,0,0,0.85);
+}
+/* Stat pill (views, duration etc) */
+.preview-stat-pill {
+  background: rgba(255,255,255,0.08);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 6px;
+  padding: 3px 8px;
+}
+/* Tag chip in hover preview */
+.preview-tag-chip {
+  background: rgba(225,29,72,0.10);
+  border: 1px solid rgba(225,29,72,0.20);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 9px;
+  font-weight: 600;
+  color: rgba(225,29,72,0.85);
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+.preview-tag-chip-neutral {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 9px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.45);
+  white-space: nowrap;
+}
+/* Section divider line */
+.preview-divider {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent       0%,
+    rgba(255,255,255,0.08) 30%,
+    rgba(255,255,255,0.08) 70%,
+    transparent       100%
+  );
+}
+/* Watch button gradient */
+.preview-watch-btn {
+  background: linear-gradient(135deg, #e11d48 0%, #be123c 100%);
+  border: 1px solid rgba(225,29,72,0.4);
+  box-shadow:
+    0 4px 20px rgba(225,29,72,0.35),
+    inset 0 1px 0 rgba(255,255,255,0.15);
+  transition: all 0.2s ease;
+}
+.preview-watch-btn:hover {
+  background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%);
+  box-shadow:
+    0 6px 28px rgba(225,29,72,0.5),
+    inset 0 1px 0 rgba(255,255,255,0.2);
+  transform: translateY(-1px);
+}
 /* ============================================================
    NAVBAR GLASS
    ============================================================ */
-
-.glass-navbar {
-  background: rgba(10, 10, 10, 0.85);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-/* ============================================================
-   MODAL GLASS
-   ============================================================ */
-
-.glass-modal {
-  background: rgba(15, 15, 15, 0.92);
-  backdrop-filter: blur(30px);
-  -webkit-backdrop-filter: blur(30px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 20px;
-}
-
-/* ============================================================
-   ADMIN PANEL GLASS
-   ============================================================ */
-
-.glass-panel {
-  background: rgba(20, 20, 20, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 14px;
-}
-
-.glass-sidebar {
-  background: rgba(10, 10, 10, 0.95);
+.navbar-glass {
+  background: rgba(10, 10, 10, 0.80);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border-right: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  box-shadow: 0 4px 30px rgba(0,0,0,0.4);
 }
-
 /* ============================================================
-   GLOW EFFECTS
+   MODAL / OVERLAY GLASS
    ============================================================ */
-
-.glow-red {
-  box-shadow: 0 0 30px rgba(225, 29, 72, 0.25),
-              0 0 60px rgba(225, 29, 72, 0.1);
+.modal-glass {
+  background: rgba(14, 14, 24, 0.95);
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+  border: 1px solid rgba(255,255,255,0.10);
+  box-shadow: 0 40px 120px rgba(0,0,0,0.8);
 }
-
-.glow-red-subtle {
-  box-shadow: 0 0 15px rgba(225, 29, 72, 0.15);
+.overlay-blur {
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
-
-.glow-red-strong {
-  box-shadow: 0 0 40px rgba(225, 29, 72, 0.4),
-              0 0 80px rgba(225, 29, 72, 0.2),
-              0 0 120px rgba(225, 29, 72, 0.05);
-}
-
-.glow-white {
-  box-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
-}
-
 /* ============================================================
-   GRADIENT BORDERS
+   SIDEBAR GLASS
    ============================================================ */
-
-.gradient-border {
-  position: relative;
-  border-radius: 14px;
+.sidebar-glass {
+  background: rgba(10, 10, 16, 0.92);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-right: 1px solid rgba(255,255,255,0.05);
 }
-
-.gradient-border::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 14px;
-  padding: 1px;
-  background: linear-gradient(
-    135deg,
-    rgba(225, 29, 72, 0.5),
-    rgba(255, 255, 255, 0.05),
-    rgba(225, 29, 72, 0.2)
-  );
-  -webkit-mask:
-    linear-gradient(#fff 0 0) content-box,
-    linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
-}
-
 /* ============================================================
-   OVERLAYS
+   INPUT GLASS
    ============================================================ */
-
-.overlay-gradient-bottom {
-  background: linear-gradient(
-    180deg,
-    transparent 0%,
-    rgba(0,0,0,0.6) 60%,
-    rgba(0,0,0,0.95) 100%
-  );
+.input-glass {
+  background: rgba(255,255,255,0.05);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,0.09);
+  transition: border-color 0.2s ease, background 0.2s ease;
 }
-
-.overlay-gradient-full {
-  background: linear-gradient(
-    180deg,
-    rgba(0,0,0,0.2) 0%,
-    rgba(0,0,0,0.7) 50%,
-    rgba(0,0,0,0.95) 100%
-  );
+.input-glass:focus {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(225,29,72,0.5);
+  outline: none;
 }
-
-.overlay-gradient-left {
-  background: linear-gradient(
-    90deg,
-    rgba(0,0,0,0.9) 0%,
-    rgba(0,0,0,0.4) 50%,
-    transparent 100%
-  );
-}
-
 /* ============================================================
-   SCROLLBAR STYLING
+   DROPDOWN GLASS
    ============================================================ */
-
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: #0f0f0f;
-}
-
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 3px;
-  transition: background 0.2s;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(225, 29, 72, 0.5);
-}
-
-/* Hide scrollbar for horizontal scroll sections */
-.hide-scrollbar {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-
-.hide-scrollbar::-webkit-scrollbar {
-  display: none;
+.dropdown-glass {
+  background: rgba(14,14,24,0.97);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255,255,255,0.09);
+  box-shadow: 0 16px 48px rgba(0,0,0,0.6);
+  border-radius: 12px;
 }
