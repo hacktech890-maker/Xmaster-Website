@@ -1,26 +1,31 @@
 // src/components/ads/AdSlot.jsx
 // CENTRALIZED ad slot component
-// Replaces the duplicated inline AdSlot in WatchPage + HomePage
 // Uses centralized ad codes from src/config/ads.js
 
 import React, { useEffect, useRef, useState } from 'react';
 import { useIsMobile } from '../../hooks/useMediaQuery';
-import { AD_PLACEMENTS, AD_LOAD_DELAY } from '../../config/ads';
+import { AD_PLACEMENTS, AD_LOAD_DELAY, POPUNDER_SCRIPTS } from '../../config/ads';
+
+// ============================================================
+// SCRIPT DEDUPLICATION — module-level set
+// Prevents duplicate <script> injection across SPA navigations
+// ============================================================
+const _injectedScripts = new Set();
 
 // ============================================================
 // AD SLOT COMPONENT
 // ============================================================
 
 const AdSlot = ({
-  placement,      // key from AD_PLACEMENTS
-  delay,          // override delay in ms
+  placement,       // key from AD_PLACEMENTS
+  delay,           // override delay in ms
   className = '',
   label     = false,  // show "Advertisement" label above
 }) => {
   const containerRef = useRef(null);
   const isMobile     = useIsMobile();
   const [loaded, setLoaded] = useState(false);
-  const mountedRef  = useRef(true);
+  const mountedRef   = useRef(true);
 
   useEffect(() => {
     return () => { mountedRef.current = false; };
@@ -36,7 +41,7 @@ const AdSlot = ({
 
     if (!adCode) return;
 
-    const loadDelay = delay ?? AD_LOAD_DELAY[placement] ?? 1000;
+    const loadDelay = delay ?? AD_LOAD_DELAY[placement] ?? AD_LOAD_DELAY.default;
 
     const timer = setTimeout(() => {
       if (!mountedRef.current || !containerRef.current) return;
@@ -44,26 +49,31 @@ const AdSlot = ({
       try {
         const container = containerRef.current;
 
-        // Generate unique container ID
-        const uniqueId = `ad-slot-${placement}-${Date.now()}-${Math.random().toString(36).substr(2,5)}`;
+        // Generate unique container ID for this slot instance
+        const uniqueId = `ad-slot-${placement}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
         container.id = uniqueId;
 
-        // Process ad code: replace generic container IDs with unique one
+        // Replace the native container ID placeholder with our unique ID
         let processedCode = adCode
+          .replace(/container-[a-f0-9]{32}/g, uniqueId)
           .replace(/container_\w+/g, uniqueId)
           .replace(/div_id\s*=\s*['"][^'"]*['"]/g, `div_id='${uniqueId}'`);
 
-        // Extract and inject scripts properly
+        // Parse the ad code HTML
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = processedCode;
 
-        const scripts = tempDiv.querySelectorAll('script');
+        const scripts = Array.from(tempDiv.querySelectorAll('script'));
 
-        // Append non-script content first
-        scripts.forEach((s) => tempDiv.removeChild(s));
+        // Remove scripts from temp, keep the non-script HTML (divs, etc.)
+        scripts.forEach((s) => s.parentNode.removeChild(s));
         container.innerHTML = tempDiv.innerHTML;
 
-        // Inject scripts sequentially
+        // Also update any remaining container IDs in the DOM
+        const containerDiv = container.querySelector('[id^="container-"]');
+        if (containerDiv) containerDiv.id = uniqueId;
+
+        // Inject scripts sequentially to respect order dependency
         const injectScripts = (scriptList, index = 0) => {
           if (index >= scriptList.length) {
             if (mountedRef.current) setLoaded(true);
@@ -71,41 +81,53 @@ const AdSlot = ({
           }
 
           const originalScript = scriptList[index];
+          const src = originalScript.getAttribute('src');
+
+          // Deduplicate external scripts by src URL
+          if (src && _injectedScripts.has(src)) {
+            injectScripts(scriptList, index + 1);
+            return;
+          }
+
           const newScript = document.createElement('script');
 
-          // Copy attributes
+          // Copy all attributes
           Array.from(originalScript.attributes).forEach((attr) => {
             newScript.setAttribute(attr.name, attr.value);
           });
 
-          if (originalScript.src) {
+          if (src) {
+            _injectedScripts.add(src);
             newScript.onload = () => injectScripts(scriptList, index + 1);
             newScript.onerror = () => injectScripts(scriptList, index + 1);
           } else {
+            // Inline script — set content and immediately advance
             newScript.textContent = originalScript.textContent;
           }
 
           document.head.appendChild(newScript);
 
-          if (!originalScript.src) {
+          if (!src) {
             injectScripts(scriptList, index + 1);
           }
         };
 
-        injectScripts(Array.from(scripts));
+        injectScripts(scripts);
       } catch (err) {
-        // Silently fail — ad errors should not break the page
+        // Silently fail — ad errors must never break the page
         console.warn('[AdSlot] Failed to load ad:', placement, err);
       }
     }, loadDelay);
 
     return () => clearTimeout(timer);
-  }, [placement, isMobile, delay]);
+    // isMobile intentionally excluded — don't re-trigger on resize
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [placement, delay]);
 
   return (
     <div className={`ad-container ${className}`}>
       {label && (
-        <p className="text-[10px] text-white/20 text-center mb-1 uppercase tracking-widest">
+        <p className="text-[10px] text-white/20 text-center mb-1 uppercase tracking-widest select-none">
           Advertisement
         </p>
       )}
@@ -124,9 +146,13 @@ const AdSlot = ({
 
 // ============================================================
 // GLOBAL ADS LOADER
-// Injects social bar + popunder once per page
-// Called in WatchPage and HomePage
+// Injects popunder scripts ONCE per browser session.
+// Should be rendered in WatchPage and HomePage (top level).
+// Uses a module-level flag to prevent double-injection across
+// React re-mounts / SPA navigations.
 // ============================================================
+
+let _globalAdsLoaded = false;
 
 export const GlobalAdsLoader = () => {
   const mountedRef = useRef(true);
@@ -136,35 +162,40 @@ export const GlobalAdsLoader = () => {
   }, []);
 
   useEffect(() => {
-    // Delay global ads significantly to prioritize content loading
-    const delay = AD_LOAD_DELAY.global_ads || 2500;
+    // Only fire once per browser session
+    if (_globalAdsLoaded) return;
+
+    const delay = AD_LOAD_DELAY.global_ads || 3000;
 
     const timer = setTimeout(() => {
       if (!mountedRef.current) return;
+      if (_globalAdsLoaded) return; // double-check after delay
+
+      _globalAdsLoaded = true;
 
       try {
-        // Social bar
-        const socialScript = document.createElement('script');
-        socialScript.type  = 'text/javascript';
-        socialScript.async = true;
-        socialScript.src   = '//effectivegatecpm.com/social-bar.js';
-        document.head.appendChild(socialScript);
+        // Inject each popunder script sequentially
+        POPUNDER_SCRIPTS.forEach((src, i) => {
+          if (_injectedScripts.has(src)) return;
 
-        // Popunder — additional delay after social bar
-        setTimeout(() => {
-          if (!mountedRef.current) return;
-          const popScript = document.createElement('script');
-          popScript.type  = 'text/javascript';
-          popScript.async = true;
-          popScript.src   = '//effectivegatecpm.com/popunder.js';
-          document.head.appendChild(popScript);
-        }, 1000);
+          setTimeout(() => {
+            if (!_injectedScripts.has(src)) {
+              const script = document.createElement('script');
+              script.type  = 'text/javascript';
+              script.async = true;
+              script.src   = src;
+              document.head.appendChild(script);
+              _injectedScripts.add(src);
+            }
+          }, i * 800); // stagger: 0ms, 800ms
+        });
       } catch (err) {
         console.warn('[GlobalAdsLoader] Failed:', err);
       }
     }, delay);
 
     return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return null;

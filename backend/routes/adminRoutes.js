@@ -537,4 +537,120 @@ router.put('/videos/:id/status', simpleAdminAuth, async (req, res) => {
   }
 });
 
+// ==========================================
+// CONTACT SUBMISSIONS — ADMIN ROUTES
+// ==========================================
+// PASTE THIS BLOCK into adminRoutes.js
+// immediately BEFORE: module.exports = router;
+// Also add at the top of the file:
+//   const ContactSubmission = require('../models/ContactSubmission');
+// ==========================================
+
+const ContactSubmission = require('../models/ContactSubmission');
+
+// GET /api/admin/contacts
+// Query params: page, limit, unreadOnly
+router.get('/contacts', simpleAdminAuth, async (req, res) => {
+  try {
+    const page       = Math.max(1, parseInt(req.query.page)  || 1);
+    const limit      = Math.min(50, parseInt(req.query.limit) || 25);
+    const unreadOnly = req.query.unreadOnly === 'true';
+
+    const query = unreadOnly ? { read: false } : {};
+    const skip  = (page - 1) * limit;
+
+    const [submissions, total, unreadCount] = await Promise.all([
+      ContactSubmission.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      ContactSubmission.countDocuments(query),
+      ContactSubmission.countDocuments({ read: false }),
+    ]);
+
+    res.json({
+      success: true,
+      submissions,
+      total,
+      totalPages:  Math.ceil(total / limit),
+      page,
+      unreadCount,
+    });
+  } catch (error) {
+    console.error('Get contacts error:', error);
+    res.status(500).json({ error: 'Failed to get contact submissions.' });
+  }
+});
+
+// PUT /api/admin/contacts/:id/read
+router.put('/contacts/:id/read', simpleAdminAuth, async (req, res) => {
+  try {
+    const sub = await ContactSubmission.findByIdAndUpdate(
+      req.params.id,
+      { $set: { read: true } },
+      { new: true }
+    );
+    if (!sub) return res.status(404).json({ error: 'Submission not found.' });
+    res.json({ success: true, submission: sub });
+  } catch (error) {
+    console.error('Mark contact read error:', error);
+    res.status(500).json({ error: 'Failed to mark as read.' });
+  }
+});
+
+// PUT /api/admin/contacts/:id/note
+router.put('/contacts/:id/note', simpleAdminAuth, async (req, res) => {
+  try {
+    const { note } = req.body;
+    const sub = await ContactSubmission.findByIdAndUpdate(
+      req.params.id,
+      { $set: { adminNote: (note || '').trim().substring(0, 500) } },
+      { new: true }
+    );
+    if (!sub) return res.status(404).json({ error: 'Submission not found.' });
+    res.json({ success: true, submission: sub });
+  } catch (error) {
+    console.error('Update contact note error:', error);
+    res.status(500).json({ error: 'Failed to update note.' });
+  }
+});
+
+// DELETE /api/admin/contacts/:id
+router.delete('/contacts/:id', simpleAdminAuth, async (req, res) => {
+  try {
+    const sub = await ContactSubmission.findByIdAndDelete(req.params.id);
+    if (!sub) return res.status(404).json({ error: 'Submission not found.' });
+    res.json({ success: true, message: 'Submission deleted.' });
+  } catch (error) {
+    console.error('Delete contact error:', error);
+    res.status(500).json({ error: 'Failed to delete submission.' });
+  }
+});
+
+// DELETE /api/admin/contacts/bulk-delete
+// Body: { ids: ['id1', 'id2'] } OR { deleteAll: true, readOnly: true }
+router.post('/contacts/bulk-delete', simpleAdminAuth, async (req, res) => {
+  try {
+    const { ids, deleteAll, readOnly } = req.body;
+    let result;
+
+    if (deleteAll && readOnly) {
+      result = await ContactSubmission.deleteMany({ read: true });
+    } else if (deleteAll) {
+      result = await ContactSubmission.deleteMany({});
+    } else {
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ error: 'No IDs provided.' });
+      }
+      result = await ContactSubmission.deleteMany({ _id: { $in: ids } });
+    }
+
+    res.json({
+      success: true,
+      deletedCount: result.deletedCount,
+      message: `${result.deletedCount} submission(s) deleted.`,
+    });
+  } catch (error) {
+    console.error('Bulk delete contacts error:', error);
+    res.status(500).json({ error: 'Failed to bulk delete submissions.' });
+  }
+});
+
 module.exports = router;

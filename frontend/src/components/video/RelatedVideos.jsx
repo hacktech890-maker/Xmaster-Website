@@ -22,31 +22,41 @@ const RelatedVideos = ({
   error     = null,
   onRetry   = null,
   title     = 'Related Videos',
-  // Layout: 'sidebar' (horizontal cards) | 'grid' (grid cards) | 'row' (horizontal scroll)
+  // Layout:
+  //   'sidebar'  — compact horizontal cards (desktop right column)
+  //   'grid'     — 2/3/4 col grid cards
+  //   'row'      — horizontal scroll
+  //   'unified'  — NEW: responsive grid, up to 50 videos, below player
   layout    = 'sidebar',
-  maxItems  = 15,
+  maxItems  = 50,
   className = '',
 }) => {
   const [showAll, setShowAll] = useState(false);
 
+  const defaultVisible = (() => {
+    if (layout === 'unified') return 24;
+    if (layout === 'sidebar') return 10;
+    return 6;
+  })();
+
   const displayVideos = showAll
     ? videos.slice(0, maxItems)
-    : videos.slice(0, layout === 'sidebar' ? 10 : 6);
+    : videos.slice(0, defaultVisible);
 
   // ── Loading ────────────────────────────────────────────────
   if (loading) {
     return (
       <div className={className}>
         <SectionHeader title={title} />
-        {layout === 'sidebar' && (
+        {(layout === 'sidebar') && (
           <div className="space-y-1 mt-4">
             {Array.from({ length: 6 }).map((_, i) => (
               <VideoCardHorizontalSkeleton key={i} size="sm" />
             ))}
           </div>
         )}
-        {layout === 'grid' && (
-          <VideoGridSkeleton count={6} className="mt-4" />
+        {(layout === 'grid' || layout === 'unified') && (
+          <VideoGridSkeleton count={layout === 'unified' ? 12 : 6} className="mt-4" />
         )}
         {layout === 'row' && (
           <div className="flex gap-4 mt-4 overflow-hidden">
@@ -84,6 +94,48 @@ const RelatedVideos = ({
     return null;
   }
 
+  // ── Unified layout (NEW — replaces "Up Next" + "More Like This") ──
+  if (layout === 'unified') {
+    return (
+      <div className={className}>
+        <SectionHeader title={title} />
+
+        <div className="
+          grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4
+          gap-3 sm:gap-4 mt-4
+        ">
+          {displayVideos.map((video, i) => (
+            <VideoCard
+              key={video._id || i}
+              video={video}
+              size="default"
+              index={i}
+              showDate
+            />
+          ))}
+        </div>
+
+        {/* Show more button */}
+        {!showAll && videos.length > displayVideos.length && (
+          <button
+            onClick={() => setShowAll(true)}
+            className="
+              w-full mt-6 py-3 rounded-xl
+              text-sm font-medium text-white/50
+              hover:text-white hover:bg-white/5
+              border border-white/[0.08] hover:border-white/15
+              flex items-center justify-center gap-2
+              transition-all duration-200
+            "
+          >
+            Show more videos
+            <FiChevronRight className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+    );
+  }
+
   // ── Sidebar layout ─────────────────────────────────────────
   if (layout === 'sidebar') {
     return (
@@ -102,7 +154,6 @@ const RelatedVideos = ({
           ))}
         </div>
 
-        {/* Show more */}
         {videos.length > displayVideos.length && (
           <button
             onClick={() => setShowAll(true)}

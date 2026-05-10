@@ -1,8 +1,4 @@
-../frontend/src/utils/helpers.js
-../frontend/src/utils/performance.js
-../frontend/src/index.css
-../frontend/src/components/video/VideoCardHorizontal.jsx
-../frontend/src/components/common/Badge.jsx
-../frontend/tailwind.config.js
-../frontend/src/styles/animations.css
-../backend/models/Video.js
+app.jsx is copy and pasted in 
+
+
+from claude ai

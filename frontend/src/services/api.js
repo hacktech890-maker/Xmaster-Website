@@ -73,6 +73,7 @@ export const publicAPI = {
   trackShare: (id, platform) => api.post(`/public/share/${id}/track`, { platform }),
   getShareDebug: (id) => api.get(`/public/share/${id}/debug`),
   bulkCreateCategories: (data) => api.post('/categories/bulk-create', data),
+  submitContact: (data) => api.post('/public/contact', data),
 };
 
 // ==================== ADMIN API ====================
@@ -176,6 +177,14 @@ export const adminAPI = {
   clearAllDuplicates: () => api.post('/duplicates/clear-all'),
   publishAllDuplicates: (filter) => api.post('/duplicates/publish-all', { filter }),
 bulkPublishDuplicates: (ids) => api.post('/duplicates/bulk-publish', { ids }),
+
+
+
+getContactSubmissions: (params)    => api.get('/admin/contacts', { params }),
+markContactRead:       (id)        => api.put(`/admin/contacts/${id}/read`),
+updateContactNote:     (id, note)  => api.put(`/admin/contacts/${id}/note`, { note }),
+deleteContactSubmission: (id)      => api.delete(`/admin/contacts/${id}`),
+bulkDeleteContacts:    (payload)   => api.post('/admin/contacts/bulk-delete', payload),
 };
 
 export default api;

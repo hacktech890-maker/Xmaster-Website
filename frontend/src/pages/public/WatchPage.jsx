@@ -30,7 +30,6 @@ import CommentForm   from '../../components/comments/CommentForm';
 import CommentsList  from '../../components/comments/CommentsList';
 import AdSlot, { GlobalAdsLoader } from '../../components/ads/AdSlot';
 import { WatchPageSkeleton }       from '../../components/video/VideoCardSkeleton';
-import SectionRow    from '../../components/home/SectionRow';
 
 import { useIsMobile } from '../../hooks/useMediaQuery';
 
@@ -43,6 +42,9 @@ const REPORT_REASONS = [
   'Broken video',
   'Other',
 ];
+
+// Fetch up to 50 related videos as required by Task 3
+const RELATED_COUNT = 50;
 
 const WatchPage = () => {
   const { id }   = useParams();
@@ -127,7 +129,7 @@ const WatchPage = () => {
   const fetchRelated = async (videoId) => {
     setLoadingRelated(true);
     try {
-      const res  = await publicAPI.getRelatedVideos(videoId, 15);
+      const res  = await publicAPI.getRelatedVideos(videoId, RELATED_COUNT);
       const data = res?.data?.videos || res?.data || [];
       if (!mountedRef.current) return;
       if (Array.isArray(data) && data.length > 0) setRelatedVideos(data);
@@ -138,7 +140,7 @@ const WatchPage = () => {
 
   const fetchRandomVideos = async (excludeId) => {
     try {
-      const res  = await publicAPI.getRandomVideos(15, excludeId);
+      const res  = await publicAPI.getRandomVideos(RELATED_COUNT, excludeId);
       const data = res?.data?.videos || res?.data || [];
       if (mountedRef.current && Array.isArray(data)) setRelatedVideos(data);
     } catch { if (mountedRef.current) setRelatedVideos([]); }
@@ -264,30 +266,37 @@ const WatchPage = () => {
         <meta name="twitter:title"      content={video.title} />
         <meta name="twitter:image"      content={thumbUrl} />
         {video.embed_code && <meta property="og:video" content={video.embed_code} />}
+        <link rel="canonical" href={watchUrl} />
       </Helmet>
 
       <GlobalAdsLoader />
 
       <div className="min-h-screen bg-dark-400">
         <div className="container-site py-4 sm:py-6">
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] xl:grid-cols-[1fr_400px] gap-6 lg:gap-8">
+          {/* Main layout: player column + sidebar ad column on desktop */}
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_180px] xl:grid-cols-[1fr_200px] gap-6 lg:gap-8">
 
-            {/* LEFT COLUMN */}
+            {/* ── LEFT / MAIN COLUMN ────────────────────────── */}
             <div className="min-w-0">
+
+              {/* Player */}
               <div className="mb-4">
                 <VideoPlayer embedUrl={embedUrl} title={video.title} autoPlay={false} />
               </div>
 
+              {/* Mobile banner ad — right below player */}
               {isMobile && (
                 <div className="flex justify-center mb-4">
                   <AdSlot placement="watch_bottom" delay={2000} />
                 </div>
               )}
 
+              {/* Title */}
               <h1 className="text-lg sm:text-xl lg:text-2xl font-bold text-white leading-snug mb-3">
                 {video.title}
               </h1>
 
+              {/* Meta row */}
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-white/40 mb-4">
                 <span className="flex items-center gap-1.5"><FiEye className="w-3.5 h-3.5 text-white/30" />{viewCount}</span>
                 {duration   && <span className="flex items-center gap-1.5"><FiClock className="w-3.5 h-3.5 text-white/30" />{duration}</span>}
@@ -304,6 +313,7 @@ const WatchPage = () => {
 
               <div className="h-px bg-white/[0.06] mb-4" />
 
+              {/* Like / Share / Report */}
               <ActionBar
                 liked={liked} disliked={disliked}
                 likeCount={likeCount} dislikeCount={dislikeCount}
@@ -315,6 +325,7 @@ const WatchPage = () => {
 
               <div className="h-px bg-white/[0.06] mt-4 mb-4" />
 
+              {/* Tags */}
               {tags.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-4">
                   <span className="flex items-center gap-1 text-xs text-white/30 mr-1">
@@ -328,6 +339,7 @@ const WatchPage = () => {
                 </div>
               )}
 
+              {/* Description */}
               {hasDesc && (
                 <div className="rounded-xl p-4 bg-white/[0.025] border border-white/[0.06] mb-4">
                   <p className={`text-sm text-white/60 leading-relaxed whitespace-pre-line ${!showFullDesc && descLong ? 'line-clamp-3' : ''}`}>
@@ -341,12 +353,14 @@ const WatchPage = () => {
                 </div>
               )}
 
+              {/* Desktop leaderboard ad — below description */}
               {!isMobile && (
                 <div className="flex justify-center mb-6">
                   <AdSlot placement="watch_bottom" delay={2500} label />
                 </div>
               )}
 
+              {/* Report form */}
               {showReport && (
                 <ReportForm
                   reason={reportReason} setReason={setReportReason}
@@ -355,125 +369,157 @@ const WatchPage = () => {
                 />
               )}
 
+              {/* Comments */}
               <CommentsSection
                 videoId={id} comments={comments} loading={loadingComments}
                 open={showComments} onToggle={handleToggleComments} onCommentAdded={fetchComments}
               />
 
+              {/* Native ad below comments */}
               <div className="mt-6">
                 <AdSlot placement="watch_native" delay={3500} label />
               </div>
 
-              {isMobile && (
-                <div className="mt-8">
-                  <RelatedVideos videos={relatedVideos} loading={loadingRelated} layout="sidebar" title="Up Next" />
-                </div>
-              )}
+              {/* ── UNIFIED RECOMMENDATIONS (Task 3) ──────────
+                  Replaces the old "Up Next" + "More Like This" split.
+                  Shows below the player on ALL screen sizes.
+                  ─────────────────────────────────────────────── */}
+              <div className="mt-10">
+                <div className="h-px bg-white/[0.06] mb-8" />
+                <RelatedVideos
+                  videos={relatedVideos}
+                  loading={loadingRelated}
+                  layout="unified"
+                  title="You Might Also Like"
+                  maxItems={RELATED_COUNT}
+                />
+              </div>
+
             </div>
 
-            {/* RIGHT COLUMN */}
+            {/* ── RIGHT COLUMN — Sidebar ads (desktop only) ── */}
             {!isMobile && (
-              <aside className="hidden lg:block">
-                <div className="sticky top-20 space-y-5" style={{ maxHeight: 'calc(100vh - 84px)', overflowY: 'auto' }}>
-                  <div className="flex justify-center">
-                    <AdSlot placement="watch_sidebar" delay={1500} label />
-                  </div>
-                  <RelatedVideos videos={relatedVideos} loading={loadingRelated} layout="sidebar" title="Up Next" maxItems={15} />
+              <aside className="hidden lg:flex flex-col gap-4">
+                <div className="sticky top-20 flex flex-col gap-4">
+                  <AdSlot placement="sidebar_tall" delay={1500} label />
                 </div>
               </aside>
             )}
-          </div>
 
-          {relatedVideos.length > 0 && !loadingRelated && (
-            <div className="mt-10 sm:mt-12">
-              <SectionRow title="More Like This" videos={relatedVideos.slice(0, 12)} loading={false} icon="trending" accentColor="#e11d48" skeletonCount={6} />
-            </div>
-          )}
+          </div>
         </div>
       </div>
     </>
   );
 };
 
+// ============================================================
+// ACTION BAR (Like / Dislike / Share / Report)
+// ============================================================
+
 const ActionBar = ({
   liked, disliked, likeCount, dislikeCount,
-  likeRatio, totalVotes, onLike, onDislike,
-  videoId, videoTitle, watchUrl, onReport,
+  likeRatio, totalVotes,
+  onLike, onDislike,
+  videoId, videoTitle, watchUrl,
+  onReport,
 }) => (
-  <div className="space-y-3">
-    <div className="flex flex-wrap items-center gap-2">
-      <button onClick={onLike} aria-label="Like" className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border transition-all duration-200 ${liked ? 'bg-primary-600/20 text-primary-400 border-primary-600/30' : 'bg-white/[0.06] text-white/60 border-white/10 hover:bg-white/12 hover:text-white'}`}>
-        <FiThumbsUp className={`w-4 h-4 transition-transform duration-200 ${liked ? 'scale-110' : ''}`} fill={liked ? 'currentColor' : 'none'} />
-        <span>{formatViewsShort(likeCount)}</span>
+  <div className="flex flex-wrap items-center gap-3">
+    <div className="flex items-center gap-2 flex-1 min-w-0">
+      {/* Like */}
+      <button
+        onClick={onLike}
+        disabled={liked}
+        className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${liked ? 'bg-primary-600/20 text-primary-400 border border-primary-600/30' : 'bg-white/[0.06] text-white/60 border border-white/[0.08] hover:bg-white/10 hover:text-white'}`}
+      >
+        <FiThumbsUp className="w-4 h-4" />
+        <span>{likeCount}</span>
       </button>
 
-      <button onClick={onDislike} aria-label="Dislike" className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border transition-all duration-200 ${disliked ? 'bg-white/15 text-white border-white/25' : 'bg-white/[0.06] text-white/60 border-white/10 hover:bg-white/12 hover:text-white'}`}>
-        <FiThumbsDown className={`w-4 h-4 transition-transform duration-200 ${disliked ? 'scale-110' : ''}`} fill={disliked ? 'currentColor' : 'none'} />
-        <span>{formatViewsShort(dislikeCount)}</span>
+      {/* Dislike */}
+      <button
+        onClick={onDislike}
+        disabled={disliked}
+        className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${disliked ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-white/[0.06] text-white/60 border border-white/[0.08] hover:bg-white/10 hover:text-white'}`}
+      >
+        <FiThumbsDown className="w-4 h-4" />
+        <span>{dislikeCount}</span>
       </button>
 
-      <ShareButton videoId={videoId} title={videoTitle} url={watchUrl} variant="button" />
-
-      <div className="flex-1" />
-
-      <button onClick={onReport} aria-label="Report" className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-medium text-white/30 hover:text-red-400 bg-white/[0.04] hover:bg-red-500/10 border border-white/[0.08] hover:border-red-500/20 transition-all duration-200">
-        <FiFlag className="w-3.5 h-3.5" />Report
-      </button>
+      {/* Like ratio bar */}
+      {totalVotes > 0 && (
+        <div className="hidden sm:flex items-center gap-2 ml-1">
+          <div className="w-24 h-1.5 rounded-full bg-white/10 overflow-hidden">
+            <div className="h-full bg-primary-600 rounded-full transition-all duration-500" style={{ width: `${likeRatio}%` }} />
+          </div>
+          <span className="text-[11px] text-white/30">{Math.round(likeRatio)}%</span>
+        </div>
+      )}
     </div>
 
-    {totalVotes > 0 && (
-      <div className="space-y-1">
-        <div className="h-1 rounded-full bg-white/[0.08] overflow-hidden">
-          <div className="h-full rounded-full bg-gradient-to-r from-primary-600 to-primary-500 transition-all duration-700" style={{ width: `${likeRatio}%` }} />
-        </div>
-        <div className="flex justify-between text-[10px] text-white/25">
-          <span>{Math.round(likeRatio)}% liked</span>
-          <span>{formatViewsShort(totalVotes)} votes</span>
-        </div>
-      </div>
-    )}
+    <div className="flex items-center gap-2">
+      <ShareButton videoId={videoId} title={videoTitle} url={watchUrl} />
+      <button
+        onClick={onReport}
+        className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-white/[0.04] text-white/30 border border-white/[0.06] hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/20 transition-all duration-200"
+      >
+        <FiFlag className="w-3.5 h-3.5" />
+        <span className="hidden sm:inline">Report</span>
+      </button>
+    </div>
   </div>
 );
 
+// ============================================================
+// REPORT FORM
+// ============================================================
+
 const ReportForm = ({ reason, setReason, onSubmit, onCancel, submitting }) => (
-  <div className="rounded-xl p-4 sm:p-5 mb-4 bg-red-500/5 border border-red-500/15 animate-fade-in-up">
+  <div className="rounded-2xl bg-white/[0.03] border border-white/[0.08] p-5 mb-4 animate-fade-in-down">
     <div className="flex items-center justify-between mb-4">
-      <h3 className="flex items-center gap-2 text-sm font-semibold text-red-400">
-        <FiFlag className="w-4 h-4" />Report Video
-      </h3>
-      <button onClick={onCancel} className="text-white/30 hover:text-white/70 transition-colors">
+      <h3 className="text-sm font-bold text-white">Report Video</h3>
+      <button onClick={onCancel} className="text-white/30 hover:text-white transition-colors">
         <FiX className="w-4 h-4" />
       </button>
     </div>
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
-      {REPORT_REASONS.map((r) => (
-        <button key={r} onClick={() => setReason(r)} className={`px-3 py-2.5 rounded-xl text-sm text-left border transition-all duration-150 ${reason === r ? 'bg-red-500/15 text-red-400 border-red-500/30' : 'bg-white/[0.04] text-white/50 border-white/[0.08] hover:bg-white/[0.08] hover:text-white/70'}`}>
+    <div className="grid grid-cols-2 gap-2 mb-4">
+      {['Underage content','Non-consensual content','Spam or misleading','Copyright violation','Wrong category','Broken video','Other'].map((r) => (
+        <button
+          key={r}
+          onClick={() => setReason(r)}
+          className={`text-xs px-3 py-2 rounded-lg border text-left transition-all duration-150 ${reason === r ? 'bg-primary-600/15 text-primary-400 border-primary-600/30' : 'bg-white/[0.04] text-white/50 border-white/[0.08] hover:bg-white/[0.08]'}`}
+        >
           {r}
         </button>
       ))}
     </div>
     <div className="flex gap-2">
-      <button onClick={onSubmit} disabled={!reason || submitting} className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-red-600/80 text-white hover:bg-red-600 disabled:opacity-40 disabled:pointer-events-none transition-all duration-200 flex items-center justify-center gap-2">
-        {submitting ? <><span className="w-3.5 h-3.5 rounded-full border border-white/30 border-t-white animate-spin" />Submitting...</> : <><FiFlag className="w-3.5 h-3.5" />Submit Report</>}
+      <button onClick={onCancel} className="flex-1 py-2 rounded-xl text-sm text-white/40 bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] transition-colors">
+        Cancel
       </button>
-      <button onClick={onCancel} className="px-4 py-2.5 rounded-xl text-sm text-white/40 hover:text-white bg-white/5 hover:bg-white/10 border border-white/[0.08] transition-all duration-200">Cancel</button>
+      <button
+        onClick={onSubmit}
+        disabled={!reason || submitting}
+        className="flex-1 py-2 rounded-xl text-sm font-medium bg-red-600/80 hover:bg-red-600 text-white disabled:opacity-40 transition-colors"
+      >
+        {submitting ? 'Submitting...' : 'Submit Report'}
+      </button>
     </div>
   </div>
 );
 
+// ============================================================
+// COMMENTS SECTION
+// ============================================================
+
 const CommentsSection = ({ videoId, comments, loading, open, onToggle, onCommentAdded }) => (
-  <div className="rounded-xl overflow-hidden border border-white/[0.08]">
-    <button onClick={onToggle} className="w-full flex items-center justify-between px-4 py-3.5 bg-white/[0.03] hover:bg-white/[0.05] transition-colors duration-200 text-left">
-      <span className="flex items-center gap-2 text-sm font-semibold text-white/70">
-        <svg className="w-4 h-4 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-        </svg>
-        Comments
-        {comments.length > 0 && (
-          <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-primary-600/20 text-primary-400">
-            {comments.length}
-          </span>
-        )}
+  <div className="rounded-2xl bg-white/[0.025] border border-white/[0.06] overflow-hidden">
+    <button
+      onClick={onToggle}
+      className="w-full flex items-center justify-between px-4 py-3.5 hover:bg-white/[0.03] transition-colors duration-200"
+    >
+      <span className="text-sm font-semibold text-white/70">
+        {open ? 'Hide Comments' : 'Comments'}
       </span>
       <span className="text-white/30">
         {open ? <FiChevronUp className="w-4 h-4" /> : <FiChevronDown className="w-4 h-4" />}

@@ -1131,4 +1131,82 @@ router.get('/robots.txt', (req, res) => {
   res.status(200).send(robots);
 });
 
+
+// ==========================================
+// CONTACT FORM SUBMISSION
+// POST /api/public/contact
+// ==========================================
+// PASTE THIS BLOCK into publicRoutes.js
+// immediately BEFORE: module.exports = router;
+// ==========================================
+
+const ContactSubmission = require('../models/ContactSubmission');
+
+// Basic email regex
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Simple rate-limit: max 3 submissions per IP per hour (in-memory)
+const _contactRateMap = new Map();
+const RATE_WINDOW_MS  = 60 * 60 * 1000; // 1 hour
+const RATE_MAX        = 3;
+
+function checkContactRateLimit(ip) {
+  const now     = Date.now();
+  const entry   = _contactRateMap.get(ip);
+  if (!entry || now - entry.windowStart > RATE_WINDOW_MS) {
+    _contactRateMap.set(ip, { windowStart: now, count: 1 });
+    return true; // allowed
+  }
+  if (entry.count >= RATE_MAX) return false; // blocked
+  entry.count++;
+  return true; // allowed
+}
+
+router.post('/contact', async (req, res) => {
+  try {
+    const { name, email, message } = req.body;
+
+    // Server-side validation
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ error: 'Name is required.' });
+    }
+    if (!email || typeof email !== 'string' || !EMAIL_RE.test(email.trim())) {
+      return res.status(400).json({ error: 'A valid email address is required.' });
+    }
+    if (message && message.length > 2000) {
+      return res.status(400).json({ error: 'Message is too long (max 2000 characters).' });
+    }
+
+    // Sanitise — strip HTML tags
+    const safeName    = name.trim().replace(/<[^>]*>/g, '').substring(0, 80);
+    const safeEmail   = email.trim().toLowerCase().substring(0, 120);
+    const safeMessage = (message || '').trim().replace(/<[^>]*>/g, '').substring(0, 2000);
+
+    // Rate limiting by IP
+    const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || '';
+    if (!checkContactRateLimit(clientIp)) {
+      return res.status(429).json({ error: 'Too many submissions. Please try again later.' });
+    }
+
+    // Spam honeypot — if a field named "website" is filled (bots fill it), reject silently
+    if (req.body.website) {
+      // Return success to fool bots but don't save
+      return res.status(200).json({ success: true });
+    }
+
+    // Save to DB
+    await ContactSubmission.create({
+      name:      safeName,
+      email:     safeEmail,
+      message:   safeMessage,
+      ipAddress: clientIp,
+    });
+
+    res.status(200).json({ success: true, message: 'Your message has been received.' });
+  } catch (error) {
+    console.error('Contact submission error:', error);
+    res.status(500).json({ error: 'Failed to submit message. Please try again.' });
+  }
+});
+
 module.exports = router;

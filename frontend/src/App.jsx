@@ -15,6 +15,7 @@ import Footer          from './components/common/Footer';
 import ScrollToTop     from './components/common/ScrollToTop';
 import LoadingSpinner  from './components/common/LoadingSpinner';
 import DisclaimerModal from './components/disclaimer/DisclaimerModal';
+
 // ============================================================
 // LAZY IMPORTS — Public Pages
 // ============================================================
@@ -24,6 +25,16 @@ const TrendingPage = lazy(() => import('./pages/public/TrendingPage'));
 const PremiumPage  = lazy(() => import('./pages/public/PremiumPage'));
 const FreePage     = lazy(() => import('./pages/public/FreePage'));
 const StudioPage   = lazy(() => import('./pages/public/StudioPage'));
+
+// ============================================================
+// LAZY IMPORTS — Legal Pages (Task 7)
+// ============================================================
+const PrivacyPage    = lazy(() => import('./pages/legal/PrivacyPage'));
+const TermsPage      = lazy(() => import('./pages/legal/TermsPage'));
+const DmcaPage       = lazy(() => import('./pages/legal/DmcaPage'));
+const DisclaimerPage = lazy(() => import('./pages/legal/DisclaimerPage'));
+const Statement2257  = lazy(() => import('./pages/legal/Statement2257'));
+
 // ============================================================
 // LAZY IMPORTS — Admin Pages
 // ============================================================
@@ -36,6 +47,8 @@ const AdsManager        = lazy(() => import('./pages/admin/AdsManager'));
 const CommentsManager   = lazy(() => import('./pages/admin/CommentsManager'));
 const ReportsPage       = lazy(() => import('./pages/admin/ReportsPage'));
 const DuplicateManager  = lazy(() => import('./pages/admin/DuplicateManager'));
+const ContactManager    = lazy(() => import('./pages/admin/ContactManager'));
+
 // ============================================================
 // LOADING FALLBACK
 // ============================================================
@@ -44,6 +57,7 @@ const PageLoader = () => (
     <LoadingSpinner size="lg" />
   </div>
 );
+
 // ============================================================
 // PUBLIC LAYOUT
 // ============================================================
@@ -71,6 +85,7 @@ const PublicLayout = () => {
     </div>
   );
 };
+
 // ============================================================
 // PROTECTED ADMIN ROUTE
 // ============================================================
@@ -92,6 +107,7 @@ const AdminRoute = () => {
     </Suspense>
   );
 };
+
 // ============================================================
 // MAIN APP
 // ============================================================
@@ -106,12 +122,14 @@ const App = () => {
         <Route element={<PublicLayout />}>
           {/* Root → redirect to Trending */}
           <Route index element={<Navigate to="/trending" replace />} />
+
           {/* Core routes */}
           <Route path="/watch/:id"       element={<WatchPage />} />
           <Route path="/watch/:id/:slug" element={<WatchPage />} />
           <Route path="/search"          element={<SearchPage />} />
           <Route path="/trending"        element={<TrendingPage />} />
           <Route path="/tag/:tag"        element={<SearchPage />} />
+
           {/* Premium section */}
           {PREMIUM_SECTION_ENABLED && (
             <>
@@ -119,11 +137,20 @@ const App = () => {
               <Route path="/studio/:slug" element={<StudioPage />} />
             </>
           )}
+
           {/* Free section */}
           {FREE_SECTION_ENABLED && (
             <Route path="/free" element={<FreePage />} />
           )}
+
+          {/* ── Legal Pages (Task 7) ──────────────────────── */}
+          <Route path="/privacy"    element={<PrivacyPage />} />
+          <Route path="/terms"      element={<TermsPage />} />
+          <Route path="/dmca"       element={<DmcaPage />} />
+          <Route path="/disclaimer" element={<DisclaimerPage />} />
+          <Route path="/2257"       element={<Statement2257 />} />
         </Route>
+
         {/* ====================================================
             ADMIN LOGIN — no layout wrapper
             ==================================================== */}
@@ -135,6 +162,7 @@ const App = () => {
             </Suspense>
           }
         />
+
         {/* ====================================================
             PROTECTED ADMIN ROUTES
             ==================================================== */}
@@ -147,8 +175,11 @@ const App = () => {
           <Route path="comments"   element={<CommentsManager />} />
           <Route path="reports"    element={<ReportsPage />} />
           <Route path="duplicates" element={<DuplicateManager />} />
+          {/* Task 9 — Contact submissions manager */}
+          <Route path="contacts"   element={<ContactManager />} />
           <Route index element={<Navigate to="/admin/dashboard" replace />} />
         </Route>
+
         {/* ====================================================
             FALLBACK
             ==================================================== */}
@@ -157,4 +188,5 @@ const App = () => {
     </>
   );
 };
+
 export default App;
