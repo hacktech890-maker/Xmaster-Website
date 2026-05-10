@@ -45,6 +45,7 @@ const ContactManager = () => {
     }
   }, [filterUnread]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchSubmissions(1, filterUnread); }, [filterUnread]);
 
   const handleMarkRead = async (id) => {

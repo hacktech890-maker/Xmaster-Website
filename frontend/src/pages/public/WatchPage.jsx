@@ -15,7 +15,6 @@ import { publicAPI } from '../../services/api';
 import {
   getThumbnailUrl,
   formatViews,
-  formatViewsShort,
   formatDuration,
   formatDateAbsolute,
   getSessionId,
@@ -32,16 +31,6 @@ import AdSlot, { GlobalAdsLoader } from '../../components/ads/AdSlot';
 import { WatchPageSkeleton }       from '../../components/video/VideoCardSkeleton';
 
 import { useIsMobile } from '../../hooks/useMediaQuery';
-
-const REPORT_REASONS = [
-  'Underage content',
-  'Non-consensual content',
-  'Spam or misleading',
-  'Copyright violation',
-  'Wrong category',
-  'Broken video',
-  'Other',
-];
 
 // Fetch up to 50 related videos as required by Task 3
 const RELATED_COUNT = 50;
