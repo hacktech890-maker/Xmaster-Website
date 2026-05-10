@@ -1,65 +1,110 @@
-// src/hooks/useIntersection.js
-// IntersectionObserver hook for lazy loading + infinite scroll
-import { useState, useEffect, useRef, useCallback } from 'react';
-/**
- * useIntersection — observes when an element enters the viewport
- *
- * Returns a CALLBACK REF (function) so it can be composed with other refs
- * via a setRefs pattern: ref={el => { callbackRef(el); otherRef.current = el; }}
- *
- * @param {Object} options — IntersectionObserver options
- * @returns {[callbackRef, isIntersecting, hasIntersected]}
- *
- * @example
- * const [ref, isVisible, hasIntersected] = useIntersection({ threshold: 0.1 });
- * <div ref={ref}>{hasIntersected && <Content />}</div>
- */
-export const useIntersection = (options = {}) => {
-  const [isIntersecting, setIsIntersecting]   = useState(false);
-  const [hasIntersected, setHasIntersected]   = useState(false);
-  const observerRef   = useRef(null);
-  const elementRef    = useRef(null);
-  const {
-    threshold   = 0,
-    rootMargin  = '0px',
-    triggerOnce = true,
-  } = options;
-  // Stable callback ref — safe to use in ref={...} and in setRefs combiners
-  const callbackRef = useCallback(
-    (el) => {
-      // Disconnect previous observer if element changes
-      if (observerRef.current) {
-        observerRef.current.disconnect();
-        observerRef.current = null;
-      }
-      elementRef.current = el;
-      if (!el) return;
-      observerRef.current = new IntersectionObserver(
-        ([entry]) => {
-          setIsIntersecting(entry.isIntersecting);
-          if (entry.isIntersecting) {
-            setHasIntersected(true);
-            if (triggerOnce) {
-              observerRef.current?.disconnect();
-            }
-          }
-        },
-        { threshold, rootMargin }
-      );
-      observerRef.current.observe(el);
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [threshold, rootMargin, triggerOnce]
-  );
-  // Clean up on unmount
+// src/hooks/useVideoPreview.js
+// Singleton hover preview system
+// Only one video card can have an active preview at a time
+
+import { useState, useRef, useCallback, useEffect } from 'react';
+
+// Module-level singleton — tracks which video is currently previewing
+let _activeVideoId = null;
+const _listeners   = new Set();
+
+const notifyListeners = () => {
+  _listeners.forEach((fn) => fn(_activeVideoId));
+};
+
+const setActiveVideo = (id) => {
+  if (_activeVideoId === id) return;
+  _activeVideoId = id;
+  notifyListeners();
+};
+
+// ============================================================
+// useVideoPreview hook
+// ============================================================
+// Usage:
+//   const { isPreviewActive, isTouch, handleMouseEnter, handleMouseLeave }
+//     = useVideoPreview(videoId, { delay: 480, leaveDelay: 180 });
+// ============================================================
+
+export const useVideoPreview = (videoId, options = {}) => {
+  const { delay = 480, leaveDelay = 180 } = options;
+
+  const [activeId,  setActiveId]  = useState(_activeVideoId);
+  const [isTouch,   setIsTouch]   = useState(false);
+
+  const enterTimerRef = useRef(null);
+  const leaveTimerRef = useRef(null);
+  const mountedRef    = useRef(true);
+
+  // Detect touch/coarse-pointer devices — disable hover on these
   useEffect(() => {
+    const mq = window.matchMedia('(pointer: coarse)');
+    setIsTouch(mq.matches);
+    const handler = (e) => setIsTouch(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+
+  // Subscribe to singleton state
+  useEffect(() => {
+    const listener = (id) => {
+      if (mountedRef.current) setActiveId(id);
+    };
+    _listeners.add(listener);
     return () => {
-      if (observerRef.current) {
-        observerRef.current.disconnect();
-        observerRef.current = null;
-      }
+      _listeners.delete(listener);
+      mountedRef.current = false;
     };
   }, []);
-  return [callbackRef, isIntersecting, hasIntersected];
+
+  const handleMouseEnter = useCallback(() => {
+    if (isTouch) return;
+
+    // Clear any pending leave timer
+    if (leaveTimerRef.current) {
+      clearTimeout(leaveTimerRef.current);
+      leaveTimerRef.current = null;
+    }
+
+    // Activate after delay
+    enterTimerRef.current = setTimeout(() => {
+      if (mountedRef.current) setActiveVideo(videoId);
+    }, delay);
+  }, [videoId, delay, isTouch]);
+
+  const handleMouseLeave = useCallback(() => {
+    if (isTouch) return;
+
+    // Clear pending enter timer
+    if (enterTimerRef.current) {
+      clearTimeout(enterTimerRef.current);
+      enterTimerRef.current = null;
+    }
+
+    // Deactivate after short leave delay (prevents flicker)
+    leaveTimerRef.current = setTimeout(() => {
+      if (mountedRef.current && _activeVideoId === videoId) {
+        setActiveVideo(null);
+      }
+    }, leaveDelay);
+  }, [videoId, leaveDelay, isTouch]);
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      if (enterTimerRef.current) clearTimeout(enterTimerRef.current);
+      if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
+      // If this card was active, clear the singleton
+      if (_activeVideoId === videoId) setActiveVideo(null);
+    };
+  }, [videoId]);
+
+  return {
+    isPreviewActive: activeId === videoId,
+    isTouch,
+    handleMouseEnter,
+    handleMouseLeave,
+  };
 };
-export default useIntersection;
+
+export default useVideoPreview;
