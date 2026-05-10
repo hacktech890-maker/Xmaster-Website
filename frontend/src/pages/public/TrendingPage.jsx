@@ -1,12 +1,11 @@
 // src/pages/public/TrendingPage.jsx
-// Modern trending page with period selector
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Helmet }    from 'react-helmet-async';
 import { FiTrendingUp, FiClock, FiCalendar } from 'react-icons/fi';
 
 import { publicAPI } from '../../services/api';
 import VideoGrid     from '../../components/video/VideoGrid';
+import Pagination    from '../../components/common/Pagination';
 import TrendingTags  from '../../components/home/TrendingTags';
 
 const PERIODS = [
@@ -18,41 +17,70 @@ const PERIODS = [
 const LIMITS = [24, 48, 96];
 
 const TrendingPage = () => {
-  const [period,  setPeriod]  = useState('7d');
-  const [limit,   setLimit]   = useState(24);
-  const [videos,  setVideos]  = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState(null);
+  const [period,     setPeriod]     = useState('7d');
+  const [limit,      setLimit]      = useState(24);
+  const [videos,     setVideos]     = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [error,      setError]      = useState(null);
+  const [page,       setPage]       = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
 
   const mountedRef = useRef(true);
   useEffect(() => () => { mountedRef.current = false; }, []);
 
+  // Reset to page 1 whenever period or limit changes
   useEffect(() => {
-    fetchTrending();
+    setPage(1);
+    fetchTrending(1);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [period, limit]);
 
-  const fetchTrending = async () => {
+  const fetchTrending = async (pg = 1) => {
     setLoading(true);
     setError(null);
     try {
-      const res  = await publicAPI.getTrendingVideos(limit, period);
-      const data = res?.data?.videos || res?.data || [];
+      const res   = await publicAPI.getTrendingVideos(limit, period, pg);
+      const data  = res?.data?.videos  || res?.data  || [];
+      const pages = res?.data?.totalPages || res?.data?.pages || 1;
+      const count = res?.data?.total   || res?.data?.count  || data.length;
       if (mountedRef.current) {
         setVideos(Array.isArray(data) ? data : []);
+        setTotalPages(pages);
+        setTotalCount(count);
+        setPage(pg);
       }
-    } catch (err) {
+    } catch {
       if (mountedRef.current) setError('Failed to load trending videos');
     } finally {
       if (mountedRef.current) setLoading(false);
     }
   };
 
+  const handlePageChange = (pg) => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    fetchTrending(pg);
+  };
+
+  // When period or limit selector changes, also reset page
+  const handlePeriodChange = (p) => {
+    setPeriod(p);
+    setPage(1);
+  };
+
+  const handleLimitChange = (l) => {
+    setLimit(l);
+    setPage(1);
+  };
+
   return (
     <>
       <Helmet>
         <title>Trending Videos — Xmaster</title>
-        <meta name="description" content="Watch the most trending adult videos on Xmaster right now." />
+        <meta
+          name="description"
+          content="Watch the most trending adult videos on Xmaster right now."
+        />
       </Helmet>
 
       <div className="min-h-screen bg-dark-400">
@@ -63,7 +91,6 @@ const TrendingPage = () => {
           border-b border-white/5 py-10 sm:py-14
           overflow-hidden
         ">
-          {/* Background glow */}
           <div className="
             absolute top-0 left-1/2 -translate-x-1/2
             w-96 h-96 rounded-full
@@ -73,7 +100,7 @@ const TrendingPage = () => {
           <div className="container-site relative z-10">
             <div className="flex flex-col sm:flex-row sm:items-end gap-6">
 
-              {/* Title */}
+              {/* Title + period tabs */}
               <div>
                 <div className="flex items-center gap-3 mb-3">
                   <div className="
@@ -88,7 +115,9 @@ const TrendingPage = () => {
                       Trending Now
                     </h1>
                     <p className="text-sm text-white/40 mt-0.5">
-                      Most watched videos
+                      {!loading && totalCount > 0
+                        ? `${totalCount.toLocaleString()} videos`
+                        : 'Most watched videos'}
                     </p>
                   </div>
                 </div>
@@ -96,12 +125,12 @@ const TrendingPage = () => {
                 {/* Period tabs */}
                 <div className="
                   inline-flex items-center gap-1
-                  p-1 rounded-xl bg-white/5 border border-white/8
+                  p-1 rounded-xl bg-white/5 border border-white/[0.08]
                 ">
                   {PERIODS.map((p) => (
                     <button
                       key={p.id}
-                      onClick={() => setPeriod(p.id)}
+                      onClick={() => handlePeriodChange(p.id)}
                       className={`
                         flex items-center gap-1.5
                         px-3 py-1.5 rounded-lg
@@ -126,13 +155,13 @@ const TrendingPage = () => {
                 {LIMITS.map((l) => (
                   <button
                     key={l}
-                    onClick={() => setLimit(l)}
+                    onClick={() => handleLimitChange(l)}
                     className={`
                       px-3 py-1.5 rounded-lg text-xs font-semibold
                       border transition-all duration-200
                       ${limit === l
                         ? 'bg-white/10 text-white border-white/20'
-                        : 'text-white/30 border-white/8 hover:text-white/60'
+                        : 'text-white/30 border-white/[0.08] hover:text-white/60'
                       }
                     `}
                   >
@@ -155,12 +184,23 @@ const TrendingPage = () => {
             videos={videos}
             loading={loading}
             error={error}
-            onRetry={fetchTrending}
+            onRetry={() => fetchTrending(page)}
             skeletonCount={limit}
             columns="default"
             emptyTitle="No trending videos"
             emptyMessage="Check back soon — trending videos will appear here."
           />
+
+          {/* Pagination */}
+          {!loading && totalPages > 1 && (
+            <div className="mt-10 flex justify-center">
+              <Pagination
+                currentPage={page}
+                totalPages={totalPages}
+                onPageChange={handlePageChange}
+              />
+            </div>
+          )}
         </div>
       </div>
     </>

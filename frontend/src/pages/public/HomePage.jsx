@@ -12,6 +12,7 @@ import StudioRow    from '../../components/home/StudioRow';
 
 import VideoGrid              from '../../components/video/VideoGrid';
 import VideoCard              from '../../components/video/VideoCard';
+import Pagination             from '../../components/common/Pagination';
 import AdSlot, { GlobalAdsLoader } from '../../components/ads/AdSlot';
 
 import { useIntersection } from '../../hooks/useIntersection';
@@ -28,26 +29,8 @@ const FEATURED_COUNT   = 8;
 const RELATED_COUNT    = 10;
 
 // ============================================================
-// AD-INJECTED VIDEO GRID
-// Inserts an ad slot after every 2 rows of videos.
-// Adapts to grid column count responsively.
-//
-// Grid presets from VideoGrid:
-//   default → xs:2 sm:2 md:3 lg:4 cols
-//
-// Ad frequency: after every 2 rows
-//   lg (4 cols) → ad after every 8 cards
-//   md (3 cols) → ad after every 6 cards
-//   sm/xs (2 cols) → ad after every 4 cards
-//
-// Implementation: renders cards with ad slots interleaved.
-// Uses CSS classes to show/hide ads at correct breakpoints.
-// Each breakpoint has its own repeating-group logic via
-// nth-child-like ordering — we insert ad nodes at positions
-// 8, 16, 24... (desktop), 6, 12, 18... (tablet), 4, 8, 12 (mobile)
-// and show only the correct one per breakpoint via Tailwind.
+// AD-INJECTED VIDEO GRID  (unchanged)
 // ============================================================
-
 const VideoGridWithAds = ({ videos, loading, skeletonCount }) => {
   if (loading || !videos || videos.length === 0) {
     return (
@@ -64,16 +47,11 @@ const VideoGridWithAds = ({ videos, loading, skeletonCount }) => {
     );
   }
 
-  // Build interleaved list: cards + ad nodes
-  // We insert an ad every AD_INTERVAL cards (using the largest interval = 8 for desktop)
-  // and rely on responsive CSS to handle smaller screens gracefully.
-  // The ad spans the full row width via col-span classes.
-  const AD_INTERVAL = 8; // after every 8 cards (= 2 rows @ 4-col desktop)
+  const AD_INTERVAL = 8;
   const items = [];
 
   videos.forEach((video, i) => {
     items.push({ type: 'video', video, index: i });
-    // Insert ad after every AD_INTERVAL-th card (1-indexed)
     if ((i + 1) % AD_INTERVAL === 0) {
       items.push({ type: 'ad', key: `ad-${i}` });
     }
@@ -93,7 +71,6 @@ const VideoGridWithAds = ({ videos, loading, skeletonCount }) => {
             />
           );
         }
-        // Ad row — spans all columns at every breakpoint
         return (
           <div
             key={item.key}
@@ -111,7 +88,6 @@ const VideoGridWithAds = ({ videos, loading, skeletonCount }) => {
 // ============================================================
 // HOME PAGE
 // ============================================================
-
 const HomePage = () => {
   const [heroVideos,     setHeroVideos]     = useState([]);
   const [featuredVideos, setFeaturedVideos] = useState([]);
@@ -126,18 +102,18 @@ const HomePage = () => {
   const [loadingLatest,   setLoadingLatest]   = useState(true);
   const [loadingDesi,     setLoadingDesi]     = useState(true);
   const [loadingPopular,  setLoadingPopular]  = useState(false);
-  const [loadingMore,     setLoadingMore]     = useState(false);
 
+  // Pagination state for Latest Videos
   const [latestPage,    setLatestPage]    = useState(1);
-  const [hasMoreLatest, setHasMoreLatest] = useState(true);
+  const [latestTotal,   setLatestTotal]   = useState(1);
 
   const [desiRef,    , desiVisible]    = useIntersection({ rootMargin: '300px', triggerOnce: true });
   const [popularRef, , popularVisible] = useIntersection({ rootMargin: '300px', triggerOnce: true });
-  const [infiniteRef,  isNearBottom]   = useIntersection({ rootMargin: '400px', triggerOnce: false });
 
   const mountedRef = useRef(true);
   useEffect(() => () => { mountedRef.current = false; }, []);
 
+  // ── Initial data fetch ─────────────────────────────────────
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
@@ -145,20 +121,40 @@ const HomePage = () => {
         if (homeRes?.data) {
           const d = homeRes.data;
           if (!mountedRef.current) return;
-          const heroPool = [...(d.featured || []), ...(d.trending || [])].slice(0, HERO_VIDEO_COUNT);
+          const heroPool = [
+            ...(d.featured || []),
+            ...(d.trending || []),
+          ].slice(0, HERO_VIDEO_COUNT);
           setHeroVideos(heroPool);
           setLoadingHero(false);
-          if (d.featured?.length) { setFeaturedVideos(d.featured.slice(0, FEATURED_COUNT)); setLoadingFeatured(false); }
-          if (d.trending?.length) { setTrendingVideos(d.trending.slice(0, TRENDING_COUNT)); setLoadingTrending(false); }
-          if (d.latest?.length)   { setLatestVideos(d.latest);   setLoadingLatest(false); }
+          if (d.featured?.length) {
+            setFeaturedVideos(d.featured.slice(0, FEATURED_COUNT));
+            setLoadingFeatured(false);
+          }
+          if (d.trending?.length) {
+            setTrendingVideos(d.trending.slice(0, TRENDING_COUNT));
+            setLoadingTrending(false);
+          }
+          if (d.latest?.length) {
+            setLatestVideos(d.latest);
+            setLoadingLatest(false);
+          }
           if (!d.featured?.length) fetchFeatured();
           if (!d.trending?.length) fetchTrending();
           if (!d.latest?.length)   fetchLatest(1);
         } else {
-          await Promise.allSettled([fetchHero(), fetchFeatured(), fetchTrending(), fetchLatest(1)]);
+          await Promise.allSettled([
+            fetchHero(),
+            fetchFeatured(),
+            fetchTrending(),
+            fetchLatest(1),
+          ]);
         }
       } catch {
-        fetchHero(); fetchFeatured(); fetchTrending(); fetchLatest(1);
+        fetchHero();
+        fetchFeatured();
+        fetchTrending();
+        fetchLatest(1);
       }
     };
     fetchInitialData();
@@ -173,11 +169,20 @@ const HomePage = () => {
         publicAPI.getTrendingVideos(4, '7d'),
       ]);
       if (!mountedRef.current) return;
-      const featured = featuredRes.status === 'fulfilled' ? featuredRes.value?.data?.videos || featuredRes.value?.data || [] : [];
-      const trending = trendingRes.status === 'fulfilled' ? trendingRes.value?.data?.videos || trendingRes.value?.data || [] : [];
+      const featured =
+        featuredRes.status === 'fulfilled'
+          ? featuredRes.value?.data?.videos || featuredRes.value?.data || []
+          : [];
+      const trending =
+        trendingRes.status === 'fulfilled'
+          ? trendingRes.value?.data?.videos || trendingRes.value?.data || []
+          : [];
       setHeroVideos([...featured, ...trending].slice(0, HERO_VIDEO_COUNT));
-    } catch { setHeroVideos([]); }
-    finally  { if (mountedRef.current) setLoadingHero(false); }
+    } catch {
+      setHeroVideos([]);
+    } finally {
+      if (mountedRef.current) setLoadingHero(false);
+    }
   };
 
   const fetchFeatured = async () => {
@@ -185,9 +190,13 @@ const HomePage = () => {
     try {
       const res  = await publicAPI.getFeaturedVideos(FEATURED_COUNT);
       const data = res?.data?.videos || res?.data || [];
-      if (mountedRef.current) setFeaturedVideos(Array.isArray(data) ? data : []);
-    } catch { if (mountedRef.current) setFeaturedVideos([]); }
-    finally  { if (mountedRef.current) setLoadingFeatured(false); }
+      if (mountedRef.current)
+        setFeaturedVideos(Array.isArray(data) ? data : []);
+    } catch {
+      if (mountedRef.current) setFeaturedVideos([]);
+    } finally {
+      if (mountedRef.current) setLoadingFeatured(false);
+    }
   };
 
   const fetchTrending = async () => {
@@ -195,28 +204,52 @@ const HomePage = () => {
     try {
       const res  = await publicAPI.getTrendingVideos(TRENDING_COUNT, '7d');
       const data = res?.data?.videos || res?.data || [];
-      if (mountedRef.current) setTrendingVideos(Array.isArray(data) ? data : []);
-    } catch { if (mountedRef.current) setTrendingVideos([]); }
-    finally  { if (mountedRef.current) setLoadingTrending(false); }
+      if (mountedRef.current)
+        setTrendingVideos(Array.isArray(data) ? data : []);
+    } catch {
+      if (mountedRef.current) setTrendingVideos([]);
+    } finally {
+      if (mountedRef.current) setLoadingTrending(false);
+    }
   };
 
+  // ── Latest: paginated fetch ────────────────────────────────
   const fetchLatest = async (pg = 1) => {
-    if (pg === 1) setLoadingLatest(true);
+    setLoadingLatest(true);
     try {
-      const res  = publicAPI.getLatestVideos
+      const res = publicAPI.getLatestVideos
         ? await publicAPI.getLatestVideos(LATEST_PAGE_SIZE, pg)
-        : await publicAPI.getVideos({ page: pg, limit: LATEST_PAGE_SIZE, status: 'public' });
-      const data  = res?.data?.videos || res?.data || [];
-      const total = res?.data?.totalPages || res?.data?.pages || 1;
+        : await publicAPI.getVideos({
+            page: pg,
+            limit: LATEST_PAGE_SIZE,
+            status: 'public',
+          });
+      const data  = res?.data?.videos    || res?.data    || [];
+      const pages = res?.data?.totalPages || res?.data?.pages || 1;
       if (!mountedRef.current) return;
-      if (pg === 1) setLatestVideos(Array.isArray(data) ? data : []);
-      else          setLatestVideos((prev) => [...prev, ...(Array.isArray(data) ? data : [])]);
-      setHasMoreLatest(pg < total && data.length === LATEST_PAGE_SIZE);
+      setLatestVideos(Array.isArray(data) ? data : []);
+      setLatestTotal(pages);
       setLatestPage(pg);
-    } catch { if (mountedRef.current && pg === 1) setLatestVideos([]); }
-    finally  { if (mountedRef.current) { setLoadingLatest(false); setLoadingMore(false); } }
+    } catch {
+      if (mountedRef.current) setLatestVideos([]);
+    } finally {
+      if (mountedRef.current) setLoadingLatest(false);
+    }
   };
 
+  const handleLatestPageChange = (pg) => {
+    // Scroll to the Latest Videos section header, not the very top
+    const el = document.getElementById('latest-videos-section');
+    if (el) {
+      const y = el.getBoundingClientRect().top + window.scrollY - 80;
+      window.scrollTo({ top: y, behavior: 'smooth' });
+    } else {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    fetchLatest(pg);
+  };
+
+  // ── Desi (lazy) ────────────────────────────────────────────
   useEffect(() => {
     if (!desiVisible || desiVideos.length > 0) return;
     const fetch = async () => {
@@ -224,126 +257,202 @@ const HomePage = () => {
       try {
         const res  = await publicAPI.searchByTag('desi', { limit: TRENDING_COUNT });
         const data = res?.data?.videos || res?.data || [];
-        if (mountedRef.current) setDesiVideos(Array.isArray(data) ? data : []);
+        if (mountedRef.current)
+          setDesiVideos(Array.isArray(data) ? data : []);
       } catch {
         try {
           const res2  = await publicAPI.searchByTag('indian', { limit: TRENDING_COUNT });
           const data2 = res2?.data?.videos || res2?.data || [];
-          if (mountedRef.current) setDesiVideos(Array.isArray(data2) ? data2 : []);
-        } catch { if (mountedRef.current) setDesiVideos([]); }
-      } finally { if (mountedRef.current) setLoadingDesi(false); }
+          if (mountedRef.current)
+            setDesiVideos(Array.isArray(data2) ? data2 : []);
+        } catch {
+          if (mountedRef.current) setDesiVideos([]);
+        }
+      } finally {
+        if (mountedRef.current) setLoadingDesi(false);
+      }
     };
     fetch();
   }, [desiVisible, desiVideos.length]);
 
+  // ── Popular (lazy) ─────────────────────────────────────────
   useEffect(() => {
     if (!popularVisible || popularVideos.length > 0) return;
     const fetch = async () => {
       setLoadingPopular(true);
       try {
-        const res  = await publicAPI.getVideos({ limit: RELATED_COUNT, page: 1, sort: 'views', status: 'public' });
+        const res  = await publicAPI.getVideos({
+          limit: RELATED_COUNT,
+          page: 1,
+          sort: 'views',
+          status: 'public',
+        });
         const data = res?.data?.videos || res?.data || [];
-        if (mountedRef.current) setPopularVideos(Array.isArray(data) ? data : []);
-      } catch { if (mountedRef.current) setPopularVideos([]); }
-      finally  { if (mountedRef.current) setLoadingPopular(false); }
+        if (mountedRef.current)
+          setPopularVideos(Array.isArray(data) ? data : []);
+      } catch {
+        if (mountedRef.current) setPopularVideos([]);
+      } finally {
+        if (mountedRef.current) setLoadingPopular(false);
+      }
     };
     fetch();
   }, [popularVisible, popularVideos.length]);
-
-  useEffect(() => {
-    if (!isNearBottom || loadingMore || loadingLatest || !hasMoreLatest) return;
-    setLoadingMore(true);
-    fetchLatest(latestPage + 1);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isNearBottom]);
 
   return (
     <>
       <Helmet>
         <title>Xmaster — Free Adult Videos, Indian MMS &amp; Desi Clips</title>
-        <meta name="description" content="Watch free adult videos, Indian MMS clips, desi XXX content and premium studio videos on Xmaster." />
-        <meta name="keywords"    content="free porn, indian mms, desi xxx, adult videos, bhabhi, tamil sex, telugu sex, xmaster" />
-        <link rel="canonical"    href="https://xmaster.guru" />
+        <meta
+          name="description"
+          content="Watch free adult videos, Indian MMS clips, desi XXX content and premium studio videos on Xmaster."
+        />
+        <meta
+          name="keywords"
+          content="free porn, indian mms, desi xxx, adult videos, bhabhi, tamil sex, telugu sex, xmaster"
+        />
+        <link rel="canonical" href="https://xmaster.guru" />
       </Helmet>
 
       <GlobalAdsLoader />
 
       <div className="min-h-screen bg-dark-400">
+
+        {/* Hero */}
         <section className="container-site pt-4 pb-6 sm:pt-6 sm:pb-8">
           <HeroSection videos={heroVideos} loading={loadingHero} />
         </section>
 
+        {/* Trending */}
         <section className="container-site pb-8 sm:pb-10">
-          <SectionRow title="Trending Now" videos={trendingVideos} loading={loadingTrending} icon="trending" badge="HOT" seeAllLink="/trending" seeAllLabel="View All" accentColor="#e11d48" skeletonCount={8} />
+          <SectionRow
+            title="Trending Now"
+            videos={trendingVideos}
+            loading={loadingTrending}
+            icon="trending"
+            badge="HOT"
+            seeAllLink="/trending"
+            seeAllLabel="View All"
+            accentColor="#e11d48"
+            skeletonCount={8}
+          />
         </section>
 
-        {/* Ad between Trending and Featured */}
+        {/* Mid ad */}
         <div className="container-site pb-8">
           <div className="flex justify-center">
             <AdSlot placement="home_mid" delay={3000} label />
           </div>
         </div>
 
+        {/* Featured */}
         <section className="container-site pb-8 sm:pb-10">
-          <SectionRow title="Editor's Picks" videos={featuredVideos} loading={loadingFeatured} icon="featured" badge="CURATED" accentColor="#f59e0b" seeAllLink="/search?q=featured" skeletonCount={6} />
+          <SectionRow
+            title="Editor's Picks"
+            videos={featuredVideos}
+            loading={loadingFeatured}
+            icon="featured"
+            badge="CURATED"
+            accentColor="#f59e0b"
+            seeAllLink="/search?q=featured"
+            skeletonCount={6}
+          />
         </section>
 
+        {/* Premium studios */}
         {PREMIUM_SECTION_ENABLED && (
           <section className="container-site pb-8 sm:pb-10">
             <StudioRow title="Premium Studios" />
           </section>
         )}
 
+        {/* Desi */}
         {FREE_SECTION_ENABLED && (
           <section ref={desiRef} className="container-site pb-8 sm:pb-10">
-            <SectionRow title="Desi Videos" videos={desiVideos} loading={loadingDesi} icon="new" badge="DESI" accentColor="#10b981" seeAllLink="/tag/desi" seeAllLabel="All Desi" skeletonCount={8} />
+            <SectionRow
+              title="Desi Videos"
+              videos={desiVideos}
+              loading={loadingDesi}
+              icon="new"
+              badge="DESI"
+              accentColor="#10b981"
+              seeAllLink="/tag/desi"
+              seeAllLabel="All Desi"
+              skeletonCount={8}
+            />
           </section>
         )}
 
+        {/* Most Watched */}
         <div ref={popularRef}>
           <section className="container-site pb-8 sm:pb-10">
-            <SectionRow title="Most Watched" videos={popularVideos} loading={loadingPopular} icon="popular" accentColor="#6366f1" seeAllLink="/search?sort=views" skeletonCount={8} />
+            <SectionRow
+              title="Most Watched"
+              videos={popularVideos}
+              loading={loadingPopular}
+              icon="popular"
+              accentColor="#6366f1"
+              seeAllLink="/search?sort=views"
+              skeletonCount={8}
+            />
           </section>
         </div>
 
-        {/* Native ad before Latest Videos grid */}
+        {/* Native ad before Latest */}
         <div className="container-site pb-8">
           <AdSlot placement="watch_native" delay={4000} label />
         </div>
 
-        {/* Latest Videos with in-grid ads */}
-        <section className="container-site pb-10 sm:pb-14">
+        {/* ── Latest Videos — paginated ──────────────────────── */}
+        <section
+          id="latest-videos-section"
+          className="container-site pb-10 sm:pb-14"
+        >
+          {/* Section header */}
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
               <div className="w-1 h-7 rounded-full bg-gradient-to-b from-primary-600 to-primary-800 flex-shrink-0" />
               <FiClock className="w-5 h-5 text-white/60" />
-              <h2 className="text-lg sm:text-xl font-bold text-white">Latest Videos</h2>
-              <span className="hidden sm:inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-white/[0.08] text-white/40 border border-white/10">Updated Daily</span>
+              <h2 className="text-lg sm:text-xl font-bold text-white">
+                Latest Videos
+              </h2>
+              <span className="hidden sm:inline-flex px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-white/[0.08] text-white/40 border border-white/10">
+                Updated Daily
+              </span>
             </div>
-            <Link to="/search" className="text-xs font-semibold text-white/40 hover:text-primary-400 transition-colors duration-200 flex items-center gap-1">
-              Browse All<FiChevronDown className="w-3.5 h-3.5 rotate-[-90deg]" />
+            <Link
+              to="/search"
+              className="text-xs font-semibold text-white/40 hover:text-primary-400 transition-colors duration-200 flex items-center gap-1"
+            >
+              Browse All
+              <FiChevronDown className="w-3.5 h-3.5 rotate-[-90deg]" />
             </Link>
           </div>
 
-          {/* Ad-injected grid — replaces plain VideoGrid for the latest section */}
+          {/* Ad-injected grid */}
           <VideoGridWithAds
             videos={latestVideos}
             loading={loadingLatest}
             skeletonCount={LATEST_PAGE_SIZE}
           />
 
-          {!loadingLatest && hasMoreLatest && <div ref={infiniteRef} className="h-4 mt-4" />}
-
-          {loadingMore && (
-            <div className="flex justify-center mt-8 mb-4">
-              <div className="flex items-center gap-3 text-sm text-white/40">
-                <div className="w-5 h-5 rounded-full border-2 border-white/10 border-t-primary-600 animate-spin" />
-                Loading more videos...
-              </div>
+          {/* Pagination */}
+          {!loadingLatest && latestTotal > 1 && (
+            <div className="mt-10 flex justify-center">
+              <Pagination
+                currentPage={latestPage}
+                totalPages={latestTotal}
+                onPageChange={handleLatestPageChange}
+              />
             </div>
           )}
 
-          {!hasMoreLatest && latestVideos.length > 0 && <EndOfContent />}
+          {/* End-of-content — only shown on last page */}
+          {!loadingLatest &&
+            latestTotal > 0 &&
+            latestPage === latestTotal && (
+              <EndOfContent />
+            )}
         </section>
       </div>
     </>
@@ -359,10 +468,18 @@ const EndOfContent = () => (
       </div>
       <div className="flex-1 h-px bg-gradient-to-l from-transparent to-white/10" />
     </div>
-    <p className="text-sm font-medium text-white/30 mb-1">You've reached the end</p>
-    <p className="text-xs text-white/20 mb-6 text-center">New content is added daily. Check back tomorrow!</p>
-    <Link to="/trending" className="btn-secondary text-sm flex items-center gap-2">
-      <FiTrendingUp className="w-4 h-4" />Explore Trending
+    <p className="text-sm font-medium text-white/30 mb-1">
+      You've reached the end
+    </p>
+    <p className="text-xs text-white/20 mb-6 text-center">
+      New content is added daily. Check back tomorrow!
+    </p>
+    <Link
+      to="/trending"
+      className="btn-secondary text-sm flex items-center gap-2"
+    >
+      <FiTrendingUp className="w-4 h-4" />
+      Explore Trending
     </Link>
   </div>
 );

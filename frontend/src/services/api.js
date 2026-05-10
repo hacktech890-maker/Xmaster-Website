@@ -1,3 +1,4 @@
+// src/services/api.js
 import axios from 'axios';
 
 const API_URL = process.env.REACT_APP_API_URL || "https://api.xmaster.guru/api";
@@ -38,12 +39,17 @@ export const publicAPI = {
   getHomeData: () => api.get('/public/home'),
   getVideos: (params) => api.get('/videos', { params }),
   getVideo: (id) => api.get(`/videos/${id}`),
-  getLatestVideos: (limit = 12) => api.get('/videos/latest', { params: { limit } }),
-  getTrendingVideos: (limit = 12, period = '7d') =>
-    api.get('/videos/trending', { params: { limit, period } }),
-  getFeaturedVideos: (limit = 6) => api.get('/videos/featured', { params: { limit } }),
 
-  // UPDATED: Added seed parameter for random results on each call
+  // FIXED: added page param so pagination works correctly
+  getLatestVideos: (limit = 12, page = 1) =>
+    api.get('/videos/latest', { params: { limit, page } }),
+
+  getTrendingVideos: (limit = 12, period = '7d', page = 1) =>
+    api.get('/videos/trending', { params: { limit, period, page } }),
+
+  getFeaturedVideos: (limit = 6) =>
+    api.get('/videos/featured', { params: { limit } }),
+
   getRelatedVideos: (id, limit = 10) =>
     api.get(`/videos/${id}/related`, { params: { limit, seed: Date.now() } }),
 
@@ -56,12 +62,17 @@ export const publicAPI = {
   reportVideo: (id, data) => api.post(`/videos/${id}/report`, data),
   getCategories: () => api.get('/categories'),
   getCategory: (slug) => api.get(`/categories/${slug}`),
-  getCategoryVideos: (slug, params) => api.get(`/categories/${slug}/videos`, { params }),
+  getCategoryVideos: (slug, params) =>
+    api.get(`/categories/${slug}/videos`, { params }),
   searchVideos: (params) => api.get('/search', { params }),
-  getSearchSuggestions: (q) => api.get('/search/suggestions', { params: { q } }),
-  searchByTag: (tag, params) => api.get(`/search/tags/${tag}`, { params }),
-  getPopularTags: (limit = 20) => api.get('/search/popular-tags', { params: { limit } }),
-  getAds: (device = 'desktop') => api.get('/ads', { params: { device } }),
+  getSearchSuggestions: (q) =>
+    api.get('/search/suggestions', { params: { q } }),
+  searchByTag: (tag, params) =>
+    api.get(`/search/tags/${tag}`, { params }),
+  getPopularTags: (limit = 20) =>
+    api.get('/search/popular-tags', { params: { limit } }),
+  getAds: (device = 'desktop') =>
+    api.get('/ads', { params: { device } }),
   getAdByPlacement: (placement, device = 'desktop') =>
     api.get(`/ads/placement/${placement}`, { params: { device } }),
   recordAdImpression: (id) => api.post(`/ads/${id}/impression`),
@@ -70,7 +81,8 @@ export const publicAPI = {
   getPublicComments: (page = 1, limit = 20) =>
     api.get('/comments/public', { params: { page, limit } }),
   submitComment: (data) => api.post('/comments', data),
-  trackShare: (id, platform) => api.post(`/public/share/${id}/track`, { platform }),
+  trackShare: (id, platform) =>
+    api.post(`/public/share/${id}/track`, { platform }),
   getShareDebug: (id) => api.get(`/public/share/${id}/debug`),
   bulkCreateCategories: (data) => api.post('/categories/bulk-create', data),
   submitContact: (data) => api.post('/public/contact', data),
@@ -95,18 +107,25 @@ export const adminAPI = {
   deleteVideo: (id) => api.delete(`/admin/videos/${id}`),
   bulkDeleteVideos: (ids) => api.post('/admin/videos/bulk-delete', { ids }),
   toggleFeatured: (id) => api.put(`/admin/videos/${id}/feature`),
-  updateVideoStatus: (id, status) => api.put(`/admin/videos/${id}/status`, { status }),
+  updateVideoStatus: (id, status) =>
+    api.put(`/admin/videos/${id}/status`, { status }),
 
   // Bulk Operations
-  bulkUpdateTitles: (updates) => api.post('/admin/videos/bulk-update-titles', { updates }),
-  bulkUpdateTags: (updates) => api.post('/admin/videos/bulk-update-tags', { updates }),
-  bulkShareLinks: (data) => api.post('/admin/videos/bulk-share-links', data),
-  bulkUpdateStatus: (data) => api.post('/admin/videos/bulk-update-status', data),
-  exportVideos: (params) => api.get('/admin/videos/export', { params }),
-  exportVideosCSV: (ids) => api.get('/admin/videos/export', {
-    params: { format: 'csv', ids: ids ? ids.join(',') : undefined },
-    responseType: 'blob',
-  }),
+  bulkUpdateTitles: (updates) =>
+    api.post('/admin/videos/bulk-update-titles', { updates }),
+  bulkUpdateTags: (updates) =>
+    api.post('/admin/videos/bulk-update-tags', { updates }),
+  bulkShareLinks: (data) =>
+    api.post('/admin/videos/bulk-share-links', data),
+  bulkUpdateStatus: (data) =>
+    api.post('/admin/videos/bulk-update-status', data),
+  exportVideos: (params) =>
+    api.get('/admin/videos/export', { params }),
+  exportVideosCSV: (ids) =>
+    api.get('/admin/videos/export', {
+      params: { format: 'csv', ids: ids ? ids.join(',') : undefined },
+      responseType: 'blob',
+    }),
 
   // Upload
   uploadVideo: (formData, onProgress) =>
@@ -120,7 +139,8 @@ export const adminAPI = {
       },
     }),
   addByFileCode: (data) => api.post('/upload/file-code', data),
-  bulkAddFileCodes: (videos) => api.post('/upload/bulk-file-codes', { videos }),
+  bulkAddFileCodes: (videos) =>
+    api.post('/upload/bulk-file-codes', { videos }),
   uploadThumbnail: (formData) =>
     api.post('/upload/thumbnail', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
@@ -136,7 +156,8 @@ export const adminAPI = {
   updateCategory: (id, data) => api.put(`/categories/${id}`, data),
   deleteCategory: (id) => api.delete(`/categories/${id}`),
   bulkCreateCategories: (data) => api.post('/categories/bulk-create', data),
-  reorderCategories: (order) => api.put('/categories/admin/reorder', { order }),
+  reorderCategories: (order) =>
+    api.put('/categories/admin/reorder', { order }),
 
   // Ads
   getAllAds: () => api.get('/ads/admin/all'),
@@ -148,7 +169,8 @@ export const adminAPI = {
 
   // Analytics
   getAnalyticsDashboard: () => api.get('/analytics/dashboard'),
-  getViewAnalytics: (period = '7d') => api.get('/analytics/views', { params: { period } }),
+  getViewAnalytics: (period = '7d') =>
+    api.get('/analytics/views', { params: { period } }),
   getTopVideos: (limit = 10, period = '7d') =>
     api.get('/analytics/top-videos', { params: { limit, period } }),
   getCategoryAnalytics: () => api.get('/analytics/categories'),
@@ -160,7 +182,8 @@ export const adminAPI = {
 
   // Comments
   getComments: (params) => api.get('/comments/admin', { params }),
-  toggleCommentVisibility: (id) => api.put(`/comments/${id}/toggle-visibility`),
+  toggleCommentVisibility: (id) =>
+    api.put(`/comments/${id}/toggle-visibility`),
   markCommentRead: (id) => api.put(`/comments/${id}/read`),
   addCommentNote: (id, note) => api.put(`/comments/${id}/note`, { note }),
   deleteComment: (id) => api.delete(`/comments/${id}`),
@@ -173,18 +196,24 @@ export const adminAPI = {
   keepDuplicate: (id) => api.put(`/duplicates/${id}/keep`),
   makePublicDuplicate: (id) => api.put(`/duplicates/${id}/make-public`),
   deleteDuplicate: (id) => api.delete(`/duplicates/${id}`),
-  bulkDeleteDuplicates: (ids) => api.post('/duplicates/bulk-delete', { ids }),
+  bulkDeleteDuplicates: (ids) =>
+    api.post('/duplicates/bulk-delete', { ids }),
   clearAllDuplicates: () => api.post('/duplicates/clear-all'),
-  publishAllDuplicates: (filter) => api.post('/duplicates/publish-all', { filter }),
-bulkPublishDuplicates: (ids) => api.post('/duplicates/bulk-publish', { ids }),
+  publishAllDuplicates: (filter) =>
+    api.post('/duplicates/publish-all', { filter }),
+  bulkPublishDuplicates: (ids) =>
+    api.post('/duplicates/bulk-publish', { ids }),
 
-
-
-getContactSubmissions: (params)    => api.get('/admin/contacts', { params }),
-markContactRead:       (id)        => api.put(`/admin/contacts/${id}/read`),
-updateContactNote:     (id, note)  => api.put(`/admin/contacts/${id}/note`, { note }),
-deleteContactSubmission: (id)      => api.delete(`/admin/contacts/${id}`),
-bulkDeleteContacts:    (payload)   => api.post('/admin/contacts/bulk-delete', payload),
+  getContactSubmissions: (params) =>
+    api.get('/admin/contacts', { params }),
+  markContactRead: (id) =>
+    api.put(`/admin/contacts/${id}/read`),
+  updateContactNote: (id, note) =>
+    api.put(`/admin/contacts/${id}/note`, { note }),
+  deleteContactSubmission: (id) =>
+    api.delete(`/admin/contacts/${id}`),
+  bulkDeleteContacts: (payload) =>
+    api.post('/admin/contacts/bulk-delete', payload),
 };
 
 export default api;
