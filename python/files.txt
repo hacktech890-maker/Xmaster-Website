@@ -1,12 +1,4 @@
-../frontend/src/components/common/Pagination.jsx
-../frontend/src/pages/public/HomePage.jsx
-../frontend/src/pages/public/CategoryPage.jsx
-../frontend/src/pages/public/SearchPage.jsx
-../frontend/src/pages/public/TrendingPage.jsx
-../frontend/src/pages/public/FreePage.jsx
-../frontend/src/pages/public/PremiumPage.jsx
-../frontend/src/pages/public/StudioPage.jsx
-../frontend/src/services/api.js
-../frontend/src/hooks/useApi.js
-../frontend/src/components/video/VideoGrid.jsx
-../frontend/src/components/home/SectionRow.jsx
+../backend/routes/videoRoutes.js
+../backend/routes/searchRoutes.js
+../backend/models/Video.js
+../backend/server.js
