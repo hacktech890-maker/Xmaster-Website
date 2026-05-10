@@ -1,5 +1,5 @@
 // src/components/video/VideoCard.jsx
-import React, { useState, useRef, useCallback, memo } from 'react';
+import React, { useState, memo } from 'react';
 import { Link } from 'react-router-dom';
 import {
   FiPlay,
@@ -249,7 +249,7 @@ const VideoCard = ({
             </div>
           </div>
 
-          {/* Badges (views, duration, quality) */}
+          {/* Badges */}
           <ThumbnailBadges
             isHD={isHD}
             qualityLabel={qualityLabel}
