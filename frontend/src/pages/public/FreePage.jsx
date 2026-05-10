@@ -5,10 +5,17 @@ import { FiZap, FiHash } from 'react-icons/fi';
 
 import { publicAPI }  from '../../services/api';
 import VideoGrid      from '../../components/video/VideoGrid';
+import VideoCard      from '../../components/video/VideoCard';
 import Pagination     from '../../components/common/Pagination';
 import TrendingTags   from '../../components/home/TrendingTags';
+import AdSlot         from '../../components/ads/AdSlot';
 
 const PAGE_SIZE = 24;
+
+// Ad after every 8 cards = 2 rows on desktop (4-col grid)
+//                        = 4 rows on mobile  (2-col grid)
+// Same visual frequency: 1 ad per ~2 visible rows everywhere
+const AD_INTERVAL = 8;
 
 const FREE_TABS = [
   { id: 'latest',  label: 'Latest',  icon: <FiZap  className="w-3.5 h-3.5" /> },
@@ -19,6 +26,71 @@ const FREE_TABS = [
   { id: 'amateur', label: 'Amateur', icon: <FiHash className="w-3.5 h-3.5" /> },
 ];
 
+// ============================================================
+// VIDEO GRID WITH ADS
+// Inserts an AdSlot after every AD_INTERVAL video cards.
+// Spans full grid width at every breakpoint.
+// Falls back to plain VideoGrid for loading/empty/error states.
+// ============================================================
+const VideoGridWithAds = ({ videos, loading, error, onRetry, skeletonCount }) => {
+  // Delegate loading / error / empty states to VideoGrid
+  if (loading || error || !videos || videos.length === 0) {
+    return (
+      <VideoGrid
+        videos={videos || []}
+        loading={loading}
+        error={error}
+        onRetry={onRetry}
+        skeletonCount={skeletonCount}
+        columns="default"
+        showDate
+        emptyTitle="No videos found"
+        emptyMessage="Try a different category or check back later."
+      />
+    );
+  }
+
+  // Build interleaved item list
+  const items = [];
+  videos.forEach((video, i) => {
+    items.push({ type: 'video', video, index: i });
+    if ((i + 1) % AD_INTERVAL === 0) {
+      items.push({ type: 'ad', key: `ad-${i}` });
+    }
+  });
+
+  return (
+    <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-5">
+      {items.map((item) => {
+        if (item.type === 'video') {
+          return (
+            <VideoCard
+              key={item.video._id || item.index}
+              video={item.video}
+              size="default"
+              index={item.index}
+              showDate
+            />
+          );
+        }
+        // Ad row — spans all columns at every breakpoint
+        return (
+          <div
+            key={item.key}
+            className="col-span-1 xs:col-span-2 sm:col-span-2 md:col-span-3 lg:col-span-4 flex justify-center py-2"
+            style={{ minHeight: 1 }}
+          >
+            <AdSlot placement="home_grid_insert" delay={2000} label />
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+// ============================================================
+// FREE PAGE
+// ============================================================
 const FreePage = () => {
   const [activeTab,  setActiveTab]  = useState('latest');
   const [videos,     setVideos]     = useState([]);
@@ -50,7 +122,7 @@ const FreePage = () => {
       }
       const data  = res?.data?.videos    || res?.data    || [];
       const pages = res?.data?.totalPages || res?.data?.pages || 1;
-      const count = res?.data?.total     || res?.data?.count || data.length;
+      const count = res?.data?.total     || res?.data?.count  || data.length;
       if (!mountedRef.current) return;
       setVideos(Array.isArray(data) ? data : []);
       setTotalPages(pages);
@@ -65,7 +137,7 @@ const FreePage = () => {
 
   const handleTabChange = (tabId) => {
     setActiveTab(tabId);
-    // useEffect handles reset + fetch
+    // useEffect above handles reset + fetch
   };
 
   const handlePageChange = (pg) => {
@@ -99,7 +171,6 @@ const FreePage = () => {
               Desi, Indian MMS, amateur and more — all free
             </p>
 
-            {/* Tab count indicator */}
             {!loading && totalCount > 0 && (
               <p className="text-xs text-white/30 mb-4">
                 {totalCount.toLocaleString()} videos
@@ -135,16 +206,18 @@ const FreePage = () => {
             <TrendingTags title="Popular Tags" maxTags={16} compact />
           </div>
 
-          <VideoGrid
+          {/* Ad above the grid */}
+          <div className="flex justify-center mb-8">
+            <AdSlot placement="category_top" delay={2000} label />
+          </div>
+
+          {/* Video grid with interleaved ads */}
+          <VideoGridWithAds
             videos={videos}
             loading={loading}
             error={error}
             onRetry={() => fetchVideos(activeTab, page)}
             skeletonCount={PAGE_SIZE}
-            columns="default"
-            showDate
-            emptyTitle="No videos found"
-            emptyMessage="Try a different category or check back later."
           />
 
           {/* Pagination */}

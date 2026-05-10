@@ -1,43 +1,33 @@
 // src/App.jsx
 import React, { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
-// Contexts
 import { useAuth }       from './context/AuthContext';
 import { useDisclaimer } from './context/DisclaimerContext';
-// Feature flags
 import {
   PREMIUM_SECTION_ENABLED,
   FREE_SECTION_ENABLED,
 } from './config/features';
-// Common components (NOT lazy — needed immediately)
 import Navbar          from './components/common/Navbar';
 import Footer          from './components/common/Footer';
 import ScrollToTop     from './components/common/ScrollToTop';
 import LoadingSpinner  from './components/common/LoadingSpinner';
 import DisclaimerModal from './components/disclaimer/DisclaimerModal';
 
-// ============================================================
-// LAZY IMPORTS — Public Pages
-// ============================================================
-const WatchPage    = lazy(() => import('./pages/public/WatchPage'));
-const SearchPage   = lazy(() => import('./pages/public/SearchPage'));
-const TrendingPage = lazy(() => import('./pages/public/TrendingPage'));
-const PremiumPage  = lazy(() => import('./pages/public/PremiumPage'));
-const FreePage     = lazy(() => import('./pages/public/FreePage'));
-const StudioPage   = lazy(() => import('./pages/public/StudioPage'));
+// ── Public Pages ─────────────────────────────────────────────
+const WatchPage  = lazy(() => import('./pages/public/WatchPage'));
+const SearchPage = lazy(() => import('./pages/public/SearchPage'));
+const PremiumPage = lazy(() => import('./pages/public/PremiumPage'));
+const FreePage   = lazy(() => import('./pages/public/FreePage'));
+const StudioPage = lazy(() => import('./pages/public/StudioPage'));
 
-// ============================================================
-// LAZY IMPORTS — Legal Pages (Task 7)
-// ============================================================
+// ── Legal Pages ──────────────────────────────────────────────
 const PrivacyPage    = lazy(() => import('./pages/legal/PrivacyPage'));
 const TermsPage      = lazy(() => import('./pages/legal/TermsPage'));
 const DmcaPage       = lazy(() => import('./pages/legal/DmcaPage'));
 const DisclaimerPage = lazy(() => import('./pages/legal/DisclaimerPage'));
 const Statement2257  = lazy(() => import('./pages/legal/Statement2257'));
 
-// ============================================================
-// LAZY IMPORTS — Admin Pages
-// ============================================================
+// ── Admin Pages ──────────────────────────────────────────────
 const AdminLogin        = lazy(() => import('./pages/admin/AdminLogin'));
 const Dashboard         = lazy(() => import('./pages/admin/Dashboard'));
 const VideosManager     = lazy(() => import('./pages/admin/VideosManager'));
@@ -49,18 +39,14 @@ const ReportsPage       = lazy(() => import('./pages/admin/ReportsPage'));
 const DuplicateManager  = lazy(() => import('./pages/admin/DuplicateManager'));
 const ContactManager    = lazy(() => import('./pages/admin/ContactManager'));
 
-// ============================================================
-// LOADING FALLBACK
-// ============================================================
+// ── Loading fallback ─────────────────────────────────────────
 const PageLoader = () => (
   <div className="min-h-screen bg-dark-400 flex items-center justify-center">
     <LoadingSpinner size="lg" />
   </div>
 );
 
-// ============================================================
-// PUBLIC LAYOUT
-// ============================================================
+// ── Public layout ─────────────────────────────────────────────
 const PublicLayout = () => {
   const { accepted, checking } = useDisclaimer();
   if (checking) {
@@ -70,9 +56,7 @@ const PublicLayout = () => {
       </div>
     );
   }
-  if (!accepted) {
-    return <DisclaimerModal />;
-  }
+  if (!accepted) return <DisclaimerModal />;
   return (
     <div className="min-h-screen bg-dark-400 flex flex-col">
       <Navbar />
@@ -86,9 +70,7 @@ const PublicLayout = () => {
   );
 };
 
-// ============================================================
-// PROTECTED ADMIN ROUTE
-// ============================================================
+// ── Protected admin route ─────────────────────────────────────
 const AdminRoute = () => {
   const { isAuthenticated, loading } = useAuth();
   if (loading) {
@@ -98,9 +80,7 @@ const AdminRoute = () => {
       </div>
     );
   }
-  if (!isAuthenticated) {
-    return <Navigate to="/xmaster-admin" replace />;
-  }
+  if (!isAuthenticated) return <Navigate to="/xmaster-admin" replace />;
   return (
     <Suspense fallback={<PageLoader />}>
       <Outlet />
@@ -108,29 +88,25 @@ const AdminRoute = () => {
   );
 };
 
-// ============================================================
-// MAIN APP
-// ============================================================
+// ── Root redirect target ──────────────────────────────────────
+// Trending removed — redirect to /free if enabled, else /search
+const ROOT_REDIRECT = FREE_SECTION_ENABLED ? '/free' : '/search';
+
+// ── Main App ──────────────────────────────────────────────────
 const App = () => {
   return (
     <>
       <ScrollToTop />
       <Routes>
-        {/* ====================================================
-            PUBLIC ROUTES
-            ==================================================== */}
+        {/* Public routes */}
         <Route element={<PublicLayout />}>
-          {/* Root → redirect to Trending */}
-          <Route index element={<Navigate to="/trending" replace />} />
+          <Route index element={<Navigate to={ROOT_REDIRECT} replace />} />
 
-          {/* Core routes */}
           <Route path="/watch/:id"       element={<WatchPage />} />
           <Route path="/watch/:id/:slug" element={<WatchPage />} />
           <Route path="/search"          element={<SearchPage />} />
-          <Route path="/trending"        element={<TrendingPage />} />
           <Route path="/tag/:tag"        element={<SearchPage />} />
 
-          {/* Premium section */}
           {PREMIUM_SECTION_ENABLED && (
             <>
               <Route path="/premium"      element={<PremiumPage />} />
@@ -138,12 +114,10 @@ const App = () => {
             </>
           )}
 
-          {/* Free section */}
           {FREE_SECTION_ENABLED && (
             <Route path="/free" element={<FreePage />} />
           )}
 
-          {/* ── Legal Pages (Task 7) ──────────────────────── */}
           <Route path="/privacy"    element={<PrivacyPage />} />
           <Route path="/terms"      element={<TermsPage />} />
           <Route path="/dmca"       element={<DmcaPage />} />
@@ -151,9 +125,7 @@ const App = () => {
           <Route path="/2257"       element={<Statement2257 />} />
         </Route>
 
-        {/* ====================================================
-            ADMIN LOGIN — no layout wrapper
-            ==================================================== */}
+        {/* Admin login — no layout */}
         <Route
           path="/xmaster-admin"
           element={
@@ -163,9 +135,7 @@ const App = () => {
           }
         />
 
-        {/* ====================================================
-            PROTECTED ADMIN ROUTES
-            ==================================================== */}
+        {/* Protected admin routes */}
         <Route path="/admin" element={<AdminRoute />}>
           <Route path="dashboard"  element={<Dashboard />} />
           <Route path="videos"     element={<VideosManager />} />
@@ -175,15 +145,12 @@ const App = () => {
           <Route path="comments"   element={<CommentsManager />} />
           <Route path="reports"    element={<ReportsPage />} />
           <Route path="duplicates" element={<DuplicateManager />} />
-          {/* Task 9 — Contact submissions manager */}
           <Route path="contacts"   element={<ContactManager />} />
           <Route index element={<Navigate to="/admin/dashboard" replace />} />
         </Route>
 
-        {/* ====================================================
-            FALLBACK
-            ==================================================== */}
-        <Route path="*" element={<Navigate to="/trending" replace />} />
+        {/* Catch-all fallback */}
+        <Route path="*" element={<Navigate to={ROOT_REDIRECT} replace />} />
       </Routes>
     </>
   );

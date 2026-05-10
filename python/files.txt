@@ -1,4 +1,10 @@
-../backend/routes/videoRoutes.js
-../backend/routes/searchRoutes.js
-../backend/models/Video.js
-../backend/server.js
+../frontend/src/components/video/VideoCard.jsx
+../frontend/src/hooks/useVideoPreview.js
+../frontend/src/App.jsx
+../frontend/src/components/common/Navbar.jsx
+../frontend/src/components/common/Sidebar.jsx
+../frontend/src/components/common/Footer.jsx
+../frontend/src/pages/public/FreePage.jsx
+../frontend/src/components/ads/AdSlot.jsx
+../frontend/src/components/ads/AdBanner.jsx
+../frontend/src/config/ads.js

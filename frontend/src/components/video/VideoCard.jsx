@@ -1,26 +1,5 @@
 // src/components/video/VideoCard.jsx
-// ═══════════════════════════════════════════════════════════════
-// PREMIUM VIDEO CARD — Netflix/YouTube-style hover preview
-//
-// KEY FIX: Added real video preview via abyss.to iframe embed
-// that loads and auto-plays when user hovers for 480ms+.
-//
-// Architecture:
-//   • useVideoPreview  — singleton hover state (only 1 active)
-//   • useIntersection  — lazy-loads thumbnail when in viewport
-//   • IframePreview    — real embed player on hover (the FIX)
-//   • HoverOverlay     — cinematic info panel slides up on hover
-//
-// Mobile: hover system fully disabled on touch/pointer:coarse
-// Performance: iframe only loads when hover activates (no preload)
-// ═══════════════════════════════════════════════════════════════
-import React, {
-  useState,
-  useRef,
-  useEffect,
-  useCallback,
-  memo,
-} from 'react';
+import React, { useState, useRef, useCallback, memo } from 'react';
 import { Link } from 'react-router-dom';
 import {
   FiPlay,
@@ -28,9 +7,6 @@ import {
   FiClock,
   FiHeart,
   FiStar,
-  FiCalendar,
-  FiTrendingUp,
-  FiZap,
 } from 'react-icons/fi';
 import {
   getThumbnailUrl,
@@ -39,12 +15,11 @@ import {
   formatDate,
   getWatchUrl,
 } from '../../utils/helpers';
-import { useIntersection }   from '../../hooks/useIntersection';
-import { useVideoPreview }   from '../../hooks/useVideoPreview';
-import Badge, { HDBadge }   from '../common/Badge';
+import { useIntersection } from '../../hooks/useIntersection';
+import Badge, { HDBadge }  from '../common/Badge';
 
 // ─────────────────────────────────────────────────────────────
-// CONSTANTS
+// CARD SIZE PRESETS
 // ─────────────────────────────────────────────────────────────
 const CARD_SIZES = {
   default: {
@@ -78,31 +53,6 @@ const CARD_SIZES = {
 };
 
 // ─────────────────────────────────────────────────────────────
-// EMBED URL BUILDER
-// Builds the autoplay embed URL for abyss.to / short.icu
-// ─────────────────────────────────────────────────────────────
-const getEmbedPreviewUrl = (video) => {
-  if (!video) return null;
-
-  // If video has an explicit embed_code URL, use it
-  if (video.embed_code && video.embed_code.startsWith('http')) {
-    // Append autoplay params
-    const url = new URL(video.embed_code);
-    url.searchParams.set('autoplay', '1');
-    url.searchParams.set('mute', '1');
-    url.searchParams.set('controls', '0');
-    return url.toString();
-  }
-
-  // Build from file_code
-  if (video.file_code) {
-    return `https://short.icu/${video.file_code}?autoplay=1&mute=1&controls=0`;
-  }
-
-  return null;
-};
-
-// ─────────────────────────────────────────────────────────────
 // FALLBACK THUMBNAIL
 // ─────────────────────────────────────────────────────────────
 const getFallbackThumb = () =>
@@ -116,7 +66,7 @@ const getFallbackThumb = () =>
   )}`;
 
 // ─────────────────────────────────────────────────────────────
-// QUALITY LABEL HELPER
+// QUALITY HELPERS
 // ─────────────────────────────────────────────────────────────
 const getQualityLabel = (video) => {
   if (video.quality === '4K' || video.is_4k)   return '4K';
@@ -125,9 +75,6 @@ const getQualityLabel = (video) => {
   return null;
 };
 
-// ─────────────────────────────────────────────────────────────
-// QUALITY BADGE COMPONENT
-// ─────────────────────────────────────────────────────────────
 const QualityBadge = ({ label }) => {
   if (!label) return null;
   const colorMap = {
@@ -147,246 +94,13 @@ const QualityBadge = ({ label }) => {
 };
 
 // ─────────────────────────────────────────────────────────────
-// IFRAME PREVIEW — THE KEY FIX
-// Renders the actual abyss.to embed player on hover.
-// Only mounts when isPreviewActive is true.
-// Auto-plays muted. Overlays the thumbnail.
-// ─────────────────────────────────────────────────────────────
-const IframePreview = memo(({ video, visible }) => {
-  const [iframeLoaded, setIframeLoaded] = useState(false);
-  const embedUrl = getEmbedPreviewUrl(video);
-
-  // Reset loaded state when visibility changes
-  useEffect(() => {
-    if (!visible) {
-      setIframeLoaded(false);
-    }
-  }, [visible]);
-
-  if (!visible || !embedUrl) return null;
-
-  return (
-    <div
-      className={`
-        absolute inset-0 z-[5]
-        transition-opacity duration-500
-        ${iframeLoaded ? 'opacity-100' : 'opacity-0'}
-      `}
-    >
-      {/* Loading spinner while iframe loads */}
-      {!iframeLoaded && (
-        <div className="absolute inset-0 z-[6] flex items-center justify-center">
-          <div className="w-8 h-8 border-2 border-white/20 border-t-primary-500 rounded-full animate-spin" />
-        </div>
-      )}
-
-      <iframe
-        src={embedUrl}
-        title="Video Preview"
-        className="w-full h-full border-0"
-        allow="autoplay; muted"
-        sandbox="allow-scripts allow-same-origin allow-presentation"
-        loading="lazy"
-        onLoad={() => setIframeLoaded(true)}
-        style={{
-          pointerEvents: 'none', // Prevent iframe from stealing clicks
-        }}
-      />
-
-      {/* Click-through overlay — ensures the Link still works */}
-      <div className="absolute inset-0 z-[7]" />
-    </div>
-  );
-});
-IframePreview.displayName = 'IframePreview';
-
-// ─────────────────────────────────────────────────────────────
-// HOVER INFO OVERLAY
-// Cinematic panel over the card on hover — slides up from bottom
-// ─────────────────────────────────────────────────────────────
-const HoverInfoOverlay = memo(({ video, visible, qualityLabel }) => {
-  const category = typeof video.category === 'string'
-    ? video.category
-    : video.category?.name || '';
-
-  const tags        = video.tags?.slice(0, 5) || [];
-  const desc        = video.description?.trim();
-  const duration    = formatDuration(video.duration);
-  const views       = formatViewsShort(video.views);
-  const date        = formatDate(video.uploadDate || video.createdAt);
-  const isTrending  = video.trending || (video.views >= 50000);
-  const isPremium   = video.premium || video.featured;
-  const studio      = video.studio || video.folder || '';
-
-  return (
-    <div
-      className={`
-        absolute inset-x-0 bottom-0 pointer-events-none select-none
-        transition-all duration-300 ease-out z-[8]
-        ${visible ? 'opacity-100' : 'opacity-0'}
-      `}
-      aria-hidden="true"
-    >
-      {/* Cinematic gradient overlay */}
-      <div
-        className={`
-          absolute inset-x-0 bottom-0
-          transition-all duration-400
-          ${visible ? 'h-[110%]' : 'h-[60%]'}
-        `}
-        style={{
-          background: visible
-            ? 'linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(5,5,12,0.55) 28%, rgba(5,5,12,0.92) 60%, rgba(5,5,12,1) 100%)'
-            : 'linear-gradient(180deg, rgba(0,0,0,0) 30%, rgba(0,0,0,0.85) 100%)',
-          transition: 'height 0.35s ease, background 0.35s ease',
-        }}
-      />
-
-      {/* Progress bar */}
-      <div className="absolute bottom-0 left-0 right-0 h-[2.5px] bg-white/10 overflow-hidden">
-        {visible && (
-          <div
-            className="h-full bg-gradient-to-r from-primary-600 via-primary-500 to-primary-400 preview-progress-bar"
-            style={{ borderRadius: '0 2px 2px 0' }}
-          />
-        )}
-      </div>
-
-      {/* Info content */}
-      {visible && (
-        <div
-          className="relative px-3 pb-3 pt-2 preview-info-panel"
-          style={{ zIndex: 9 }}
-        >
-          {/* Category + Trending */}
-          <div className="meta-row-1 flex items-center gap-1.5 mb-1.5 flex-wrap">
-            {category && (
-              <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-primary-600/20 text-primary-400 border border-primary-600/25 truncate max-w-[90px] tracking-wide">
-                {category}
-              </span>
-            )}
-            {studio && (
-              <span className="px-2 py-0.5 rounded-full text-[9px] font-semibold bg-white/[0.06] text-white/40 border border-white/[0.08] truncate max-w-[80px]">
-                {studio}
-              </span>
-            )}
-            {isTrending && (
-              <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/25">
-                <FiTrendingUp className="w-2 h-2" />
-                HOT
-              </span>
-            )}
-            {isPremium && (
-              <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/25">
-                <FiZap className="w-2 h-2" />
-                PREMIUM
-              </span>
-            )}
-          </div>
-
-          {/* Title */}
-          <div className="meta-row-2 mb-1.5">
-            <h3 className="text-[12px] font-bold text-white leading-snug line-clamp-2 text-shadow-lg">
-              {video.title || 'Untitled Video'}
-            </h3>
-          </div>
-
-          {/* Stats */}
-          <div className="meta-row-3 flex items-center gap-2 mb-2 flex-wrap">
-            <span className="flex items-center gap-1 text-[9px] font-semibold text-white/55 preview-stat-pill">
-              <FiEye className="w-2 h-2 text-white/40" />
-              {views}
-            </span>
-            {duration && (
-              <span className="flex items-center gap-1 text-[9px] font-semibold text-white/55 preview-stat-pill">
-                <FiClock className="w-2 h-2 text-white/40" />
-                {duration}
-              </span>
-            )}
-            {date && (
-              <span className="flex items-center gap-1 text-[9px] font-medium text-white/35 preview-stat-pill">
-                <FiCalendar className="w-2 h-2 text-white/30" />
-                {date}
-              </span>
-            )}
-            {qualityLabel && (
-              <QualityBadge label={qualityLabel} />
-            )}
-          </div>
-
-          {/* Description */}
-          {desc && (
-            <div className="meta-row-4 mb-2">
-              <p className="text-[10px] text-white/40 line-clamp-2 leading-relaxed">
-                {desc}
-              </p>
-            </div>
-          )}
-
-          {/* Tags */}
-          {tags.length > 0 && (
-            <div className="meta-row-5 flex items-center gap-1 flex-wrap">
-              {tags.map((tag, i) => (
-                <span
-                  key={tag}
-                  className={`preview-tag-chip-neutral tag-chip-${Math.min(i + 1, 5)}`}
-                >
-                  #{tag}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-});
-HoverInfoOverlay.displayName = 'HoverInfoOverlay';
-
-// ─────────────────────────────────────────────────────────────
-// PLAY BUTTON OVERLAY
-// ─────────────────────────────────────────────────────────────
-const PlayButtonOverlay = memo(({ visible }) => (
-  <div
-    className={`
-      absolute inset-0 flex items-center justify-center
-      pointer-events-none
-      transition-all duration-300 z-[4]
-      ${visible ? 'opacity-100' : 'opacity-0'}
-    `}
-  >
-    <div className="relative flex items-center justify-center">
-      {visible && (
-        <div className="absolute w-14 h-14 rounded-full border-2 border-primary-500/40 play-ripple" />
-      )}
-      <div
-        className={`
-          relative w-12 h-12 rounded-full
-          flex items-center justify-center
-          border-2 border-white/25
-          transition-transform duration-300
-          ${visible ? 'scale-100' : 'scale-75'}
-        `}
-        style={{
-          background: 'linear-gradient(135deg, rgba(225,29,72,0.95) 0%, rgba(190,18,60,0.95) 100%)',
-          boxShadow: visible
-            ? '0 0 0 4px rgba(225,29,72,0.15), 0 8px 32px rgba(225,29,72,0.45)'
-            : 'none',
-        }}
-      >
-        <FiPlay className="w-5 h-5 text-white fill-white ml-0.5 flex-shrink-0" />
-      </div>
-    </div>
-  </div>
-));
-PlayButtonOverlay.displayName = 'PlayButtonOverlay';
-
-// ─────────────────────────────────────────────────────────────
 // THUMBNAIL BADGES
 // ─────────────────────────────────────────────────────────────
-const ThumbnailBadges = memo(({ isHD, qualityLabel, isPremium, featured, views, duration, hovered }) => (
+const ThumbnailBadges = memo(({
+  isHD, qualityLabel, isPremium, featured, views, duration,
+}) => (
   <>
-    {/* Top badges */}
+    {/* Top-left badges */}
     <div className="absolute top-2 left-2 right-2 flex items-start justify-between pointer-events-none z-10">
       <div className="flex gap-1.5 flex-wrap">
         {qualityLabel && !isHD && <QualityBadge label={qualityLabel} />}
@@ -405,17 +119,11 @@ const ThumbnailBadges = memo(({ isHD, qualityLabel, isPremium, featured, views, 
       </div>
     </div>
 
-    {/* Bottom stat pills — hidden when preview active */}
-    <div
-      className={`
-        absolute bottom-2 left-2 right-2 flex items-end justify-between
-        pointer-events-none z-10
-        transition-opacity duration-250
-        ${hovered ? 'opacity-0' : 'opacity-100'}
-      `}
-    >
+    {/* Bottom stat pills */}
+    <div className="absolute bottom-2 left-2 right-2 flex items-end justify-between pointer-events-none z-10">
       <span className="flex items-center gap-1 text-[10px] font-semibold text-white/80 bg-black/55 backdrop-blur-sm px-1.5 py-0.5 rounded-md">
-        <FiEye className="w-2.5 h-2.5" />{formatViewsShort(views)}
+        <FiEye className="w-2.5 h-2.5" />
+        {formatViewsShort(views)}
       </span>
       {duration && (
         <span className="text-[10px] font-bold text-white bg-black/75 backdrop-blur-sm px-1.5 py-0.5 rounded-md tracking-wide">
@@ -443,8 +151,6 @@ const VideoCard = ({
   const [imgLoaded, setImgLoaded] = useState(false);
   const [imgError,  setImgError]  = useState(false);
 
-  const cardDomRef = useRef(null);
-
   // Intersection observer — lazy load thumbnail
   const [intersectRef, , hasIntersected] = useIntersection({
     threshold:   0.05,
@@ -452,45 +158,8 @@ const VideoCard = ({
     triggerOnce: true,
   });
 
-  // Singleton hover preview system
-  const {
-    isPreviewActive,
-    isTouch,
-    handleMouseEnter,
-    handleMouseLeave,
-  } = useVideoPreview(video?._id || video?.file_code || String(index), {
-    delay:      480,
-    leaveDelay: 180,
-  });
-
-  // Combine refs
-  const setRefs = useCallback(
-    (el) => {
-      intersectRef(el);
-      cardDomRef.current = el;
-    },
-    [intersectRef]
-  );
-
-  // Bring card to front when preview is active
-  useEffect(() => {
-    const el = cardDomRef.current;
-    if (!el) return;
-    if (isPreviewActive) {
-      el.style.zIndex = '50';
-    } else {
-      const t = setTimeout(() => {
-        if (el) el.style.zIndex = '';
-      }, 350);
-      return () => clearTimeout(t);
-    }
-  }, [isPreviewActive]);
-
   const s            = CARD_SIZES[size] || CARD_SIZES.default;
   const staggerDelay = Math.min(index * 50, 500);
-
-  // Show preview on default/large, non-touch only
-  const showPreview = size !== 'small' && size !== 'wide' && !isTouch;
 
   if (!video) return null;
 
@@ -506,23 +175,14 @@ const VideoCard = ({
 
   return (
     <div
-      ref={setRefs}
+      ref={intersectRef}
       className={`
         group relative ${s.card} animate-fade-in-up ${className}
-        ${showPreview
-          ? isPreviewActive
-            ? 'video-card-preview-active'
-            : 'video-card-preview-idle'
-          : ''
-        }
       `}
       style={{
         animationDelay:    `${staggerDelay}ms`,
         animationFillMode: 'both',
-        position:          'relative',
       }}
-      onMouseEnter={showPreview ? handleMouseEnter : undefined}
-      onMouseLeave={showPreview ? handleMouseLeave : undefined}
     >
       <Link
         to={watchUrl}
@@ -530,15 +190,15 @@ const VideoCard = ({
         tabIndex={0}
         aria-label={`Watch ${title}`}
       >
-        {/* ─── THUMBNAIL CONTAINER ────────────────────────── */}
+        {/* ── THUMBNAIL ───────────────────────────────────── */}
         <div
           className={`
             relative ${s.thumb} rounded-xl overflow-hidden bg-dark-300
+            shadow-card group-hover:shadow-card-hover
             transition-shadow duration-300
-            ${isPreviewActive ? 'preview-glow-border' : 'shadow-card group-hover:shadow-card-hover'}
           `}
         >
-          {/* Thumbnail image — lazy loaded */}
+          {/* Lazy-loaded thumbnail image */}
           {hasIntersected && (
             <img
               src={imgError ? getFallbackThumb() : thumbUrl}
@@ -550,57 +210,46 @@ const VideoCard = ({
               className={`
                 absolute inset-0 w-full h-full object-cover
                 transition-all duration-500
+                group-hover:scale-[1.02]
                 ${imgLoaded ? 'opacity-100' : 'opacity-0'}
-                ${isPreviewActive ? 'thumb-hover-active scale-[1.04]' : 'group-hover:scale-[1.02]'}
               `}
             />
           )}
 
-          {/* Skeleton shimmer */}
+          {/* Skeleton shimmer while loading */}
           {!imgLoaded && (
             <div className="absolute inset-0 skeleton-shimmer bg-dark-300" />
           )}
 
-          {/* ═══════════════════════════════════════════════════
-              IFRAME VIDEO PREVIEW — THE KEY ADDITION
-              Real embed player that loads on hover.
-              Overlays the thumbnail, auto-plays muted.
-              ═══════════════════════════════════════════════════ */}
-          {showPreview && (
-            <IframePreview
-              video={video}
-              visible={isPreviewActive}
-            />
-          )}
-
-          {/* Static gradient overlays */}
+          {/* Static top gradient */}
           <div className="absolute inset-x-0 top-0 h-14 bg-gradient-to-b from-black/50 to-transparent pointer-events-none z-[1]" />
 
-          {/* Cinematic vignette on hover */}
-          <div
-            className={`
-              absolute inset-0 pointer-events-none z-[1]
-              transition-opacity duration-400
-              ${isPreviewActive ? 'opacity-100' : 'opacity-0'}
-            `}
-            style={{
-              background: 'radial-gradient(ellipse at center, rgba(0,0,0,0) 35%, rgba(0,0,0,0.45) 100%)',
-            }}
-          />
+          {/* Static bottom gradient */}
+          <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/60 to-transparent pointer-events-none z-[1]" />
 
-          {/* Red tint glow */}
-          <div
-            className={`
-              absolute inset-0 pointer-events-none z-[1]
-              transition-opacity duration-400
-              ${isPreviewActive ? 'opacity-100' : 'opacity-0'}
-            `}
-            style={{
-              background: 'radial-gradient(ellipse at 50% 100%, rgba(225,29,72,0.07) 0%, transparent 70%)',
-            }}
-          />
+          {/* Hover tint overlay */}
+          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-300 pointer-events-none z-[2]" />
 
-          {/* Badges */}
+          {/* Play icon on hover */}
+          <div className="
+            absolute inset-0 flex items-center justify-center
+            pointer-events-none z-[3]
+            opacity-0 group-hover:opacity-100
+            transition-opacity duration-200
+          ">
+            <div className="
+              w-11 h-11 rounded-full
+              flex items-center justify-center
+              bg-primary-600/90 border-2 border-white/20
+              shadow-[0_0_20px_rgba(225,29,72,0.4)]
+              scale-90 group-hover:scale-100
+              transition-transform duration-200
+            ">
+              <FiPlay className="w-4 h-4 text-white fill-white ml-0.5" />
+            </div>
+          </div>
+
+          {/* Badges (views, duration, quality) */}
           <ThumbnailBadges
             isHD={isHD}
             qualityLabel={qualityLabel}
@@ -608,47 +257,16 @@ const VideoCard = ({
             featured={featured}
             views={views}
             duration={duration}
-            hovered={isPreviewActive}
-          />
-
-          {/* Play button — show only when NOT preview active (iframe plays instead) */}
-          <PlayButtonOverlay visible={!isPreviewActive && false} />
-
-          {/* Hover info overlay */}
-          {showPreview && (
-            <HoverInfoOverlay
-              video={video}
-              visible={isPreviewActive}
-              qualityLabel={qualityLabel}
-            />
-          )}
-
-          {/* Active-hover red line (top) */}
-          <div
-            className={`
-              absolute top-0 left-0 right-0 h-[2px]
-              bg-gradient-to-r from-transparent via-primary-500 to-transparent
-              pointer-events-none z-10
-              transition-opacity duration-500
-              ${isPreviewActive ? 'opacity-100' : 'opacity-0'}
-            `}
           />
         </div>
 
-        {/* ─── INFO SECTION (below thumbnail) ────────────── */}
-        <div
-          className={`
-            ${s.padding} pt-2.5
-            transition-all duration-300
-            ${isPreviewActive ? 'opacity-60 translate-y-0.5' : 'opacity-100 translate-y-0'}
-          `}
-        >
+        {/* ── INFO BELOW THUMBNAIL ────────────────────────── */}
+        <div className={`${s.padding} pt-2.5`}>
           <h3
             className={`
               ${s.title} font-semibold leading-snug
               text-white/85 group-hover:text-white
               line-clamp-2 transition-colors duration-200 mb-1.5
-              ${isPreviewActive ? 'text-white' : ''}
             `}
           >
             {title}
@@ -695,15 +313,14 @@ const VideoCard = ({
             )}
           </div>
 
-          {/* Inline tag chips on hover */}
+          {/* Tag chips on hover */}
           {video.tags && video.tags.length > 0 && size !== 'small' && size !== 'wide' && (
-            <div
-              className={`
-                flex gap-1.5 mt-2 overflow-hidden flex-wrap
-                transition-all duration-300
-                ${isPreviewActive ? 'opacity-0 max-h-0' : 'opacity-0 max-h-0 group-hover:opacity-100 group-hover:max-h-8'}
-              `}
-            >
+            <div className="
+              flex gap-1.5 mt-2 overflow-hidden flex-wrap
+              opacity-0 max-h-0
+              group-hover:opacity-100 group-hover:max-h-8
+              transition-all duration-300
+            ">
               {video.tags.slice(0, 3).map((tag) => (
                 <span
                   key={tag}
