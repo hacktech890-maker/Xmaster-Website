@@ -1,9 +1,3 @@
 ../frontend/src/components/video/VideoPlayer.jsx
 ../frontend/src/pages/public/WatchPage.jsx
-../frontend/src/components/ads/AdSlot.jsx
-../frontend/src/config/ads.js
-../backend/routes/publicRoutes.js
-../frontend/src/pages/public/TrendingPage.jsx
-../frontend/src/components/video/VideoGrid.jsx
-../frontend/src/hooks/useVideoPreview.js
-../frontend/src/hooks/useIntersection.js
+../frontend/src/styles/Watch.css

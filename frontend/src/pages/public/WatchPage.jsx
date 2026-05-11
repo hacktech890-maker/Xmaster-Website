@@ -32,7 +32,6 @@ import { WatchPageSkeleton }       from '../../components/video/VideoCardSkeleto
 
 import { useIsMobile } from '../../hooks/useMediaQuery';
 
-// Fetch up to 50 related videos as required by Task 3
 const RELATED_COUNT = 50;
 
 const WatchPage = () => {
@@ -88,7 +87,11 @@ const WatchPage = () => {
       const res  = await publicAPI.getVideo(id);
       const data = res?.data?.video || res?.data || res;
       if (!mountedRef.current) return;
-      if (!data || !data._id) { setError('Video not found'); setLoading(false); return; }
+      if (!data || !data._id) {
+        setError('Video not found');
+        setLoading(false);
+        return;
+      }
 
       setVideo(data);
       setLikeCount(data.likes || 0);
@@ -109,7 +112,11 @@ const WatchPage = () => {
     } catch (err) {
       if (mountedRef.current) {
         const status = err?.response?.status;
-        setError(status === 404 ? 'Video not found or has been removed.' : 'Failed to load video. Please try again.');
+        setError(
+          status === 404
+            ? 'Video not found or has been removed.'
+            : 'Failed to load video. Please try again.'
+        );
         setLoading(false);
       }
     }
@@ -123,8 +130,11 @@ const WatchPage = () => {
       if (!mountedRef.current) return;
       if (Array.isArray(data) && data.length > 0) setRelatedVideos(data);
       else fetchRandomVideos(videoId);
-    } catch { fetchRandomVideos(videoId); }
-    finally  { if (mountedRef.current) setLoadingRelated(false); }
+    } catch {
+      fetchRandomVideos(videoId);
+    } finally {
+      if (mountedRef.current) setLoadingRelated(false);
+    }
   };
 
   const fetchRandomVideos = async (excludeId) => {
@@ -132,8 +142,11 @@ const WatchPage = () => {
       const res  = await publicAPI.getRandomVideos(RELATED_COUNT, excludeId);
       const data = res?.data?.videos || res?.data || [];
       if (mountedRef.current && Array.isArray(data)) setRelatedVideos(data);
-    } catch { if (mountedRef.current) setRelatedVideos([]); }
-    finally  { if (mountedRef.current) setLoadingRelated(false); }
+    } catch {
+      if (mountedRef.current) setRelatedVideos([]);
+    } finally {
+      if (mountedRef.current) setLoadingRelated(false);
+    }
   };
 
   const recordView = useCallback(async () => {
@@ -155,7 +168,11 @@ const WatchPage = () => {
     try {
       await publicAPI.likeVideo(id);
     } catch {
-      if (mountedRef.current) { setLiked(false); setLikeCount((p) => Math.max(0, p - 1)); toast.error('Failed to like video'); }
+      if (mountedRef.current) {
+        setLiked(false);
+        setLikeCount((p) => Math.max(0, p - 1));
+        toast.error('Failed to like video');
+      }
     }
   };
 
@@ -167,7 +184,11 @@ const WatchPage = () => {
     try {
       await publicAPI.dislikeVideo(id);
     } catch {
-      if (mountedRef.current) { setDisliked(false); setDislikeCount((p) => Math.max(0, p - 1)); toast.error('Failed to dislike video'); }
+      if (mountedRef.current) {
+        setDisliked(false);
+        setDislikeCount((p) => Math.max(0, p - 1));
+        toast.error('Failed to dislike video');
+      }
     }
   };
 
@@ -179,8 +200,11 @@ const WatchPage = () => {
       toast.success('Report submitted. Thank you!');
       setShowReport(false);
       setReportReason('');
-    } catch { toast.error('Failed to submit report. Please try again.'); }
-    finally  { if (mountedRef.current) setReportingNow(false); }
+    } catch {
+      toast.error('Failed to submit report. Please try again.');
+    } finally {
+      if (mountedRef.current) setReportingNow(false);
+    }
   };
 
   const fetchComments = useCallback(async () => {
@@ -190,8 +214,11 @@ const WatchPage = () => {
       const res  = await publicAPI.getPublicComments({ videoId: id });
       const data = res?.data?.comments || res?.data || [];
       if (mountedRef.current) setComments(Array.isArray(data) ? data : []);
-    } catch { if (mountedRef.current) setComments([]); }
-    finally  { if (mountedRef.current) setLoadingComments(false); }
+    } catch {
+      if (mountedRef.current) setComments([]);
+    } finally {
+      if (mountedRef.current) setLoadingComments(false);
+    }
   }, [id, loadingComments, comments.length]);
 
   const handleToggleComments = () => {
@@ -216,7 +243,9 @@ const WatchPage = () => {
     return (
       <div className="min-h-screen bg-dark-400">
         <GlobalAdsLoader />
-        <div className="container-site py-6"><WatchPageSkeleton /></div>
+        <div className="container-site py-6">
+          <WatchPageSkeleton />
+        </div>
       </div>
     );
   }
@@ -231,7 +260,10 @@ const WatchPage = () => {
           <h1 className="text-xl font-bold text-white mb-2">Video Unavailable</h1>
           <p className="text-sm text-white/50 mb-6 leading-relaxed">{error}</p>
           <div className="flex items-center justify-center gap-3">
-            <button onClick={() => navigate(-1)} className="btn-secondary flex items-center gap-2">
+            <button
+              onClick={() => navigate(-1)}
+              className="btn-secondary flex items-center gap-2"
+            >
               <FiArrowLeft className="w-4 h-4" />Go Back
             </button>
             <Link to="/" className="btn-primary">Home</Link>
@@ -262,18 +294,22 @@ const WatchPage = () => {
 
       <div className="min-h-screen bg-dark-400">
         <div className="container-site py-4 sm:py-6">
-          {/* Main layout: player column + sidebar ad column on desktop */}
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_180px] xl:grid-cols-[1fr_200px] gap-6 lg:gap-8">
 
-            {/* ── LEFT / MAIN COLUMN ────────────────────────── */}
+            {/* ── LEFT / MAIN COLUMN ────────────────────── */}
             <div className="min-w-0">
 
-              {/* Player */}
+              {/* Player — passes file_code for reliable URL building */}
               <div className="mb-4">
-                <VideoPlayer embedUrl={embedUrl} title={video.title} autoPlay={false} />
+                <VideoPlayer
+                  embedUrl={embedUrl}
+                  fileCode={video?.file_code || null}
+                  title={video.title}
+                  autoPlay={false}
+                />
               </div>
 
-              {/* Mobile banner ad — right below player */}
+              {/* Mobile banner ad */}
               {isMobile && (
                 <div className="flex justify-center mb-4">
                   <AdSlot placement="watch_bottom" delay={2000} />
@@ -287,22 +323,34 @@ const WatchPage = () => {
 
               {/* Meta row */}
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-white/40 mb-4">
-                <span className="flex items-center gap-1.5"><FiEye className="w-3.5 h-3.5 text-white/30" />{viewCount}</span>
-                {duration   && <span className="flex items-center gap-1.5"><FiClock className="w-3.5 h-3.5 text-white/30" />{duration}</span>}
-                {uploadDate && <span className="hidden sm:flex items-center gap-1.5"><FiClock className="w-3.5 h-3.5 text-white/30" />{uploadDate}</span>}
+                <span className="flex items-center gap-1.5">
+                  <FiEye className="w-3.5 h-3.5 text-white/30" />{viewCount}
+                </span>
+                {duration && (
+                  <span className="flex items-center gap-1.5">
+                    <FiClock className="w-3.5 h-3.5 text-white/30" />{duration}
+                  </span>
+                )}
+                {uploadDate && (
+                  <span className="hidden sm:flex items-center gap-1.5">
+                    <FiClock className="w-3.5 h-3.5 text-white/30" />{uploadDate}
+                  </span>
+                )}
                 {video.category && (
                   <Link
                     to={`/category/${typeof video.category === 'string' ? video.category : video.category?.slug || ''}`}
                     className="text-primary-400 hover:text-primary-300 font-medium transition-colors duration-200"
                   >
-                    {typeof video.category === 'string' ? video.category : video.category?.name || ''}
+                    {typeof video.category === 'string'
+                      ? video.category
+                      : video.category?.name || ''}
                   </Link>
                 )}
               </div>
 
               <div className="h-px bg-white/[0.06] mb-4" />
 
-              {/* Like / Share / Report */}
+              {/* Action bar */}
               <ActionBar
                 liked={liked} disliked={disliked}
                 likeCount={likeCount} dislikeCount={dislikeCount}
@@ -321,7 +369,11 @@ const WatchPage = () => {
                     <FiTag className="w-3 h-3" />Tags:
                   </span>
                   {tags.map((tag) => (
-                    <Link key={tag} to={`/tag/${encodeURIComponent(tag)}`} className="px-2.5 py-1 rounded-full text-xs font-medium bg-white/[0.06] text-white/50 hover:bg-primary-600/15 hover:text-white border border-white/[0.08] hover:border-primary-600/25 transition-all duration-200">
+                    <Link
+                      key={tag}
+                      to={`/tag/${encodeURIComponent(tag)}`}
+                      className="px-2.5 py-1 rounded-full text-xs font-medium bg-white/[0.06] text-white/50 hover:bg-primary-600/15 hover:text-white border border-white/[0.08] hover:border-primary-600/25 transition-all duration-200"
+                    >
                       #{tag}
                     </Link>
                   ))}
@@ -335,14 +387,19 @@ const WatchPage = () => {
                     {video.description}
                   </p>
                   {descLong && (
-                    <button onClick={() => setShowFullDesc(!showFullDesc)} className="mt-2 flex items-center gap-1 text-xs text-primary-400 hover:text-primary-300 transition-colors duration-200">
-                      {showFullDesc ? <><FiChevronUp className="w-3.5 h-3.5" />Show less</> : <><FiChevronDown className="w-3.5 h-3.5" />Show more</>}
+                    <button
+                      onClick={() => setShowFullDesc(!showFullDesc)}
+                      className="mt-2 flex items-center gap-1 text-xs text-primary-400 hover:text-primary-300 transition-colors duration-200"
+                    >
+                      {showFullDesc
+                        ? <><FiChevronUp className="w-3.5 h-3.5" />Show less</>
+                        : <><FiChevronDown className="w-3.5 h-3.5" />Show more</>}
                     </button>
                   )}
                 </div>
               )}
 
-              {/* Desktop leaderboard ad — below description */}
+              {/* Desktop leaderboard ad */}
               {!isMobile && (
                 <div className="flex justify-center mb-6">
                   <AdSlot placement="watch_bottom" delay={2500} label />
@@ -353,7 +410,8 @@ const WatchPage = () => {
               {showReport && (
                 <ReportForm
                   reason={reportReason} setReason={setReportReason}
-                  onSubmit={handleReport} onCancel={() => { setShowReport(false); setReportReason(''); }}
+                  onSubmit={handleReport}
+                  onCancel={() => { setShowReport(false); setReportReason(''); }}
                   submitting={reportingNow}
                 />
               )}
@@ -361,7 +419,8 @@ const WatchPage = () => {
               {/* Comments */}
               <CommentsSection
                 videoId={id} comments={comments} loading={loadingComments}
-                open={showComments} onToggle={handleToggleComments} onCommentAdded={fetchComments}
+                open={showComments} onToggle={handleToggleComments}
+                onCommentAdded={fetchComments}
               />
 
               {/* Native ad below comments */}
@@ -369,10 +428,7 @@ const WatchPage = () => {
                 <AdSlot placement="watch_native" delay={3500} label />
               </div>
 
-              {/* ── UNIFIED RECOMMENDATIONS (Task 3) ──────────
-                  Replaces the old "Up Next" + "More Like This" split.
-                  Shows below the player on ALL screen sizes.
-                  ─────────────────────────────────────────────── */}
+              {/* Related videos */}
               <div className="mt-10">
                 <div className="h-px bg-white/[0.06] mb-8" />
                 <RelatedVideos
@@ -383,10 +439,9 @@ const WatchPage = () => {
                   maxItems={RELATED_COUNT}
                 />
               </div>
-
             </div>
 
-            {/* ── RIGHT COLUMN — Sidebar ads (desktop only) ── */}
+            {/* ── RIGHT COLUMN — Sidebar ads ─────────────── */}
             {!isMobile && (
               <aside className="hidden lg:flex flex-col gap-4">
                 <div className="sticky top-20 flex flex-col gap-4">
@@ -394,7 +449,6 @@ const WatchPage = () => {
                 </div>
               </aside>
             )}
-
           </div>
         </div>
       </div>
@@ -403,9 +457,8 @@ const WatchPage = () => {
 };
 
 // ============================================================
-// ACTION BAR (Like / Dislike / Share / Report)
+// ACTION BAR
 // ============================================================
-
 const ActionBar = ({
   liked, disliked, likeCount, dislikeCount,
   likeRatio, totalVotes,
@@ -415,27 +468,18 @@ const ActionBar = ({
 }) => (
   <div className="flex flex-wrap items-center gap-3">
     <div className="flex items-center gap-2 flex-1 min-w-0">
-      {/* Like */}
       <button
-        onClick={onLike}
-        disabled={liked}
+        onClick={onLike} disabled={liked}
         className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${liked ? 'bg-primary-600/20 text-primary-400 border border-primary-600/30' : 'bg-white/[0.06] text-white/60 border border-white/[0.08] hover:bg-white/10 hover:text-white'}`}
       >
-        <FiThumbsUp className="w-4 h-4" />
-        <span>{likeCount}</span>
+        <FiThumbsUp className="w-4 h-4" /><span>{likeCount}</span>
       </button>
-
-      {/* Dislike */}
       <button
-        onClick={onDislike}
-        disabled={disliked}
+        onClick={onDislike} disabled={disliked}
         className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${disliked ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-white/[0.06] text-white/60 border border-white/[0.08] hover:bg-white/10 hover:text-white'}`}
       >
-        <FiThumbsDown className="w-4 h-4" />
-        <span>{dislikeCount}</span>
+        <FiThumbsDown className="w-4 h-4" /><span>{dislikeCount}</span>
       </button>
-
-      {/* Like ratio bar */}
       {totalVotes > 0 && (
         <div className="hidden sm:flex items-center gap-2 ml-1">
           <div className="w-24 h-1.5 rounded-full bg-white/10 overflow-hidden">
@@ -445,7 +489,6 @@ const ActionBar = ({
         </div>
       )}
     </div>
-
     <div className="flex items-center gap-2">
       <ShareButton videoId={videoId} title={videoTitle} url={watchUrl} />
       <button
@@ -462,7 +505,6 @@ const ActionBar = ({
 // ============================================================
 // REPORT FORM
 // ============================================================
-
 const ReportForm = ({ reason, setReason, onSubmit, onCancel, submitting }) => (
   <div className="rounded-2xl bg-white/[0.03] border border-white/[0.08] p-5 mb-4 animate-fade-in-down">
     <div className="flex items-center justify-between mb-4">
@@ -472,10 +514,13 @@ const ReportForm = ({ reason, setReason, onSubmit, onCancel, submitting }) => (
       </button>
     </div>
     <div className="grid grid-cols-2 gap-2 mb-4">
-      {['Underage content','Non-consensual content','Spam or misleading','Copyright violation','Wrong category','Broken video','Other'].map((r) => (
+      {[
+        'Underage content', 'Non-consensual content',
+        'Spam or misleading', 'Copyright violation',
+        'Wrong category', 'Broken video', 'Other',
+      ].map((r) => (
         <button
-          key={r}
-          onClick={() => setReason(r)}
+          key={r} onClick={() => setReason(r)}
           className={`text-xs px-3 py-2 rounded-lg border text-left transition-all duration-150 ${reason === r ? 'bg-primary-600/15 text-primary-400 border-primary-600/30' : 'bg-white/[0.04] text-white/50 border-white/[0.08] hover:bg-white/[0.08]'}`}
         >
           {r}
@@ -487,8 +532,7 @@ const ReportForm = ({ reason, setReason, onSubmit, onCancel, submitting }) => (
         Cancel
       </button>
       <button
-        onClick={onSubmit}
-        disabled={!reason || submitting}
+        onClick={onSubmit} disabled={!reason || submitting}
         className="flex-1 py-2 rounded-xl text-sm font-medium bg-red-600/80 hover:bg-red-600 text-white disabled:opacity-40 transition-colors"
       >
         {submitting ? 'Submitting...' : 'Submit Report'}
@@ -500,7 +544,6 @@ const ReportForm = ({ reason, setReason, onSubmit, onCancel, submitting }) => (
 // ============================================================
 // COMMENTS SECTION
 // ============================================================
-
 const CommentsSection = ({ videoId, comments, loading, open, onToggle, onCommentAdded }) => (
   <div className="rounded-2xl bg-white/[0.025] border border-white/[0.06] overflow-hidden">
     <button
@@ -520,13 +563,17 @@ const CommentsSection = ({ videoId, comments, loading, open, onToggle, onComment
         {(loading || comments.length > 0) && (
           <div>
             <p className="text-xs font-semibold text-white/30 uppercase tracking-widest mb-3">
-              {loading ? 'Loading comments...' : `${comments.length} Comment${comments.length !== 1 ? 's' : ''}`}
+              {loading
+                ? 'Loading comments...'
+                : `${comments.length} Comment${comments.length !== 1 ? 's' : ''}`}
             </p>
             <CommentsList comments={comments} loading={loading} />
           </div>
         )}
         {!loading && comments.length === 0 && (
-          <p className="text-sm text-white/30 text-center py-4">No comments yet. Be the first!</p>
+          <p className="text-sm text-white/30 text-center py-4">
+            No comments yet. Be the first!
+          </p>
         )}
       </div>
     )}
