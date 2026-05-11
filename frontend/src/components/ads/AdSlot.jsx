@@ -18,20 +18,21 @@ const PLACEMENT_MIN_HEIGHT = {
 
 // ============================================================
 // PLAYER INTERACTION GUARD
-// When the user is interacting with the video player we set
-// this flag. The popunder's document click listener checks it
-// and skips firing if true. This is the key fix that stops
-// fullscreen clicks from opening ads.
+// Sets both the module-level flag (read by the timer below)
+// and window.__playerInteracting (read by the injected click
+// guard script that wraps popunder addEventListener calls).
+// Both must be set so the guard works in all code paths.
 // ============================================================
-let _playerInteracting = false;
 let _playerInteractTimer = null;
 
 export const markPlayerInteraction = () => {
-  _playerInteracting = true;
+  // Set the window flag — read by the injected JS click guard
+  window.__playerInteracting = true;
+
+  // Reset after 2s of inactivity
   if (_playerInteractTimer) clearTimeout(_playerInteractTimer);
-  // Keep the guard active for 2 seconds after last interaction
   _playerInteractTimer = setTimeout(() => {
-    _playerInteracting = false;
+    window.__playerInteracting = false;
   }, 2000);
 };
 
@@ -42,7 +43,7 @@ const AdSlot = ({
   placement,
   delay,
   className = '',
-  label = false,
+  label     = false,
 }) => {
   const containerRef = useRef(null);
   const isMobile     = useIsMobile();
@@ -90,9 +91,14 @@ const AdSlot = ({
           if (index >= scriptList.length) return;
           const orig = scriptList[index];
           const src  = orig.getAttribute('src');
-          if (src && _injectedScripts.has(src)) { injectScripts(scriptList, index + 1); return; }
+          if (src && _injectedScripts.has(src)) {
+            injectScripts(scriptList, index + 1);
+            return;
+          }
           const newScript = document.createElement('script');
-          Array.from(orig.attributes).forEach((attr) => newScript.setAttribute(attr.name, attr.value));
+          Array.from(orig.attributes).forEach((attr) =>
+            newScript.setAttribute(attr.name, attr.value)
+          );
           if (src) {
             _injectedScripts.add(src);
             newScript.onload  = () => injectScripts(scriptList, index + 1);
@@ -161,7 +167,7 @@ export const GlobalAdsLoader = () => {
         // ── CLICK GUARD SCRIPT ──────────────────────────────
         // Injected BEFORE the popunder scripts so it runs first.
         // Wraps document.addEventListener to intercept the
-        // popunder's click handler registration and add our guard.
+        // popunder's click handler and add our guard check.
         if (!_injectedScripts.has('__click_guard__')) {
           _injectedScripts.add('__click_guard__');
           const guardScript = document.createElement('script');
@@ -181,11 +187,11 @@ export const GlobalAdsLoader = () => {
                           (target.className.indexOf('video-player') !== -1 ||
                            target.className.indexOf('player-container') !== -1))
                       ) {
-                        return; // suppress ad popunder for player clicks
+                        return;
                       }
                       target = target.parentElement;
                     }
-                    // Also check the global flag set by React
+                    // Check the window flag set by markPlayerInteraction()
                     if (window.__playerInteracting) return;
                     handler.apply(this, arguments);
                   };
@@ -203,10 +209,10 @@ export const GlobalAdsLoader = () => {
           if (_injectedScripts.has(src)) return;
           setTimeout(() => {
             if (_injectedScripts.has(src)) return;
-            const script   = document.createElement('script');
-            script.type    = 'text/javascript';
-            script.async   = true;
-            script.src     = src;
+            const script = document.createElement('script');
+            script.type  = 'text/javascript';
+            script.async = true;
+            script.src   = src;
             document.head.appendChild(script);
             _injectedScripts.add(src);
           }, i * 800);
