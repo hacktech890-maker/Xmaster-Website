@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Helmet }   from 'react-helmet-async';
 import { Link }     from 'react-router-dom';
-import { FiTrendingUp, FiClock, FiChevronDown } from 'react-icons/fi';
+import { FiClock, FiChevronDown } from 'react-icons/fi';
 
 import { publicAPI } from '../../services/api';
 
@@ -10,27 +10,29 @@ import HeroSection  from '../../components/home/HeroSection';
 import SectionRow   from '../../components/home/SectionRow';
 import StudioRow    from '../../components/home/StudioRow';
 
-import VideoGrid              from '../../components/video/VideoGrid';
-import VideoCard              from '../../components/video/VideoCard';
-import Pagination             from '../../components/common/Pagination';
-import AdSlot, { GlobalAdsLoader } from '../../components/ads/AdSlot';
+import VideoCard                       from '../../components/video/VideoCard';
+import VideoGrid                       from '../../components/video/VideoGrid';
+import AdSlot, { GlobalAdsLoader }     from '../../components/ads/AdSlot';
+import Pagination                      from '../../components/common/Pagination';
 
-import { useIntersection } from '../../hooks/useIntersection';
+import { useIntersection }             from '../../hooks/useIntersection';
+import { sessionShuffle, sessionShuffleTail } from '../../utils/shuffle';
 
 import {
   PREMIUM_SECTION_ENABLED,
   FREE_SECTION_ENABLED,
 } from '../../config/features';
 
-const LATEST_PAGE_SIZE = 16;
+// ── Constants ─────────────────────────────────────────────────
+const LATEST_PAGE_SIZE = 32;   // more videos per page = fuller page
 const HERO_VIDEO_COUNT = 8;
-const TRENDING_COUNT   = 12;
-const FEATURED_COUNT   = 8;
-const RELATED_COUNT    = 10;
+const TRENDING_COUNT   = 16;   // more cards in trending row
+const FEATURED_COUNT   = 12;
+const DESI_COUNT       = 16;
+const POPULAR_COUNT    = 16;
 
-// ============================================================
-// AD-INJECTED VIDEO GRID  (unchanged)
-// ============================================================
+// ── Ad-injected video grid ─────────────────────────────────────
+// Inserts a full-width ad row after every 8 cards (2 rows @ 4-col)
 const VideoGridWithAds = ({ videos, loading, skeletonCount }) => {
   if (loading || !videos || videos.length === 0) {
     return (
@@ -49,7 +51,6 @@ const VideoGridWithAds = ({ videos, loading, skeletonCount }) => {
 
   const AD_INTERVAL = 8;
   const items = [];
-
   videos.forEach((video, i) => {
     items.push({ type: 'video', video, index: i });
     if ((i + 1) % AD_INTERVAL === 0) {
@@ -75,7 +76,6 @@ const VideoGridWithAds = ({ videos, loading, skeletonCount }) => {
           <div
             key={item.key}
             className="col-span-1 xs:col-span-2 sm:col-span-2 md:col-span-3 lg:col-span-4 flex justify-center py-2"
-            style={{ minHeight: 1 }}
           >
             <AdSlot placement="home_grid_insert" delay={2000} label />
           </div>
@@ -85,9 +85,7 @@ const VideoGridWithAds = ({ videos, loading, skeletonCount }) => {
   );
 };
 
-// ============================================================
-// HOME PAGE
-// ============================================================
+// ── HomePage ───────────────────────────────────────────────────
 const HomePage = () => {
   const [heroVideos,     setHeroVideos]     = useState([]);
   const [featuredVideos, setFeaturedVideos] = useState([]);
@@ -95,6 +93,7 @@ const HomePage = () => {
   const [latestVideos,   setLatestVideos]   = useState([]);
   const [desiVideos,     setDesiVideos]     = useState([]);
   const [popularVideos,  setPopularVideos]  = useState([]);
+  const [newVideos,      setNewVideos]      = useState([]);
 
   const [loadingHero,     setLoadingHero]     = useState(true);
   const [loadingFeatured, setLoadingFeatured] = useState(true);
@@ -102,18 +101,21 @@ const HomePage = () => {
   const [loadingLatest,   setLoadingLatest]   = useState(true);
   const [loadingDesi,     setLoadingDesi]     = useState(true);
   const [loadingPopular,  setLoadingPopular]  = useState(false);
+  const [loadingNew,      setLoadingNew]      = useState(false);
 
   // Pagination state for Latest Videos
-  const [latestPage,    setLatestPage]    = useState(1);
-  const [latestTotal,   setLatestTotal]   = useState(1);
+  const [latestPage,  setLatestPage]  = useState(1);
+  const [latestTotal, setLatestTotal] = useState(1);
 
+  // Intersection refs for lazy-loaded sections
   const [desiRef,    , desiVisible]    = useIntersection({ rootMargin: '300px', triggerOnce: true });
   const [popularRef, , popularVisible] = useIntersection({ rootMargin: '300px', triggerOnce: true });
+  const [newRef,     , newVisible]     = useIntersection({ rootMargin: '300px', triggerOnce: true });
 
   const mountedRef = useRef(true);
   useEffect(() => () => { mountedRef.current = false; }, []);
 
-  // ── Initial data fetch ─────────────────────────────────────
+  // ── Initial data fetch ────────────────────────────────────
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
@@ -121,40 +123,36 @@ const HomePage = () => {
         if (homeRes?.data) {
           const d = homeRes.data;
           if (!mountedRef.current) return;
-          const heroPool = [
-            ...(d.featured || []),
-            ...(d.trending || []),
-          ].slice(0, HERO_VIDEO_COUNT);
+
+          const heroPool = sessionShuffle(
+            [...(d.featured || []), ...(d.trending || [])], 'hero'
+          ).slice(0, HERO_VIDEO_COUNT);
           setHeroVideos(heroPool);
           setLoadingHero(false);
+
           if (d.featured?.length) {
-            setFeaturedVideos(d.featured.slice(0, FEATURED_COUNT));
+            setFeaturedVideos(sessionShuffle(d.featured, 'featured').slice(0, FEATURED_COUNT));
             setLoadingFeatured(false);
           }
           if (d.trending?.length) {
-            setTrendingVideos(d.trending.slice(0, TRENDING_COUNT));
+            setTrendingVideos(sessionShuffleTail(d.trending, 3, 'trending').slice(0, TRENDING_COUNT));
             setLoadingTrending(false);
           }
           if (d.latest?.length) {
-            setLatestVideos(d.latest);
+            setLatestVideos(sessionShuffle(d.latest, 'latest'));
             setLoadingLatest(false);
           }
+
           if (!d.featured?.length) fetchFeatured();
           if (!d.trending?.length) fetchTrending();
           if (!d.latest?.length)   fetchLatest(1);
         } else {
           await Promise.allSettled([
-            fetchHero(),
-            fetchFeatured(),
-            fetchTrending(),
-            fetchLatest(1),
+            fetchHero(), fetchFeatured(), fetchTrending(), fetchLatest(1),
           ]);
         }
       } catch {
-        fetchHero();
-        fetchFeatured();
-        fetchTrending();
-        fetchLatest(1);
+        fetchHero(); fetchFeatured(); fetchTrending(); fetchLatest(1);
       }
     };
     fetchInitialData();
@@ -169,20 +167,13 @@ const HomePage = () => {
         publicAPI.getTrendingVideos(4, '7d'),
       ]);
       if (!mountedRef.current) return;
-      const featured =
-        featuredRes.status === 'fulfilled'
-          ? featuredRes.value?.data?.videos || featuredRes.value?.data || []
-          : [];
-      const trending =
-        trendingRes.status === 'fulfilled'
-          ? trendingRes.value?.data?.videos || trendingRes.value?.data || []
-          : [];
-      setHeroVideos([...featured, ...trending].slice(0, HERO_VIDEO_COUNT));
-    } catch {
-      setHeroVideos([]);
-    } finally {
-      if (mountedRef.current) setLoadingHero(false);
-    }
+      const featured = featuredRes.status === 'fulfilled'
+        ? featuredRes.value?.data?.videos || featuredRes.value?.data || [] : [];
+      const trending = trendingRes.status === 'fulfilled'
+        ? trendingRes.value?.data?.videos || trendingRes.value?.data || [] : [];
+      setHeroVideos(sessionShuffle([...featured, ...trending], 'hero').slice(0, HERO_VIDEO_COUNT));
+    } catch { setHeroVideos([]); }
+    finally  { if (mountedRef.current) setLoadingHero(false); }
   };
 
   const fetchFeatured = async () => {
@@ -191,12 +182,9 @@ const HomePage = () => {
       const res  = await publicAPI.getFeaturedVideos(FEATURED_COUNT);
       const data = res?.data?.videos || res?.data || [];
       if (mountedRef.current)
-        setFeaturedVideos(Array.isArray(data) ? data : []);
-    } catch {
-      if (mountedRef.current) setFeaturedVideos([]);
-    } finally {
-      if (mountedRef.current) setLoadingFeatured(false);
-    }
+        setFeaturedVideos(sessionShuffle(Array.isArray(data) ? data : [], 'featured'));
+    } catch { if (mountedRef.current) setFeaturedVideos([]); }
+    finally  { if (mountedRef.current) setLoadingFeatured(false); }
   };
 
   const fetchTrending = async () => {
@@ -205,125 +193,118 @@ const HomePage = () => {
       const res  = await publicAPI.getTrendingVideos(TRENDING_COUNT, '7d');
       const data = res?.data?.videos || res?.data || [];
       if (mountedRef.current)
-        setTrendingVideos(Array.isArray(data) ? data : []);
-    } catch {
-      if (mountedRef.current) setTrendingVideos([]);
-    } finally {
-      if (mountedRef.current) setLoadingTrending(false);
-    }
+        setTrendingVideos(sessionShuffleTail(Array.isArray(data) ? data : [], 3, 'trending'));
+    } catch { if (mountedRef.current) setTrendingVideos([]); }
+    finally  { if (mountedRef.current) setLoadingTrending(false); }
   };
 
-  // ── Latest: paginated fetch ────────────────────────────────
   const fetchLatest = async (pg = 1) => {
-    setLoadingLatest(true);
+    if (pg === 1) setLoadingLatest(true);
     try {
       const res = publicAPI.getLatestVideos
         ? await publicAPI.getLatestVideos(LATEST_PAGE_SIZE, pg)
-        : await publicAPI.getVideos({
-            page: pg,
-            limit: LATEST_PAGE_SIZE,
-            status: 'public',
-          });
-      const data  = res?.data?.videos    || res?.data    || [];
-      const pages = res?.data?.totalPages || res?.data?.pages || 1;
+        : await publicAPI.getVideos({ page: pg, limit: LATEST_PAGE_SIZE, status: 'public' });
+      const data  = res?.data?.videos || res?.data || [];
+      const total = res?.data?.totalPages || res?.data?.pages || 1;
       if (!mountedRef.current) return;
-      setLatestVideos(Array.isArray(data) ? data : []);
-      setLatestTotal(pages);
+      // Only shuffle page 1; subsequent pages preserve server order
+      const processed = pg === 1
+        ? sessionShuffle(Array.isArray(data) ? data : [], 'latest')
+        : (Array.isArray(data) ? data : []);
+      setLatestVideos(processed);
+      setLatestTotal(total);
       setLatestPage(pg);
-    } catch {
-      if (mountedRef.current) setLatestVideos([]);
-    } finally {
-      if (mountedRef.current) setLoadingLatest(false);
-    }
+    } catch { if (mountedRef.current && pg === 1) setLatestVideos([]); }
+    finally  { if (mountedRef.current) setLoadingLatest(false); }
   };
 
   const handleLatestPageChange = (pg) => {
-    // Scroll to the Latest Videos section header, not the very top
     const el = document.getElementById('latest-videos-section');
     if (el) {
-      const y = el.getBoundingClientRect().top + window.scrollY - 80;
-      window.scrollTo({ top: y, behavior: 'smooth' });
+      window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 80, behavior: 'smooth' });
     } else {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
     fetchLatest(pg);
   };
 
-  // ── Desi (lazy) ────────────────────────────────────────────
+  // ── Desi (lazy) ───────────────────────────────────────────
   useEffect(() => {
     if (!desiVisible || desiVideos.length > 0) return;
     const fetch = async () => {
       setLoadingDesi(true);
       try {
-        const res  = await publicAPI.searchByTag('desi', { limit: TRENDING_COUNT });
+        const res  = await publicAPI.searchByTag('desi', { limit: DESI_COUNT });
         const data = res?.data?.videos || res?.data || [];
         if (mountedRef.current)
-          setDesiVideos(Array.isArray(data) ? data : []);
+          setDesiVideos(sessionShuffle(Array.isArray(data) ? data : [], 'desi'));
       } catch {
         try {
-          const res2  = await publicAPI.searchByTag('indian', { limit: TRENDING_COUNT });
+          const res2  = await publicAPI.searchByTag('indian', { limit: DESI_COUNT });
           const data2 = res2?.data?.videos || res2?.data || [];
           if (mountedRef.current)
-            setDesiVideos(Array.isArray(data2) ? data2 : []);
-        } catch {
-          if (mountedRef.current) setDesiVideos([]);
-        }
-      } finally {
-        if (mountedRef.current) setLoadingDesi(false);
-      }
+            setDesiVideos(sessionShuffle(Array.isArray(data2) ? data2 : [], 'desi'));
+        } catch { if (mountedRef.current) setDesiVideos([]); }
+      } finally { if (mountedRef.current) setLoadingDesi(false); }
     };
     fetch();
   }, [desiVisible, desiVideos.length]);
 
-  // ── Popular (lazy) ─────────────────────────────────────────
+  // ── Popular (lazy) ────────────────────────────────────────
   useEffect(() => {
     if (!popularVisible || popularVideos.length > 0) return;
     const fetch = async () => {
       setLoadingPopular(true);
       try {
         const res  = await publicAPI.getVideos({
-          limit: RELATED_COUNT,
-          page: 1,
-          sort: 'views',
-          status: 'public',
+          limit: POPULAR_COUNT, page: 1, sort: 'views', status: 'public',
         });
         const data = res?.data?.videos || res?.data || [];
         if (mountedRef.current)
-          setPopularVideos(Array.isArray(data) ? data : []);
-      } catch {
-        if (mountedRef.current) setPopularVideos([]);
-      } finally {
-        if (mountedRef.current) setLoadingPopular(false);
-      }
+          setPopularVideos(sessionShuffle(Array.isArray(data) ? data : [], 'popular'));
+      } catch { if (mountedRef.current) setPopularVideos([]); }
+      finally  { if (mountedRef.current) setLoadingPopular(false); }
     };
     fetch();
   }, [popularVisible, popularVideos.length]);
+
+  // ── New Uploads (lazy — 3rd lazy section) ─────────────────
+  useEffect(() => {
+    if (!newVisible || newVideos.length > 0) return;
+    const fetch = async () => {
+      setLoadingNew(true);
+      try {
+        const res  = await publicAPI.getVideos({
+          limit: POPULAR_COUNT, page: 2, sort: 'date', status: 'public',
+        });
+        const data = res?.data?.videos || res?.data || [];
+        if (mountedRef.current)
+          setNewVideos(sessionShuffle(Array.isArray(data) ? data : [], 'new_uploads'));
+      } catch { if (mountedRef.current) setNewVideos([]); }
+      finally  { if (mountedRef.current) setLoadingNew(false); }
+    };
+    fetch();
+  }, [newVisible, newVideos.length]);
 
   return (
     <>
       <Helmet>
         <title>Xmaster — Free Adult Videos, Indian MMS &amp; Desi Clips</title>
-        <meta
-          name="description"
-          content="Watch free adult videos, Indian MMS clips, desi XXX content and premium studio videos on Xmaster."
-        />
-        <meta
-          name="keywords"
-          content="free porn, indian mms, desi xxx, adult videos, bhabhi, tamil sex, telugu sex, xmaster"
-        />
-        <link rel="canonical" href="https://xmaster.guru" />
+        <meta name="description" content="Watch free adult videos, Indian MMS clips, desi XXX content and premium studio videos on Xmaster." />
+        <meta name="keywords"    content="free porn, indian mms, desi xxx, adult videos, bhabhi, tamil sex, telugu sex, xmaster" />
+        <link rel="canonical"    href="https://xmaster.guru" />
       </Helmet>
 
       <GlobalAdsLoader />
 
       <div className="min-h-screen bg-dark-400">
 
-        {/* Hero */}
+        {/* ── Hero ─────────────────────────────────────────── */}
         <section className="container-site pt-4 pb-6 sm:pt-6 sm:pb-8">
           <HeroSection videos={heroVideos} loading={loadingHero} />
         </section>
 
-        {/* Trending */}
+        {/* ── Trending Now ──────────────────────────────────── */}
         <section className="container-site pb-8 sm:pb-10">
           <SectionRow
             title="Trending Now"
@@ -331,21 +312,21 @@ const HomePage = () => {
             loading={loadingTrending}
             icon="trending"
             badge="HOT"
-            seeAllLink="/trending"
+            seeAllLink="/search?sort=views"
             seeAllLabel="View All"
             accentColor="#e11d48"
             skeletonCount={8}
           />
         </section>
 
-        {/* Mid ad */}
+        {/* ── Mid Ad ───────────────────────────────────────── */}
         <div className="container-site pb-8">
           <div className="flex justify-center">
             <AdSlot placement="home_mid" delay={3000} label />
           </div>
         </div>
 
-        {/* Featured */}
+        {/* ── Editor's Picks ────────────────────────────────── */}
         <section className="container-site pb-8 sm:pb-10">
           <SectionRow
             title="Editor's Picks"
@@ -359,31 +340,29 @@ const HomePage = () => {
           />
         </section>
 
-        {/* Premium studios */}
+        {/* ── Premium Studios ───────────────────────────────── */}
         {PREMIUM_SECTION_ENABLED && (
           <section className="container-site pb-8 sm:pb-10">
             <StudioRow title="Premium Studios" />
           </section>
         )}
 
-        {/* Desi */}
-        {FREE_SECTION_ENABLED && (
-          <section ref={desiRef} className="container-site pb-8 sm:pb-10">
-            <SectionRow
-              title="Desi Videos"
-              videos={desiVideos}
-              loading={loadingDesi}
-              icon="new"
-              badge="DESI"
-              accentColor="#10b981"
-              seeAllLink="/tag/desi"
-              seeAllLabel="All Desi"
-              skeletonCount={8}
-            />
-          </section>
-        )}
+        {/* ── Desi Videos (lazy) ───────────────────────────── */}
+        <section ref={desiRef} className="container-site pb-8 sm:pb-10">
+          <SectionRow
+            title="Desi Videos"
+            videos={desiVideos}
+            loading={loadingDesi}
+            icon="new"
+            badge="DESI"
+            accentColor="#10b981"
+            seeAllLink="/tag/desi"
+            seeAllLabel="All Desi"
+            skeletonCount={8}
+          />
+        </section>
 
-        {/* Most Watched */}
+        {/* ── Most Watched (lazy) ───────────────────────────── */}
         <div ref={popularRef}>
           <section className="container-site pb-8 sm:pb-10">
             <SectionRow
@@ -398,17 +377,39 @@ const HomePage = () => {
           </section>
         </div>
 
-        {/* Native ad before Latest */}
+        {/* ── Second Ad ─────────────────────────────────────── */}
+        <div className="container-site pb-8">
+          <div className="flex justify-center">
+            <AdSlot placement="home_mid" delay={5000} label />
+          </div>
+        </div>
+
+        {/* ── New Uploads (lazy) ───────────────────────────── */}
+        <div ref={newRef}>
+          <section className="container-site pb-8 sm:pb-10">
+            <SectionRow
+              title="New Uploads"
+              videos={newVideos}
+              loading={loadingNew}
+              icon="latest"
+              badge="NEW"
+              accentColor="#06b6d4"
+              seeAllLink="/search?sort=date"
+              skeletonCount={8}
+            />
+          </section>
+        </div>
+
+        {/* ── Native Ad ─────────────────────────────────────── */}
         <div className="container-site pb-8">
           <AdSlot placement="watch_native" delay={4000} label />
         </div>
 
-        {/* ── Latest Videos — paginated ──────────────────────── */}
+        {/* ── Latest Videos — Paginated Grid ───────────────── */}
         <section
           id="latest-videos-section"
           className="container-site pb-10 sm:pb-14"
         >
-          {/* Section header */}
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
               <div className="w-1 h-7 rounded-full bg-gradient-to-b from-primary-600 to-primary-800 flex-shrink-0" />
@@ -429,14 +430,12 @@ const HomePage = () => {
             </Link>
           </div>
 
-          {/* Ad-injected grid */}
           <VideoGridWithAds
             videos={latestVideos}
             loading={loadingLatest}
             skeletonCount={LATEST_PAGE_SIZE}
           />
 
-          {/* Pagination */}
           {!loadingLatest && latestTotal > 1 && (
             <div className="mt-10 flex justify-center">
               <Pagination
@@ -447,18 +446,17 @@ const HomePage = () => {
             </div>
           )}
 
-          {/* End-of-content — only shown on last page */}
-          {!loadingLatest &&
-            latestTotal > 0 &&
-            latestPage === latestTotal && (
-              <EndOfContent />
-            )}
+          {!loadingLatest && latestPage === latestTotal && latestTotal > 0 && (
+            <EndOfContent />
+          )}
         </section>
+
       </div>
     </>
   );
 };
 
+// ── End of content ─────────────────────────────────────────────
 const EndOfContent = () => (
   <div className="flex flex-col items-center py-12 mt-4">
     <div className="flex items-center gap-4 w-full max-w-sm mb-6">
@@ -468,18 +466,10 @@ const EndOfContent = () => (
       </div>
       <div className="flex-1 h-px bg-gradient-to-l from-transparent to-white/10" />
     </div>
-    <p className="text-sm font-medium text-white/30 mb-1">
-      You've reached the end
-    </p>
-    <p className="text-xs text-white/20 mb-6 text-center">
-      New content is added daily. Check back tomorrow!
-    </p>
-    <Link
-      to="/trending"
-      className="btn-secondary text-sm flex items-center gap-2"
-    >
-      <FiTrendingUp className="w-4 h-4" />
-      Explore Trending
+    <p className="text-sm font-medium text-white/30 mb-1">You've reached the end</p>
+    <p className="text-xs text-white/20 mb-6 text-center">New content is added daily. Check back tomorrow!</p>
+    <Link to="/search" className="btn-secondary text-sm flex items-center gap-2">
+      Browse More Videos
     </Link>
   </div>
 );
