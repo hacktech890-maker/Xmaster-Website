@@ -317,11 +317,13 @@ router.get('/:id', async (req, res) => {
 });
 
 // ============================================================
-// GET /api/videos/:id/related  (unchanged)
+// GET /api/videos/:id/related
 // ============================================================
 router.get('/:id/related', async (req, res) => {
   try {
     const { limit = 12, seed = '' } = req.query;
+
+    // FIX: fetch without populate so category is a plain ObjectId
     const video = await Video.findById(req.params.id).lean();
     if (!video) return res.status(404).json({ error: 'Video not found' });
 
@@ -329,75 +331,87 @@ router.get('/:id/related', async (req, res) => {
     const requestedLimit = parseInt(limit);
     let relatedVideos    = [];
     const baseMatch      = {
-      _id: { $ne: videoObjectId },
-      status: 'public',
+      _id:         { $ne: videoObjectId },
+      status:      'public',
       isDuplicate: { $ne: true },
     };
 
+    // FIX: safely convert category to ObjectId only if it exists and is valid
+    let categoryObjectId = null;
     if (video.category) {
+      const catStr = video.category.toString();
+      if (mongoose.Types.ObjectId.isValid(catStr)) {
+        categoryObjectId = new mongoose.Types.ObjectId(catStr);
+      }
+    }
+
+    // ── Step 1: same category videos ──────────────────────
+    if (categoryObjectId) {
       const categoryCount  = Math.ceil(requestedLimit * 0.4);
-      const catId          = new mongoose.Types.ObjectId(video.category);
       const categoryVideos = await Video.aggregate([
         {
           $match: {
             ...baseMatch,
             $or: [
-              { category:   catId },
-              { categories: catId }
-            ]
-          }
+              { category:   categoryObjectId },
+              { categories: categoryObjectId },
+            ],
+          },
         },
         { $sample: { size: categoryCount + 5 } },
       ]);
       relatedVideos.push(...categoryVideos.slice(0, categoryCount));
     }
 
+    // ── Step 2: same tags videos ───────────────────────────
     if (video.tags && video.tags.length > 0) {
-      const tagCount   = Math.ceil(requestedLimit * 0.3);
-      const existingIds = relatedVideos.map(v => v._id);
-      const tagVideos  = await Video.aggregate([
+      const tagCount    = Math.ceil(requestedLimit * 0.3);
+      const existingIds = relatedVideos.map((v) => v._id);
+      const tagVideos   = await Video.aggregate([
         {
           $match: {
             ...baseMatch,
             _id:  { $ne: videoObjectId, $nin: existingIds },
             tags: { $in: video.tags },
-          }
+          },
         },
         { $sample: { size: tagCount + 5 } },
       ]);
       relatedVideos.push(...tagVideos.slice(0, tagCount));
     }
 
+    // ── Step 3: fill remaining with random videos ──────────
     const remaining = requestedLimit - relatedVideos.length;
     if (remaining > 0) {
-      const existingIds   = [videoObjectId, ...relatedVideos.map(v => v._id)];
-      const randomVideos  = await Video.aggregate([
+      const existingIds  = [videoObjectId, ...relatedVideos.map((v) => v._id)];
+      const randomVideos = await Video.aggregate([
         {
           $match: {
             ...baseMatch,
             _id: { $nin: existingIds },
-          }
+          },
         },
         { $sample: { size: remaining + 5 } },
       ]);
       relatedVideos.push(...randomVideos.slice(0, remaining));
     }
 
+    // ── Deduplicate ────────────────────────────────────────
     const seenIds = new Set();
-    relatedVideos = relatedVideos.filter(v => {
+    relatedVideos = relatedVideos.filter((v) => {
       const idStr = v._id.toString();
       if (seenIds.has(idStr)) return false;
       seenIds.add(idStr);
       return true;
     });
 
-    const seedNum    = seed ? parseInt(seed) || Date.now() : Date.now();
-    let shuffleSeed  = seedNum;
+    // ── Shuffle with seed ──────────────────────────────────
+    const seedNum      = seed ? parseInt(seed) || Date.now() : Date.now();
+    let shuffleSeed    = seedNum;
     const pseudoRandom = () => {
       shuffleSeed = (shuffleSeed * 16807 + 0) % 2147483647;
       return shuffleSeed / 2147483647;
     };
-
     for (let i = relatedVideos.length - 1; i > 0; i--) {
       const j = Math.floor(pseudoRandom() * (i + 1));
       [relatedVideos[i], relatedVideos[j]] = [relatedVideos[j], relatedVideos[i]];
@@ -405,32 +419,46 @@ router.get('/:id/related', async (req, res) => {
 
     relatedVideos = relatedVideos.slice(0, requestedLimit);
 
-    const categoryIds = [...new Set(
-      relatedVideos
-        .map(v => v.category)
-        .filter(Boolean)
-        .map(c => c.toString())
-    )];
+    // ── Populate categories ────────────────────────────────
+    const categoryIds = [
+      ...new Set(
+        relatedVideos
+          .map((v) => v.category)
+          .filter(Boolean)
+          .map((c) => c.toString())
+      ),
+    ];
 
     let categoriesMap = {};
     if (categoryIds.length > 0) {
-      const cats = await Category.find({
-        _id: { $in: categoryIds.map(id => new mongoose.Types.ObjectId(id)) }
-      }).select('name slug color icon').lean();
-      cats.forEach(c => { categoriesMap[c._id.toString()] = c; });
+      // FIX: filter out any invalid ObjectId strings before querying
+      const validCatIds = categoryIds
+        .filter((id) => mongoose.Types.ObjectId.isValid(id))
+        .map((id) => new mongoose.Types.ObjectId(id));
+
+      if (validCatIds.length > 0) {
+        const cats = await Category.find({
+          _id: { $in: validCatIds },
+        })
+          .select('name slug color icon')
+          .lean();
+        cats.forEach((c) => {
+          categoriesMap[c._id.toString()] = c;
+        });
+      }
     }
 
-    relatedVideos = relatedVideos.map(v => ({
+    relatedVideos = relatedVideos.map((v) => ({
       ...v,
       category: v.category
-        ? (categoriesMap[v.category.toString()] || v.category)
+        ? categoriesMap[v.category.toString()] || null
         : null,
     }));
 
     res.json({ success: true, videos: relatedVideos });
   } catch (error) {
-    console.error('Get Related Error:', error);
-    res.status(500).json({ error: 'Failed to get related videos' });
+    console.error('Get Related Error:', error.message, error.stack);
+    res.status(500).json({ error: 'Failed to get related videos', message: error.message });
   }
 });
 
