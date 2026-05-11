@@ -1,6 +1,6 @@
 // src/components/video/VideoPlayer.jsx
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { FiPlay, FiAlertCircle, FiRefreshCw, FiMaximize2 } from 'react-icons/fi';
+import { FiPlay, FiAlertCircle, FiRefreshCw, FiMaximize2, FiClock } from 'react-icons/fi';
 
 // ============================================================
 // FULLSCREEN HELPER
@@ -13,9 +13,7 @@ const requestFullscreen = (el) => {
     if (el.webkitEnterFullscreen)   return el.webkitEnterFullscreen();
     if (el.mozRequestFullScreen)    return el.mozRequestFullScreen();
     if (el.msRequestFullscreen)     return el.msRequestFullscreen();
-  } catch (e) {
-    // ignore
-  }
+  } catch (e) { /* ignore */ }
 };
 
 const exitFullscreen = () => {
@@ -24,23 +22,19 @@ const exitFullscreen = () => {
     if (document.webkitExitFullscreen) return document.webkitExitFullscreen();
     if (document.mozCancelFullScreen)  return document.mozCancelFullScreen();
     if (document.msExitFullscreen)     return document.msExitFullscreen();
-  } catch (e) {
-    // ignore
-  }
+  } catch (e) { /* ignore */ }
 };
 
 const isFullscreenNow = () =>
   !!(
-    document.fullscreenElement ||
+    document.fullscreenElement       ||
     document.webkitFullscreenElement ||
-    document.mozFullScreenElement ||
+    document.mozFullScreenElement    ||
     document.msFullscreenElement
   );
 
 // ============================================================
 // PLAYER INTERACTION FLAG
-// Used by ad/popunder guard. We mark the player as "active"
-// before click handlers fire, without blocking React clicks.
 // ============================================================
 const markPlayerInteracting = () => {
   window.__playerInteracting = true;
@@ -55,23 +49,23 @@ const markPlayerInteracting = () => {
 // ============================================================
 const VideoPlayer = ({
   embedUrl,
-  title = '',
-  autoPlay = false,
+  fileCode  = null,
+  title     = '',
+  autoPlay  = false,
   className = '',
-  onLoad = null,
-  onError = null,
+  onLoad    = null,
+  onError   = null,
 }) => {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [started, setStarted] = useState(autoPlay);
+  const [loading,      setLoading]      = useState(true);
+  const [error,        setError]        = useState(false);
+  const [started,      setStarted]      = useState(autoPlay);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [retryCount,   setRetryCount]   = useState(0);
 
-  const iframeRef = useRef(null);
+  const iframeRef    = useRef(null);
   const containerRef = useRef(null);
 
   // ── Build embed URL ──────────────────────────────────────
-  // Keep short.icu as-is because your provider gives it as the
-  // official iframe embed URL.
   const buildEmbedUrl = (url) => {
     if (!url) return null;
     try {
@@ -84,6 +78,14 @@ const VideoPlayer = ({
   };
 
   const finalUrl = buildEmbedUrl(embedUrl);
+
+  // ── Reset error state when video changes ─────────────────
+  useEffect(() => {
+    setLoading(true);
+    setError(false);
+    setRetryCount(0);
+    setStarted(autoPlay);
+  }, [embedUrl, fileCode, autoPlay]);
 
   // ── Iframe handlers ──────────────────────────────────────
   const handleIframeLoad = () => {
@@ -98,31 +100,32 @@ const VideoPlayer = ({
     onError?.();
   };
 
-  const handleRetry = () => {
+  const handleRetry = useCallback(() => {
     setLoading(true);
     setError(false);
-    if (iframeRef.current) iframeRef.current.src = finalUrl;
-  };
+    setRetryCount((p) => p + 1);
+    // Force iframe reload by resetting src
+    if (iframeRef.current) {
+      iframeRef.current.src = 'about:blank';
+      setTimeout(() => {
+        if (iframeRef.current && finalUrl) {
+          iframeRef.current.src = finalUrl;
+        }
+      }, 300);
+    }
+  }, [finalUrl]);
 
   // ── Player interaction guard ─────────────────────────────
-  // IMPORTANT:
-  // Do NOT stopPropagation on click.
-  // That was blocking the play button.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-
-    const handler = () => {
-      markPlayerInteracting();
-    };
-
-    el.addEventListener('mousedown', handler, true);
-    el.addEventListener('touchstart', handler, true);
+    const handler = () => markPlayerInteracting();
+    el.addEventListener('mousedown',   handler, true);
+    el.addEventListener('touchstart',  handler, true);
     el.addEventListener('pointerdown', handler, true);
-
     return () => {
-      el.removeEventListener('mousedown', handler, true);
-      el.removeEventListener('touchstart', handler, true);
+      el.removeEventListener('mousedown',   handler, true);
+      el.removeEventListener('touchstart',  handler, true);
       el.removeEventListener('pointerdown', handler, true);
     };
   }, []);
@@ -130,25 +133,21 @@ const VideoPlayer = ({
   // ── Cleanup iframe src on unmount ────────────────────────
   useEffect(() => {
     const iframe = iframeRef.current;
-    return () => {
-      if (iframe) iframe.src = 'about:blank';
-    };
+    return () => { if (iframe) iframe.src = 'about:blank'; };
   }, []);
 
   // ── Fullscreen change listener ───────────────────────────
   useEffect(() => {
     const onFsChange = () => setIsFullscreen(isFullscreenNow());
-
-    document.addEventListener('fullscreenchange', onFsChange);
+    document.addEventListener('fullscreenchange',       onFsChange);
     document.addEventListener('webkitfullscreenchange', onFsChange);
-    document.addEventListener('mozfullscreenchange', onFsChange);
-    document.addEventListener('MSFullscreenChange', onFsChange);
-
+    document.addEventListener('mozfullscreenchange',    onFsChange);
+    document.addEventListener('MSFullscreenChange',     onFsChange);
     return () => {
-      document.removeEventListener('fullscreenchange', onFsChange);
+      document.removeEventListener('fullscreenchange',       onFsChange);
       document.removeEventListener('webkitfullscreenchange', onFsChange);
-      document.removeEventListener('mozfullscreenchange', onFsChange);
-      document.removeEventListener('MSFullscreenChange', onFsChange);
+      document.removeEventListener('mozfullscreenchange',    onFsChange);
+      document.removeEventListener('MSFullscreenChange',     onFsChange);
     };
   }, []);
 
@@ -157,12 +156,8 @@ const VideoPlayer = ({
     e.preventDefault();
     e.stopPropagation();
     markPlayerInteracting();
-
-    if (isFullscreenNow()) {
-      exitFullscreen();
-    } else {
-      requestFullscreen(containerRef.current);
-    }
+    if (isFullscreenNow()) exitFullscreen();
+    else requestFullscreen(containerRef.current);
   }, []);
 
   const handleStart = useCallback(() => {
@@ -172,7 +167,7 @@ const VideoPlayer = ({
     setError(false);
   }, []);
 
-  if (!embedUrl) return <NoVideoState className={className} />;
+  if (!embedUrl && !fileCode) return <NoVideoState className={className} />;
 
   return (
     <div
@@ -184,10 +179,7 @@ const VideoPlayer = ({
         ${isFullscreen ? 'rounded-none' : ''}
         ${className}
       `}
-      style={{
-        aspectRatio: '16/9',
-        overflow: 'visible',
-      }}
+      style={{ aspectRatio: '16/9', overflow: 'visible' }}
     >
       {/* Inner clip wrapper */}
       <div
@@ -196,10 +188,7 @@ const VideoPlayer = ({
       >
         {/* Click-to-play overlay */}
         {!started && (
-          <ClickToPlay
-            title={title}
-            onPlay={handleStart}
-          />
+          <ClickToPlay title={title} onPlay={handleStart} />
         )}
 
         {/* Loading */}
@@ -210,20 +199,53 @@ const VideoPlayer = ({
           </div>
         )}
 
-        {/* Error */}
+        {/* Error state — server temporarily down */}
         {error && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-dark-400 z-10">
-            <FiAlertCircle className="w-10 h-10 text-red-400/60 mb-3" />
-            <p className="text-sm text-white/50 mb-4 text-center px-4">
-              Failed to load video player
-            </p>
-            <button
-              onClick={handleRetry}
-              className="btn-secondary flex items-center gap-2 text-sm"
-            >
-              <FiRefreshCw className="w-4 h-4" />
-              Retry
-            </button>
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-dark-400 z-10 px-6">
+            {retryCount < 2 ? (
+              // First 2 retries — show retry button
+              <>
+                <FiAlertCircle className="w-10 h-10 text-red-400/60 mb-3" />
+                <p className="text-sm font-semibold text-white/60 mb-1 text-center">
+                  Failed to load video
+                </p>
+                <p className="text-xs text-white/30 mb-5 text-center leading-relaxed">
+                  The video server may be temporarily unavailable.
+                  Please try again.
+                </p>
+                <button
+                  onClick={handleRetry}
+                  className="btn-secondary flex items-center gap-2 text-sm"
+                >
+                  <FiRefreshCw className="w-4 h-4" />
+                  Retry
+                </button>
+              </>
+            ) : (
+              // After 2 retries — show "come back later" message
+              <>
+                <FiClock className="w-10 h-10 text-amber-400/60 mb-3" />
+                <p className="text-sm font-semibold text-white/60 mb-1 text-center">
+                  Video temporarily unavailable
+                </p>
+                <p className="text-xs text-white/30 mb-5 text-center leading-relaxed max-w-xs">
+                  Our video server is experiencing issues.
+                  Please check back in a few minutes.
+                </p>
+                <button
+                  onClick={handleRetry}
+                  className="
+                    flex items-center gap-2 px-4 py-2 rounded-xl text-xs
+                    font-medium text-white/40 border border-white/10
+                    hover:text-white/70 hover:border-white/20
+                    transition-all duration-200
+                  "
+                >
+                  <FiRefreshCw className="w-3.5 h-3.5" />
+                  Try again anyway
+                </button>
+              </>
+            )}
           </div>
         )}
 

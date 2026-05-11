@@ -1,2 +1,2 @@
-../frontend/src/pages/public/StudioPage.jsx
-../frontend/src/pages/admin/VideosManager.jsx
+../backend/abyssService.js
+../backend/server.js
