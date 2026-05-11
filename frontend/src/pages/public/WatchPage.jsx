@@ -429,7 +429,7 @@ const WatchPage = () => {
               </div>
 
               {/* Related videos */}
-              <div className="mt-10">
+              <div className="mt-10 related-videos-section">
                 <div className="h-px bg-white/[0.06] mb-8" />
                 <RelatedVideos
                   videos={relatedVideos}

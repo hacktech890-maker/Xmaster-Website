@@ -1,11 +1,11 @@
 // src/pages/admin/UploadPage.jsx
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import {
   FiUpload, FiDownload, FiCheck,
   FiX, FiAlertCircle, FiPlus,
   FiTrash2, FiRefreshCw, FiInfo, FiCode,
-  FiVideo, FiTag,
+  FiVideo, FiTag, FiFolder,
 } from 'react-icons/fi';
 import toast from 'react-hot-toast';
 
@@ -20,8 +20,66 @@ const TABS = [
 
 const DEFAULT_STATUS = 'private';
 
+// ============================================================
+// CATEGORY SELECT — shared across all tabs
+// Loads real categories from backend + shows Premium studios
+// ============================================================
+const CategorySelect = ({ value, onChange, categories }) => (
+  <div className="relative">
+    <FiFolder className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/25 pointer-events-none" />
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="appearance-none input-base pl-9 pr-8 cursor-pointer"
+    >
+      <option value="" className="bg-dark-300">No Category</option>
+      {categories.length > 0 && (
+        <>
+          <optgroup label="── Categories ──" className="bg-dark-300 text-white/40" />
+          {categories.map((cat) => (
+            <option key={cat._id} value={cat._id} className="bg-dark-300">
+              {cat.icon ? `${cat.icon} ` : ''}{cat.name}
+            </option>
+          ))}
+        </>
+      )}
+    </select>
+    <ChevronDownIcon className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/30 pointer-events-none" />
+  </div>
+);
+
+// ============================================================
+// HOOK — load categories once, share across tabs
+// ============================================================
+const useCategories = () => {
+  const [categories, setCategories] = useState([]);
+  const [loadingCats, setLoadingCats] = useState(false);
+
+  useEffect(() => {
+    const load = async () => {
+      setLoadingCats(true);
+      try {
+        const res  = await adminAPI.getCategories?.() || { data: [] };
+        const data = res?.data?.categories || res?.data || [];
+        setCategories(Array.isArray(data) ? data : []);
+      } catch {
+        // non-critical — category field just won't be pre-filled
+      } finally {
+        setLoadingCats(false);
+      }
+    };
+    load();
+  }, []);
+
+  return { categories, loadingCats };
+};
+
+// ============================================================
+// UPLOAD PAGE
+// ============================================================
 const UploadPage = () => {
   const [activeTab, setActiveTab] = useState('file');
+  const { categories, loadingCats } = useCategories();
 
   return (
     <AdminLayout title="Upload Content">
@@ -39,19 +97,23 @@ const UploadPage = () => {
           ))}
         </div>
         <div className="animate-fade-in">
-          {activeTab === 'file'  && <FileUploadTab  />}
-          {activeTab === 'code'  && <FileCodeTab    />}
-          {activeTab === 'abyss' && <AbyssImportTab />}
+          {activeTab === 'file'  && <FileUploadTab  categories={categories} loadingCats={loadingCats} />}
+          {activeTab === 'code'  && <FileCodeTab    categories={categories} loadingCats={loadingCats} />}
+          {activeTab === 'abyss' && <AbyssImportTab categories={categories} loadingCats={loadingCats} />}
         </div>
       </div>
     </AdminLayout>
   );
 };
 
-const FileUploadTab = () => {
+// ============================================================
+// FILE UPLOAD TAB
+// ============================================================
+const FileUploadTab = ({ categories, loadingCats }) => {
   const [file,      setFile]      = useState(null);
   const [title,     setTitle]     = useState('');
   const [tags,      setTags]      = useState('');
+  const [category,  setCategory]  = useState('');
   const [status,    setStatus]    = useState(DEFAULT_STATUS);
   const [uploading, setUploading] = useState(false);
   const [progress,  setProgress]  = useState(0);
@@ -90,6 +152,8 @@ const FileUploadTab = () => {
     formData.append('title',  title.trim());
     formData.append('tags',   tags.trim());
     formData.append('status', status);
+    // Include category if selected
+    if (category) formData.append('category', category);
 
     try {
       await adminAPI.uploadVideo(formData, (pct) => setProgress(pct));
@@ -103,7 +167,7 @@ const FileUploadTab = () => {
   };
 
   const handleReset = () => {
-    setFile(null); setTitle(''); setTags('');
+    setFile(null); setTitle(''); setTags(''); setCategory('');
     setStatus(DEFAULT_STATUS); setProgress(0); setDone(false); setError('');
   };
 
@@ -127,6 +191,7 @@ const FileUploadTab = () => {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {/* Drop zone */}
       <div
         {...getRootProps()}
         className={`glass-panel rounded-2xl p-8 sm:p-12 border-2 border-dashed cursor-pointer text-center transition-all duration-250 ${isDragActive ? 'border-primary-600/60 bg-primary-600/[0.08]' : file ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-white/10 hover:border-white/25 hover:bg-white/[0.03]'}`}
@@ -159,6 +224,7 @@ const FileUploadTab = () => {
         )}
       </div>
 
+      {/* Upload progress */}
       {uploading && (
         <div className="glass-panel rounded-xl p-4 space-y-2">
           <div className="flex items-center justify-between text-xs">
@@ -187,6 +253,14 @@ const FileUploadTab = () => {
             <input type="text" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="tag1, tag2, tag3" className="input-base pl-9" />
           </div>
         </FormField>
+        {/* NEW: Category / Section selector */}
+        <FormField label="Category / Section" hint={loadingCats ? 'Loading...' : `${categories.length} available`}>
+          <CategorySelect
+            value={category}
+            onChange={setCategory}
+            categories={categories}
+          />
+        </FormField>
         <FormField label="Status">
           <StatusSelect value={status} onChange={setStatus} />
         </FormField>
@@ -207,13 +281,16 @@ const FileUploadTab = () => {
   );
 };
 
-const FileCodeTab = () => {
-  const [rows,       setRows]       = useState([{ fileCode: '', title: '', tags: '', status: DEFAULT_STATUS }]);
+// ============================================================
+// FILE CODE TAB
+// ============================================================
+const FileCodeTab = ({ categories, loadingCats }) => {
+  const [rows,       setRows]       = useState([{ fileCode: '', title: '', tags: '', category: '', status: DEFAULT_STATUS }]);
   const [submitting, setSubmitting] = useState(false);
   const [results,    setResults]    = useState([]);
   const [error,      setError]      = useState('');
 
-  const addRow    = () => setRows((p) => [...p, { fileCode: '', title: '', tags: '', status: DEFAULT_STATUS }]);
+  const addRow    = () => setRows((p) => [...p, { fileCode: '', title: '', tags: '', category: '', status: DEFAULT_STATUS }]);
   const removeRow = (i) => setRows((p) => p.filter((_, idx) => idx !== i));
   const updateRow = (i, field, val) => setRows((p) => p.map((r, idx) => idx === i ? { ...r, [field]: val } : r));
 
@@ -227,17 +304,32 @@ const FileCodeTab = () => {
 
     try {
       if (valid.length === 1) {
-        await adminAPI.addByFileCode({ fileCode: valid[0].fileCode.trim(), title: valid[0].title.trim(), tags: valid[0].tags.trim(), status: valid[0].status });
+        await adminAPI.addByFileCode({
+          fileCode: valid[0].fileCode.trim(),
+          title:    valid[0].title.trim(),
+          tags:     valid[0].tags.trim(),
+          status:   valid[0].status,
+          // Include category if selected
+          ...(valid[0].category ? { category: valid[0].category } : {}),
+        });
         setResults([{ success: true, fileCode: valid[0].fileCode }]);
         toast.success('Video added successfully!');
       } else {
-        const res  = await adminAPI.bulkAddFileCodes(valid.map((r) => ({ fileCode: r.fileCode.trim(), title: r.title.trim(), tags: r.tags.trim(), status: r.status })));
+        const res  = await adminAPI.bulkAddFileCodes(
+          valid.map((r) => ({
+            fileCode: r.fileCode.trim(),
+            title:    r.title.trim(),
+            tags:     r.tags.trim(),
+            status:   r.status,
+            ...(r.category ? { category: r.category } : {}),
+          }))
+        );
         const data = res?.data?.results || [];
         setResults(data);
         const successCount = data.filter((r) => r.success).length;
         toast.success(`${successCount}/${data.length} videos added`);
       }
-      setRows([{ fileCode: '', title: '', tags: '', status: DEFAULT_STATUS }]);
+      setRows([{ fileCode: '', title: '', tags: '', category: '', status: DEFAULT_STATUS }]);
     } catch (err) {
       setError(err?.response?.data?.message || 'Failed to add videos');
     } finally {
@@ -299,6 +391,14 @@ const FileCodeTab = () => {
               <FormField label="Tags">
                 <input type="text" value={row.tags} onChange={(e) => updateRow(i, 'tags', e.target.value)} placeholder="tag1, tag2" className="input-base" />
               </FormField>
+              {/* NEW: Category selector per row */}
+              <FormField label="Category / Section" hint={loadingCats ? 'Loading...' : undefined}>
+                <CategorySelect
+                  value={row.category}
+                  onChange={(v) => updateRow(i, 'category', v)}
+                  categories={categories}
+                />
+              </FormField>
               <FormField label="Status">
                 <StatusSelect value={row.status} onChange={(v) => updateRow(i, 'status', v)} />
               </FormField>
@@ -325,13 +425,18 @@ const FileCodeTab = () => {
   );
 };
 
-const AbyssImportTab = () => {
-  const [abyssFiles, setAbyssFiles] = useState([]);
-  const [loading,    setLoading]    = useState(false);
-  const [importing,  setImporting]  = useState(new Set());
-  const [imported,   setImported]   = useState(new Set());
-  const [error,      setError]      = useState('');
-  const [search,     setSearch]     = useState('');
+// ============================================================
+// ABYSS IMPORT TAB
+// ============================================================
+const AbyssImportTab = ({ categories, loadingCats }) => {
+  const [abyssFiles,    setAbyssFiles]    = useState([]);
+  const [loading,       setLoading]       = useState(false);
+  const [importing,     setImporting]     = useState(new Set());
+  const [imported,      setImported]      = useState(new Set());
+  const [error,         setError]         = useState('');
+  const [search,        setSearch]        = useState('');
+  // NEW: global category for abyss batch import
+  const [batchCategory, setBatchCategory] = useState('');
 
   const loadAbyssFiles = async () => {
     setLoading(true);
@@ -350,7 +455,13 @@ const AbyssImportTab = () => {
   const importFile = async (file) => {
     setImporting((p) => new Set([...p, file.file_code]));
     try {
-      await adminAPI.addByFileCode({ fileCode: file.file_code, title: file.title || file.name || '', status: DEFAULT_STATUS });
+      await adminAPI.addByFileCode({
+        fileCode: file.file_code,
+        title:    file.title || file.name || '',
+        status:   DEFAULT_STATUS,
+        // Apply batch category if selected
+        ...(batchCategory ? { category: batchCategory } : {}),
+      });
       setImported((p) => new Set([...p, file.file_code]));
       toast.success(`"${file.title || file.file_code}" imported`);
     } catch {
@@ -387,13 +498,24 @@ const AbyssImportTab = () => {
 
       {abyssFiles.length > 0 && (
         <div className="glass-panel rounded-2xl overflow-hidden">
-          <div className="flex items-center gap-3 p-4 border-b border-white/[0.06]">
-            <div className="relative flex-1">
-              <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 pointer-events-none" />
-              <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search files..." className="input-base pl-9 h-9 text-sm" />
+          <div className="p-4 border-b border-white/[0.06] space-y-3">
+            {/* NEW: Batch category selector for all imports */}
+            <FormField label="Assign Category to All Imports" hint={loadingCats ? 'Loading...' : `${categories.length} categories`}>
+              <CategorySelect
+                value={batchCategory}
+                onChange={setBatchCategory}
+                categories={categories}
+              />
+            </FormField>
+            <div className="flex items-center gap-3">
+              <div className="relative flex-1">
+                <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 pointer-events-none" />
+                <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search files..." className="input-base pl-9 h-9 text-sm" />
+              </div>
+              <span className="text-xs text-white/30 whitespace-nowrap">{filtered.length} / {abyssFiles.length} files</span>
             </div>
-            <span className="text-xs text-white/30 whitespace-nowrap">{filtered.length} / {abyssFiles.length} files</span>
           </div>
+
           <div className="divide-y divide-white/5 max-h-[500px] overflow-y-auto">
             {filtered.map((file) => {
               const isImporting = importing.has(file.file_code);
@@ -424,6 +546,9 @@ const AbyssImportTab = () => {
   );
 };
 
+// ============================================================
+// SHARED UI COMPONENTS (unchanged)
+// ============================================================
 const FormField = ({ label, hint, children }) => (
   <div className="space-y-1.5">
     <label className="text-xs font-semibold text-white/40 uppercase tracking-widest flex items-center gap-2">

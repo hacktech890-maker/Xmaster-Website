@@ -158,8 +158,11 @@ const VideoCard = ({
     triggerOnce: true,
   });
 
-  const s            = CARD_SIZES[size] || CARD_SIZES.default;
-  const staggerDelay = Math.min(index * 50, 500);
+  const s = CARD_SIZES[size] || CARD_SIZES.default;
+
+  // FIX: Only stagger first 8 cards — prevents long animation delays
+  // blocking mobile taps on cards further down the grid
+  const staggerDelay = index < 8 ? Math.min(index * 50, 350) : 0;
 
   if (!video) return null;
 
@@ -176,19 +179,20 @@ const VideoCard = ({
   return (
     <div
       ref={intersectRef}
-      className={`
-        group relative ${s.card} animate-fade-in-up ${className}
-      `}
+      className={`group relative ${s.card} animate-fade-in-up ${className}`}
       style={{
         animationDelay:    `${staggerDelay}ms`,
         animationFillMode: 'both',
       }}
     >
+      {/* FIX: Use anchor-style Link with explicit touch-action and
+          z-index to ensure mobile taps are never blocked */}
       <Link
         to={watchUrl}
-        className="block"
+        className="block relative z-10"
         tabIndex={0}
         aria-label={`Watch ${title}`}
+        style={{ WebkitTapHighlightColor: 'transparent' }}
       >
         {/* ── THUMBNAIL ───────────────────────────────────── */}
         <div
@@ -221,16 +225,16 @@ const VideoCard = ({
             <div className="absolute inset-0 skeleton-shimmer bg-dark-300" />
           )}
 
-          {/* Static top gradient */}
+          {/* Static top gradient — pointer-events-none so it never blocks taps */}
           <div className="absolute inset-x-0 top-0 h-14 bg-gradient-to-b from-black/50 to-transparent pointer-events-none z-[1]" />
 
-          {/* Static bottom gradient */}
+          {/* Static bottom gradient — pointer-events-none so it never blocks taps */}
           <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/60 to-transparent pointer-events-none z-[1]" />
 
-          {/* Hover tint overlay */}
+          {/* Hover tint overlay — pointer-events-none, never blocks taps */}
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-300 pointer-events-none z-[2]" />
 
-          {/* Play icon on hover */}
+          {/* Play icon on hover — pointer-events-none, never blocks taps */}
           <div className="
             absolute inset-0 flex items-center justify-center
             pointer-events-none z-[3]
@@ -249,7 +253,7 @@ const VideoCard = ({
             </div>
           </div>
 
-          {/* Badges */}
+          {/* Badges — pointer-events-none, never blocks taps */}
           <ThumbnailBadges
             isHD={isHD}
             qualityLabel={qualityLabel}
@@ -313,10 +317,10 @@ const VideoCard = ({
             )}
           </div>
 
-          {/* Tag chips on hover */}
+          {/* Tag chips — hidden on mobile to avoid layout issues */}
           {video.tags && video.tags.length > 0 && size !== 'small' && size !== 'wide' && (
             <div className="
-              flex gap-1.5 mt-2 overflow-hidden flex-wrap
+              hidden sm:flex gap-1.5 mt-2 overflow-hidden flex-wrap
               opacity-0 max-h-0
               group-hover:opacity-100 group-hover:max-h-8
               transition-all duration-300

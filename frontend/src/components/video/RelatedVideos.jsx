@@ -26,7 +26,7 @@ const RelatedVideos = ({
   //   'sidebar'  — compact horizontal cards (desktop right column)
   //   'grid'     — 2/3/4 col grid cards
   //   'row'      — horizontal scroll
-  //   'unified'  — NEW: responsive grid, up to 50 videos, below player
+  //   'unified'  — responsive grid, up to 50 videos, below player
   layout    = 'sidebar',
   maxItems  = 50,
   className = '',
@@ -94,16 +94,22 @@ const RelatedVideos = ({
     return null;
   }
 
-  // ── Unified layout (NEW — replaces "Up Next" + "More Like This") ──
+  // ── Unified layout ─────────────────────────────────────────
   if (layout === 'unified') {
     return (
       <div className={className}>
         <SectionHeader title={title} />
 
-        <div className="
-          grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4
-          gap-3 sm:gap-4 mt-4
-        ">
+        {/*
+          FIX: Added touch-action manipulation on the grid container
+          and position relative + z-index to ensure cards are
+          always the topmost tappable elements on mobile.
+          Removed any overflow that could clip tap targets.
+        */}
+        <div
+          className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 sm:gap-4 mt-4"
+          style={{ touchAction: 'pan-y', position: 'relative', zIndex: 1 }}
+        >
           {displayVideos.map((video, i) => (
             <VideoCard
               key={video._id || i}
@@ -119,6 +125,7 @@ const RelatedVideos = ({
         {!showAll && videos.length > displayVideos.length && (
           <button
             onClick={() => setShowAll(true)}
+            style={{ touchAction: 'manipulation' }}
             className="
               w-full mt-6 py-3 rounded-xl
               text-sm font-medium text-white/50
@@ -157,6 +164,7 @@ const RelatedVideos = ({
         {videos.length > displayVideos.length && (
           <button
             onClick={() => setShowAll(true)}
+            style={{ touchAction: 'manipulation' }}
             className="
               w-full mt-3 py-2.5 rounded-xl
               text-xs font-medium text-white/40

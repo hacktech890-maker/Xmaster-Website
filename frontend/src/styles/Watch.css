@@ -53,3 +53,43 @@
     transform: rotate(360deg);
   }
 }
+
+/* ============================================================
+   MOBILE TAP FIX — Related Videos / More Like This
+   Ensures all video cards in the related grid are tappable
+   on Android and iOS without interference from overlays,
+   ad iframes, or animation fill-mode blocking events.
+   ============================================================ */
+@media (max-width: 767px) {
+  /* Related videos section sits above any ad iframes */
+  .related-videos-section {
+    position: relative;
+    z-index: 10;
+  }
+
+  /* Every video card link must be fully tappable */
+  .related-videos-section a {
+    display: block;
+    position: relative;
+    z-index: 11;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    cursor: pointer;
+  }
+
+  /* Guarantee no invisible overlay sits on top of cards */
+  .related-videos-section .group > *:not(a) {
+    pointer-events: none;
+  }
+
+  /* Prevent ad iframes from capturing touch events
+     that belong to the video grid area */
+  .ad-slot iframe,
+  .ad-content iframe {
+    pointer-events: auto;
+    touch-action: auto;
+    /* Keep ads below the video card grid */
+    position: relative;
+    z-index: 1;
+  }
+}

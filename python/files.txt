@@ -1,3 +1,2 @@
-../frontend/src/components/video/VideoPlayer.jsx
-../frontend/src/pages/public/WatchPage.jsx
-../frontend/src/styles/Watch.css
+../frontend/src/pages/public/StudioPage.jsx
+../frontend/src/pages/admin/VideosManager.jsx
