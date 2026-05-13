@@ -10,20 +10,21 @@ const videoSchema = new mongoose.Schema(
     },
 
     // ============================
-    // ABYSS SLUG (new primary key for embed)
-    // Extracted from upload response or URL
+    // ABYSS SLUG
+    // The slug extracted from upload response
     // Example: "A74YgdC0_"
+    // Used to build: https://abyssplayer.com/{abyssSlug}
     // ============================
     abyssSlug: {
       type: String,
       default: "",
-      index: true,
+      // index defined below in videoSchema.index() — not here
     },
 
     // ============================
     // EMBED URL
-    // Always: https://abyssplayer.com/{slug}
-    // Auto-generated from abyssSlug or file_code
+    // Canonical: https://abyssplayer.com/{slug}
+    // Auto-generated in pre-save from abyssSlug or file_code
     // ============================
     embedUrl: {
       type: String,
@@ -134,13 +135,13 @@ const videoSchema = new mongoose.Schema(
     },
 
     sharePlatforms: {
-      telegram:  { type: Number, default: 0 },
-      whatsapp:  { type: Number, default: 0 },
-      facebook:  { type: Number, default: 0 },
-      twitter:   { type: Number, default: 0 },
-      copy:      { type: Number, default: 0 },
-      native:    { type: Number, default: 0 },
-      unknown:   { type: Number, default: 0 },
+      telegram: { type: Number, default: 0 },
+      whatsapp: { type: Number, default: 0 },
+      facebook: { type: Number, default: 0 },
+      twitter:  { type: Number, default: 0 },
+      copy:     { type: Number, default: 0 },
+      native:   { type: Number, default: 0 },
+      unknown:  { type: Number, default: 0 },
     },
 
     sharedOnTG: {
@@ -163,6 +164,8 @@ const videoSchema = new mongoose.Schema(
 
     // ============================
     // PREMIUM FLAG
+    // isPremium: true  → video appears ONLY in Premium section
+    // isPremium: false → video appears in public/free section (default)
     // ============================
     isPremium: {
       type: Boolean,
@@ -212,7 +215,7 @@ const videoSchema = new mongoose.Schema(
 
     // ============================
     // FUTURE: WATERMARK / CUSTOM DOMAIN
-    // Fields prepared — UI not yet implemented
+    // Prepared for future UI — not yet implemented
     // ============================
     watermarkLogo: {
       type: String,
@@ -241,86 +244,64 @@ const videoSchema = new mongoose.Schema(
 // VIRTUALS
 // ==========================================
 
-/**
- * bestThumbnail — preferred thumbnail URL
- */
 videoSchema.virtual("bestThumbnail").get(function () {
   return this.thumbnailUrl || this.thumbnail || "";
 });
 
 /**
- * resolvedEmbedUrl — always returns a valid abyssplayer.com URL
- * Handles backward compat with old short.icu / short.ink / abyss.to formats
+ * resolvedEmbedUrl — always returns a valid abyssplayer.com URL.
+ * Handles backward compat with old short.icu / short.ink / abyss.to formats.
+ * Used by frontend via the API response.
  */
 videoSchema.virtual("resolvedEmbedUrl").get(function () {
-  // 1. Use stored embedUrl if it's already the new format
+  // 1. Already the new format
   if (this.embedUrl && this.embedUrl.includes("abyssplayer.com")) {
     return this.embedUrl;
   }
-
-  // 2. Use abyssSlug if available
+  // 2. Use abyssSlug
   if (this.abyssSlug) {
     return `https://abyssplayer.com/${this.abyssSlug}`;
   }
-
-  // 3. Try to normalize embed_code (legacy)
+  // 3. Normalize embed_code (legacy)
   if (this.embed_code) {
-    const slug = extractSlugFromUrl(this.embed_code);
+    const slug = _extractSlug(this.embed_code);
     if (slug) return `https://abyssplayer.com/${slug}`;
   }
-
-  // 4. Try to normalize embedUrl (legacy format)
+  // 4. Normalize embedUrl (legacy format)
   if (this.embedUrl) {
-    const slug = extractSlugFromUrl(this.embedUrl);
+    const slug = _extractSlug(this.embedUrl);
     if (slug) return `https://abyssplayer.com/${slug}`;
   }
-
-  // 5. Fall back to file_code as slug
+  // 5. Fall back to file_code
   if (this.file_code) {
     return `https://abyssplayer.com/${this.file_code}`;
   }
-
   return "";
 });
 
 // ==========================================
-// HELPER: Extract slug from any legacy URL
+// PRIVATE HELPER — extract slug from URL
 // ==========================================
-function extractSlugFromUrl(input) {
+function _extractSlug(input) {
   if (!input || typeof input !== "string") return null;
 
   // Handle iframe embed HTML
   const iframeSrcMatch = input.match(/src=["']([^"']+)["']/i);
-  if (iframeSrcMatch) {
-    return extractSlugFromUrl(iframeSrcMatch[1]);
-  }
+  if (iframeSrcMatch) return _extractSlug(iframeSrcMatch[1]);
 
   try {
-    // Normalize to URL object
     let url = input.trim();
     if (!url.startsWith("http")) url = "https://" + url;
-
-    const parsed = new URL(url);
+    const parsed   = new URL(url);
     const hostname = parsed.hostname.toLowerCase();
-
-    // Already new format
-    if (hostname === "abyssplayer.com") {
-      return parsed.pathname.replace(/^\//, "").split("/")[0] || null;
-    }
-
-    // Old formats
-    const oldHosts = [
-      "short.icu",
-      "short.ink",
-      "abyss.to",
-      "www.abyss.to",
-    ];
+    const oldHosts = ["short.icu", "short.ink", "abyss.to", "www.abyss.to", "abyssplayer.com", "www.abyssplayer.com"];
     if (oldHosts.some((h) => hostname === h || hostname.endsWith("." + h))) {
       return parsed.pathname.replace(/^\//, "").split("/")[0] || null;
     }
   } catch {
-    // Not a URL — might be a raw slug
-    if (/^[A-Za-z0-9_\-]{4,32}$/.test(input.trim())) {
+    // Not a URL — check if raw slug
+    // dash at end of character class, no escape needed
+    if (/^[A-Za-z0-9_-]{4,32}$/.test(input.trim())) {
       return input.trim();
     }
   }
@@ -343,19 +324,16 @@ videoSchema.pre("save", function (next) {
       this.file_code.substring(0, 8);
   }
 
-  // Derive abyssSlug from multiple sources
+  // Derive abyssSlug from multiple sources (priority order)
   if (!this.abyssSlug) {
-    // Try embedUrl first
     if (this.embedUrl) {
-      const s = extractSlugFromUrl(this.embedUrl);
+      const s = _extractSlug(this.embedUrl);
       if (s) this.abyssSlug = s;
     }
-    // Try embed_code (legacy)
     if (!this.abyssSlug && this.embed_code) {
-      const s = extractSlugFromUrl(this.embed_code);
+      const s = _extractSlug(this.embed_code);
       if (s) this.abyssSlug = s;
     }
-    // Fall back to file_code
     if (!this.abyssSlug && this.file_code) {
       this.abyssSlug = this.file_code;
     }
@@ -421,15 +399,14 @@ videoSchema.pre(
 );
 
 // ==========================================
-// Indexes
+// Indexes — NO duplicates
 // ==========================================
 videoSchema.index({ title: "text", tags: "text", description: "text" });
 videoSchema.index({ shares: -1 });
 videoSchema.index({ "sharePlatforms.telegram": -1 });
 videoSchema.index({ categories: 1 });
 videoSchema.index({ isPremium: 1, status: 1, uploadDate: -1 });
+// Single index for abyssSlug — do NOT also set index:true on the field itself
 videoSchema.index({ abyssSlug: 1 });
 
-// Export the slug extractor so other modules can reuse it
 module.exports = mongoose.model("Video", videoSchema);
-module.exports.extractSlugFromUrl = extractSlugFromUrl;

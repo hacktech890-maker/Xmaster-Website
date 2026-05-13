@@ -137,8 +137,9 @@ export const extractAbyssSlug = (input) => {
     // Not a URL — fall through
   }
 
-  // 3. Raw slug: alphanumeric + underscore/dash, 4–40 chars
-  if (/^[A-Za-z0-9_\-]{4,40}$/.test(trimmed)) {
+  // 3. Raw slug: alphanumeric + underscore + dash, 4-40 chars
+  // FIX: dash must be at start or end of character class to avoid escape warning
+  if (/^[A-Za-z0-9_-]{4,40}$/.test(trimmed)) {
     return trimmed;
   }
 
@@ -250,10 +251,12 @@ const PLACEHOLDER_SVG = `data:image/svg+xml;base64,${btoa(`
 /**
  * Get thumbnail URL for a video.
  * Priority:
- *   1. Direct HTTP URL (Cloudinary or external)
- *   2. abyss.to splash from thumbnail code
- *   3. abyss.to splash from file_code / abyssSlug
- *   4. SVG placeholder
+ *   1. thumbnailUrl (Cloudinary preferred)
+ *   2. thumbnail as direct HTTP URL (Cloudinary)
+ *   3. thumbnail as short code → abyss.to splash
+ *   4. abyssSlug → abyss.to splash
+ *   5. file_code → abyss.to splash
+ *   6. SVG placeholder
  *
  * @param {object} video
  * @returns {string}
