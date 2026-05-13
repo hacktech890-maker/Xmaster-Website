@@ -23,27 +23,35 @@ const simpleAdminAuth = (req, res, next) => {
 };
 
 // GET /api/categories
+// Supports: ?all=true (include inactive), ?premium=true (premium only), ?premium=false (public only)
 router.get('/', async (req, res) => {
   try {
-    const { all } = req.query;
+    const { all, premium } = req.query;
     const query = all === 'true' ? {} : { isActive: true };
+
+    // Filter by premium flag if specified
+    if (premium === 'true')  query.isPremium = true;
+    if (premium === 'false') query.isPremium = { $ne: true };
+
     const categories = await Category.find(query).sort({ order: 1, name: 1 }).lean();
 
-    // Get video counts for each category
+    // Get video counts — premium categories count premium videos, public count public videos
     const categoriesWithCounts = await Promise.all(
       categories.map(async (cat) => {
-        const count = await Video.countDocuments({
-          $or: [
-            { category: cat._id },
-            { categories: cat._id }
-          ],
-          status: 'public',
-          isDuplicate: { $ne: true }
-        });
-        return {
-          ...cat,
-          videoCount: count,
+        const videoQuery = {
+          $or: [{ category: cat._id }, { categories: cat._id }],
+          isDuplicate: { $ne: true },
         };
+        // Count only the matching visibility type
+        if (cat.isPremium) {
+          videoQuery.isPremium = true;
+          videoQuery.status = 'public';
+        } else {
+          videoQuery.isPremium = { $ne: true };
+          videoQuery.status = 'public';
+        }
+        const count = await Video.countDocuments(videoQuery);
+        return { ...cat, videoCount: count };
       })
     );
 
@@ -60,19 +68,19 @@ router.get('/:slug', async (req, res) => {
     const category = await Category.findOne({ slug: req.params.slug, isActive: true }).lean();
     if (!category) return res.status(404).json({ error: 'Category not found' });
 
-    const videoCount = await Video.countDocuments({
-      $or: [
-        { category: category._id },
-        { categories: category._id }
-      ],
+    const videoQuery = {
+      $or: [{ category: category._id }, { categories: category._id }],
       status: 'public',
-      isDuplicate: { $ne: true }
-    });
+      isDuplicate: { $ne: true },
+    };
+    if (category.isPremium) {
+      videoQuery.isPremium = true;
+    } else {
+      videoQuery.isPremium = { $ne: true };
+    }
 
-    res.json({
-      success: true,
-      category: { ...category, videoCount }
-    });
+    const videoCount = await Video.countDocuments(videoQuery);
+    res.json({ success: true, category: { ...category, videoCount } });
   } catch (error) {
     console.error('Get Category Error:', error);
     res.status(500).json({ error: 'Failed to get category' });
@@ -80,6 +88,7 @@ router.get('/:slug', async (req, res) => {
 });
 
 // GET /api/categories/:slug/videos
+// Respects isPremium on the category — premium categories serve premium videos only
 router.get('/:slug/videos', async (req, res) => {
   try {
     const { page = 1, limit = 20, sort = 'newest' } = req.query;
@@ -87,13 +96,16 @@ router.get('/:slug/videos', async (req, res) => {
     if (!category) return res.status(404).json({ error: 'Category not found' });
 
     const videoQuery = {
-      $or: [
-        { category: category._id },
-        { categories: category._id }
-      ],
+      $or: [{ category: category._id }, { categories: category._id }],
       status: 'public',
-      isDuplicate: { $ne: true }
+      isDuplicate: { $ne: true },
     };
+    // Strictly separate: premium categories only show premium videos
+    if (category.isPremium) {
+      videoQuery.isPremium = true;
+    } else {
+      videoQuery.isPremium = { $ne: true };
+    }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     let videos;
@@ -113,24 +125,22 @@ router.get('/:slug/videos', async (req, res) => {
           }
         },
         {
-          $addFields: {
-            category: { $arrayElemAt: ['$categoryData', 0] }
-          }
+          $addFields: { category: { $arrayElemAt: ['$categoryData', 0] } }
         },
         { $project: { categoryData: 0 } }
       ]);
     } else {
       let sortOption = {};
       switch (sort) {
-        case 'oldest': sortOption = { uploadDate: 1 }; break;
-        case 'views': sortOption = { views: -1 }; break;
-        default: sortOption = { uploadDate: -1 };
+        case 'oldest': sortOption = { uploadDate: 1 };  break;
+        case 'views':  sortOption = { views: -1 };      break;
+        default:       sortOption = { uploadDate: -1 };
       }
 
       [videos, total] = await Promise.all([
         Video.find(videoQuery)
-          .populate('category', 'name slug color icon')
-          .populate('categories', 'name slug color icon')
+          .populate('category',   'name slug color icon isPremium')
+          .populate('categories', 'name slug color icon isPremium')
           .sort(sortOption)
           .skip(skip)
           .limit(parseInt(limit))
@@ -159,7 +169,7 @@ router.get('/:slug/videos', async (req, res) => {
 // POST /api/categories (Admin - single)
 router.post('/', simpleAdminAuth, async (req, res) => {
   try {
-    const { name, description, thumbnail, icon, color, type } = req.body;
+    const { name, description, thumbnail, icon, color, type, isPremium } = req.body;
     if (!name) return res.status(400).json({ error: 'Category name is required' });
 
     const existing = await Category.findOne({ name: { $regex: new RegExp(`^${name}$`, 'i') } });
@@ -168,10 +178,11 @@ router.post('/', simpleAdminAuth, async (req, res) => {
     const category = await Category.create({
       name,
       description: description || '',
-      thumbnail: thumbnail || '',
-      icon: icon || '📁',
-      color: color || '#ef4444',
-      type: type || 'category'
+      thumbnail:   thumbnail   || '',
+      icon:        icon        || '📁',
+      color:       color       || '#ef4444',
+      type:        type        || 'category',
+      isPremium:   isPremium   === true || isPremium === 'true',
     });
 
     res.json({ success: true, category, message: 'Category created successfully' });
@@ -181,10 +192,10 @@ router.post('/', simpleAdminAuth, async (req, res) => {
   }
 });
 
-// POST /api/categories/bulk-create (Admin - bulk create)
+// POST /api/categories/bulk-create (Admin)
 router.post('/bulk-create', simpleAdminAuth, async (req, res) => {
   try {
-    const { names, icon, color, type } = req.body;
+    const { names, icon, color, type, isPremium } = req.body;
     let nameList;
     if (typeof names === 'string') {
       nameList = names.split(',').map(n => n.trim()).filter(Boolean);
@@ -194,41 +205,27 @@ router.post('/bulk-create', simpleAdminAuth, async (req, res) => {
       return res.status(400).json({ error: 'Provide category names as comma-separated string or array' });
     }
 
-    if (nameList.length === 0) {
-      return res.status(400).json({ error: 'No category names provided' });
-    }
-
-    // Remove duplicates from input
+    if (nameList.length === 0) return res.status(400).json({ error: 'No category names provided' });
     nameList = [...new Set(nameList)];
 
-    const results = { created: [], skipped: [], failed: [] };
+    const premiumFlag = isPremium === true || isPremium === 'true';
+    const results     = { created: [], skipped: [], failed: [] };
 
     for (const name of nameList) {
       try {
-        const existing = await Category.findOne({
-          name: { $regex: new RegExp(`^${name}$`, 'i') }
-        });
+        const existing = await Category.findOne({ name: { $regex: new RegExp(`^${name}$`, 'i') } });
+        if (existing) { results.skipped.push({ name, reason: 'Already exists' }); continue; }
 
-        if (existing) {
-          results.skipped.push({ name, reason: 'Already exists' });
-          continue;
-        }
-
-        const slug = name
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '-')
-          .replace(/^-|-$/g, '');
-
+        const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
         const category = await Category.create({
-          name,
-          slug,
+          name, slug,
           description: '',
-          icon: icon || '📁',
-          color: color || '#ef4444',
-          type: type || 'category',
-          isActive: true,
+          icon:        icon  || '📁',
+          color:       color || '#ef4444',
+          type:        type  || 'category',
+          isPremium:   premiumFlag,
+          isActive:    true,
         });
-
         results.created.push({ name: category.name, slug: category.slug, id: category._id });
       } catch (err) {
         results.failed.push({ name, error: err.message });
@@ -236,7 +233,6 @@ router.post('/bulk-create', simpleAdminAuth, async (req, res) => {
     }
 
     const message = `${results.created.length} created, ${results.skipped.length} skipped, ${results.failed.length} failed`;
-
     res.json({ success: true, message, results });
   } catch (error) {
     console.error('Bulk Create Categories Error:', error);
@@ -248,14 +244,10 @@ router.post('/bulk-create', simpleAdminAuth, async (req, res) => {
 router.put('/admin/reorder', simpleAdminAuth, async (req, res) => {
   try {
     const { order } = req.body;
-    if (!order || !Array.isArray(order)) {
-      return res.status(400).json({ error: 'Order array is required' });
-    }
-
+    if (!order || !Array.isArray(order)) return res.status(400).json({ error: 'Order array is required' });
     for (let i = 0; i < order.length; i++) {
       await Category.findByIdAndUpdate(order[i], { order: i });
     }
-
     res.json({ success: true, message: 'Categories reordered' });
   } catch (error) {
     console.error('Reorder Error:', error);
@@ -266,7 +258,7 @@ router.put('/admin/reorder', simpleAdminAuth, async (req, res) => {
 // PUT /api/categories/:id (Admin)
 router.put('/:id', simpleAdminAuth, async (req, res) => {
   try {
-    const { name, description, thumbnail, icon, color, isActive, order, type } = req.body;
+    const { name, description, thumbnail, icon, color, isActive, order, type, isPremium } = req.body;
     const category = await Category.findById(req.params.id);
     if (!category) return res.status(404).json({ error: 'Category not found' });
 
@@ -274,13 +266,14 @@ router.put('/:id', simpleAdminAuth, async (req, res) => {
       category.name = name;
       category.slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
     }
-    if (description !== undefined) category.description = description;
-    if (thumbnail !== undefined) category.thumbnail = thumbnail;
-    if (icon) category.icon = icon;
-    if (color) category.color = color;
-    if (isActive !== undefined) category.isActive = isActive;
-    if (order !== undefined) category.order = order;
-    if (type) category.type = type;
+    if (description  !== undefined) category.description = description;
+    if (thumbnail    !== undefined) category.thumbnail   = thumbnail;
+    if (icon)                       category.icon        = icon;
+    if (color)                      category.color       = color;
+    if (isActive     !== undefined) category.isActive    = isActive;
+    if (order        !== undefined) category.order       = order;
+    if (type)                       category.type        = type;
+    if (isPremium    !== undefined) category.isPremium   = isPremium === true || isPremium === 'true';
 
     await category.save();
     res.json({ success: true, category, message: 'Category updated successfully' });
@@ -296,16 +289,8 @@ router.delete('/:id', simpleAdminAuth, async (req, res) => {
     const category = await Category.findById(req.params.id);
     if (!category) return res.status(404).json({ error: 'Category not found' });
 
-    // Remove category reference from videos
-    await Video.updateMany(
-      { category: category._id },
-      { $set: { category: null } }
-    );
-    await Video.updateMany(
-      { categories: category._id },
-      { $pull: { categories: category._id } }
-    );
-
+    await Video.updateMany({ category: category._id },   { $set: { category: null } });
+    await Video.updateMany({ categories: category._id }, { $pull: { categories: category._id } });
     await Category.findByIdAndDelete(req.params.id);
 
     res.json({ success: true, message: 'Category deleted successfully' });

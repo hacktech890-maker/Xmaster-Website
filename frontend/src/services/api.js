@@ -40,7 +40,6 @@ export const publicAPI = {
   getVideos: (params) => api.get('/videos', { params }),
   getVideo: (id) => api.get(`/videos/${id}`),
 
-  // FIXED: added page param so pagination works correctly
   getLatestVideos: (limit = 12, page = 1) =>
     api.get('/videos/latest', { params: { limit, page } }),
 
@@ -55,6 +54,15 @@ export const publicAPI = {
 
   getRandomVideos: (limit = 10, exclude = '') =>
     api.get('/videos/random', { params: { limit, exclude } }),
+
+  // ── Premium public routes ──────────────────────────────
+  // GET /api/videos/premium — returns isPremium:true videos only
+  getPremiumVideos: (params = {}) =>
+    api.get('/videos/premium', { params }),
+
+  // GET /api/categories?premium=true — premium categories only
+  getPremiumCategories: () =>
+    api.get('/categories', { params: { premium: 'true' } }),
 
   recordView: (id, sessionId) => api.post(`/videos/${id}/view`, { sessionId }),
   likeVideo: (id) => api.post(`/videos/${id}/like`),
@@ -100,7 +108,7 @@ export const adminAPI = {
   // Dashboard
   getDashboard: () => api.get('/admin/dashboard'),
 
-  // Videos
+  // Videos — all with optional premium filter
   getVideos: (params) => api.get('/admin/videos', { params }),
   getVideo: (id) => api.get(`/admin/videos/${id}`),
   updateVideo: (id, data) => api.put(`/admin/videos/${id}`, data),
@@ -109,6 +117,15 @@ export const adminAPI = {
   toggleFeatured: (id) => api.put(`/admin/videos/${id}/feature`),
   updateVideoStatus: (id, status) =>
     api.put(`/admin/videos/${id}/status`, { status }),
+
+  // ── Premium toggle ─────────────────────────────────────
+  // Toggle or set isPremium on a single video
+  togglePremium: (id, isPremium) =>
+    api.put(`/admin/videos/${id}/premium`, isPremium !== undefined ? { isPremium } : {}),
+
+  // Bulk set isPremium on multiple videos
+  bulkUpdatePremium: (ids, isPremium) =>
+    api.post('/admin/videos/bulk-update-premium', { ids, isPremium }),
 
   // Bulk Operations
   bulkUpdateTitles: (updates) =>
@@ -151,7 +168,8 @@ export const adminAPI = {
     api.get('/upload/abyss-files', { params: { page, limit } }),
   getAccountInfo: () => api.get('/upload/account-info'),
 
-  // Categories
+  // Categories — supports premium filter
+  getCategories: (params) => api.get('/categories', { params }),
   createCategory: (data) => api.post('/categories', data),
   updateCategory: (id, data) => api.put(`/categories/${id}`, data),
   deleteCategory: (id) => api.delete(`/categories/${id}`),

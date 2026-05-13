@@ -30,6 +30,17 @@ const categorySchema = new mongoose.Schema({
     enum: ['category', 'tag'],
     default: 'category'
   },
+  // ============================
+  // PREMIUM FLAG
+  // ============================
+  // isPremium: true  → category appears only in Premium section
+  // isPremium: false → regular public category (default)
+  // Backward-safe: all existing categories default to false
+  isPremium: {
+    type: Boolean,
+    default: false,
+    index: true,
+  },
   videoCount: {
     type: Number,
     default: 0

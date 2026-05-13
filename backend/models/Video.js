@@ -62,9 +62,8 @@ const videoSchema = new mongoose.Schema(
     },
 
     // ============================
-    // CATEGORY FIELDS (UPDATED)
+    // CATEGORY FIELDS
     // ============================
-    // Primary category (ObjectId reference)
     category: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Category",
@@ -72,7 +71,6 @@ const videoSchema = new mongoose.Schema(
       index: true,
     },
 
-    // Multiple categories support
     categories: [{
       type: mongoose.Schema.Types.ObjectId,
       ref: "Category",
@@ -136,6 +134,18 @@ const videoSchema = new mongoose.Schema(
       type: String,
       enum: ["public", "private", "unlisted", "processing", "duplicate"],
       default: "public",
+      index: true,
+    },
+
+    // ============================
+    // PREMIUM FLAG
+    // ============================
+    // isPremium: true  → video appears ONLY in Premium section
+    // isPremium: false → video appears in public/free section (default)
+    // Backward-safe: all existing videos default to false
+    isPremium: {
+      type: Boolean,
+      default: false,
       index: true,
     },
 
@@ -203,7 +213,6 @@ videoSchema.virtual("bestThumbnail").get(function () {
 // Pre-save
 // ==========================================
 videoSchema.pre("save", function (next) {
-  // Generate slug
   if (this.title && !this.slug) {
     this.slug =
       this.title
@@ -214,12 +223,10 @@ videoSchema.pre("save", function (next) {
       this.file_code.substring(0, 8);
   }
 
-  // Generate embed URL
   if (this.file_code && !this.embed_code) {
     this.embed_code = `https://short.icu/${this.file_code}`;
   }
 
-  // Normalize title for duplicate detection
   if (this.title) {
     this.titleNormalized = this.title
       .toLowerCase()
@@ -227,7 +234,6 @@ videoSchema.pre("save", function (next) {
       .trim();
   }
 
-  // Parse duration string to seconds
   if (this.duration && this.duration !== "00:00") {
     const parts = this.duration.split(":").map(Number);
     if (parts.length === 3) {
@@ -237,7 +243,6 @@ videoSchema.pre("save", function (next) {
     }
   }
 
-  // Sync categories array with primary category
   if (this.category && (!this.categories || this.categories.length === 0)) {
     this.categories = [this.category];
   }
@@ -269,5 +274,7 @@ videoSchema.index({ title: "text", tags: "text", description: "text" });
 videoSchema.index({ shares: -1 });
 videoSchema.index({ "sharePlatforms.telegram": -1 });
 videoSchema.index({ categories: 1 });
+// Compound index for premium video queries
+videoSchema.index({ isPremium: 1, status: 1, uploadDate: -1 });
 
 module.exports = mongoose.model("Video", videoSchema);

@@ -13,7 +13,7 @@ const simpleAdminAuth = (req, res, next) => {
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({ error: 'Access denied. No token provided.' });
     }
-    const token = authHeader.split(' ')[1];
+    const token   = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     if (!decoded.isAdmin) {
       return res.status(401).json({ error: 'Invalid admin token.' });
@@ -21,21 +21,15 @@ const simpleAdminAuth = (req, res, next) => {
     req.admin = decoded;
     next();
   } catch (error) {
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({ error: 'Invalid token.' });
-    }
-    if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ error: 'Token expired.' });
-    }
+    if (error.name === 'JsonWebTokenError')  return res.status(401).json({ error: 'Invalid token.' });
+    if (error.name === 'TokenExpiredError')  return res.status(401).json({ error: 'Token expired.' });
     res.status(500).json({ error: 'Authentication failed.' });
   }
 };
 
 function getFrontendUrl() {
   var raw = process.env.FRONTEND_URL || 'https://xmaster.guru';
-  if (raw.indexOf(',') !== -1) {
-    raw = raw.split(',')[0].trim();
-  }
+  if (raw.indexOf(',') !== -1) raw = raw.split(',')[0].trim();
   return raw.replace(/\/+$/, '');
 }
 
@@ -43,23 +37,16 @@ function getFrontendUrl() {
 // AUTH ROUTES
 // ==========================================
 
-// POST /api/admin/login
 router.post('/login', (req, res) => {
   try {
     const { password, username } = req.body;
-
     if (password === process.env.ADMIN_PASSWORD) {
       const token = jwt.sign(
         { isAdmin: true, username: username || 'admin', loginTime: Date.now() },
         process.env.JWT_SECRET,
         { expiresIn: '24h' }
       );
-      return res.json({
-        success: true,
-        token,
-        admin: { username: username || 'admin', role: 'admin' },
-        message: 'Login successful'
-      });
+      return res.json({ success: true, token, admin: { username: username || 'admin', role: 'admin' }, message: 'Login successful' });
     }
     res.status(401).json({ error: 'Invalid credentials' });
   } catch (error) {
@@ -68,7 +55,6 @@ router.post('/login', (req, res) => {
   }
 });
 
-// POST /api/admin/verify
 router.post('/verify', simpleAdminAuth, (req, res) => {
   res.json({ success: true, admin: req.admin, message: 'Token is valid' });
 });
@@ -77,16 +63,20 @@ router.post('/verify', simpleAdminAuth, (req, res) => {
 // DASHBOARD
 // ==========================================
 
-// GET /api/admin/dashboard
 router.get('/dashboard', simpleAdminAuth, async (req, res) => {
   try {
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const now     = new Date();
+    const today   = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-    const [totalVideos, publicVideos, totalViewsResult, totalCategories, totalAds, pendingReports, todayVideos, weekVideos] = await Promise.all([
+    const [
+      totalVideos, publicVideos, premiumVideos,
+      totalViewsResult, totalCategories,
+      totalAds, pendingReports, todayVideos, weekVideos
+    ] = await Promise.all([
       Video.countDocuments(),
-      Video.countDocuments({ status: 'public' }),
+      Video.countDocuments({ status: 'public', isPremium: { $ne: true } }),
+      Video.countDocuments({ status: 'public', isPremium: true }),
       Video.aggregate([{ $group: { _id: null, total: { $sum: '$views' } } }]),
       Category.countDocuments({ isActive: true }),
       Ad.countDocuments({ enabled: true }),
@@ -98,18 +88,19 @@ router.get('/dashboard', simpleAdminAuth, async (req, res) => {
     const topVideos = await Video.find({ status: 'public' })
       .sort({ views: -1 })
       .limit(5)
-      .select('title thumbnail views uploadDate');
+      .select('title thumbnail views uploadDate isPremium');
 
     const recentUploads = await Video.find()
       .sort({ uploadDate: -1 })
       .limit(5)
-      .select('title thumbnail views status uploadDate');
+      .select('title thumbnail views status uploadDate isPremium');
 
     res.json({
       success: true,
       stats: {
         totalVideos,
         publicVideos,
+        premiumVideos,
         totalViews: totalViewsResult[0]?.total || 0,
         totalCategories,
         totalAds,
@@ -128,43 +119,82 @@ router.get('/dashboard', simpleAdminAuth, async (req, res) => {
 });
 
 // ==========================================
-// VIDEO LIST (no :id parameter)
+// VIDEO LIST
 // ==========================================
 
 // GET /api/admin/videos
+// Supports: ?premium=true (premium only) | ?premium=false (public only) | omit (all)
 router.get('/videos', simpleAdminAuth, async (req, res) => {
   try {
-    const { page = 1, limit = 20, search = '', status = '', featured = '', sort = 'newest' } = req.query;
+    const {
+      page = 1, limit = 20,
+      search = '', status = '',
+      featured = '', sort = 'newest',
+      premium = '',            // '' = all, 'true' = premium only, 'false' = public only
+      category = '',
+    } = req.query;
+
     const query = {};
 
     if (search) {
       query.$or = [
-        { title: { $regex: search, $options: 'i' } },
+        { title:     { $regex: search, $options: 'i' } },
         { file_code: { $regex: search, $options: 'i' } }
       ];
     }
-    if (status) query.status = status;
-    if (featured === 'true') query.featured = true;
+    if (status)   query.status   = status;
+    if (featured === 'true')  query.featured = true;
     if (featured === 'false') query.featured = false;
+
+    // Premium filter
+    if (premium === 'true')  query.isPremium = true;
+    if (premium === 'false') query.isPremium = { $ne: true };
+
+    // Category filter
+    if (category && category !== 'all') {
+      const mongoose = require('mongoose');
+      if (mongoose.Types.ObjectId.isValid(category)) {
+        const catId = new mongoose.Types.ObjectId(category);
+        // If $or already set by search, use $and
+        if (query.$or) {
+          query.$and = [
+            { $or: query.$or },
+            { $or: [{ category: catId }, { categories: catId }] }
+          ];
+          delete query.$or;
+        } else {
+          query.$or = [{ category: catId }, { categories: catId }];
+        }
+      }
+    }
 
     let sortOption = {};
     switch (sort) {
-      case 'oldest': sortOption = { uploadDate: 1 }; break;
-      case 'views': sortOption = { views: -1 }; break;
-      case 'title': sortOption = { title: 1 }; break;
-      default: sortOption = { uploadDate: -1 };
+      case 'oldest': sortOption = { uploadDate: 1 };  break;
+      case 'views':  sortOption = { views: -1 };      break;
+      case 'title':  sortOption = { title: 1 };       break;
+      default:       sortOption = { uploadDate: -1 };
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const [videos, total] = await Promise.all([
-      Video.find(query).populate('category', 'name slug').sort(sortOption).skip(skip).limit(parseInt(limit)),
+      Video.find(query)
+        .populate('category', 'name slug isPremium')
+        .sort(sortOption)
+        .skip(skip)
+        .limit(parseInt(limit)),
       Video.countDocuments(query)
     ]);
 
     res.json({
       success: true,
       videos,
-      pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / parseInt(limit)) }
+      pagination: {
+        page:  parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      }
     });
   } catch (error) {
     console.error('Get Videos Error:', error);
@@ -173,7 +203,7 @@ router.get('/videos', simpleAdminAuth, async (req, res) => {
 });
 
 // ==========================================
-// ALL BULK ROUTES (MUST be BEFORE /videos/:id)
+// BULK ROUTES (MUST be BEFORE /videos/:id)
 // ==========================================
 
 // POST /api/admin/videos/bulk-update-status
@@ -186,35 +216,42 @@ router.post('/videos/bulk-update-status', simpleAdminAuth, async (req, res) => {
     }
 
     let result;
-
     if (mode === 'all-private') {
-      result = await Video.updateMany(
-        { status: 'private', isDuplicate: { $ne: true } },
-        { $set: { status: status } }
-      );
+      result = await Video.updateMany({ status: 'private', isDuplicate: { $ne: true } }, { $set: { status } });
     } else if (mode === 'all-public') {
-      result = await Video.updateMany(
-        { status: 'public' },
-        { $set: { status: status } }
-      );
+      result = await Video.updateMany({ status: 'public' }, { $set: { status } });
     } else {
       if (!ids || !Array.isArray(ids) || ids.length === 0) {
         return res.status(400).json({ error: 'No video IDs provided' });
       }
-      result = await Video.updateMany(
-        { _id: { $in: ids } },
-        { $set: { status: status } }
-      );
+      result = await Video.updateMany({ _id: { $in: ids } }, { $set: { status } });
     }
 
-    res.json({
-      success: true,
-      modifiedCount: result.modifiedCount,
-      message: result.modifiedCount + ' videos updated to ' + status,
-    });
+    res.json({ success: true, modifiedCount: result.modifiedCount, message: `${result.modifiedCount} videos updated to ${status}` });
   } catch (error) {
     console.error('Bulk Update Status Error:', error);
     res.status(500).json({ error: 'Failed to update video status' });
+  }
+});
+
+// POST /api/admin/videos/bulk-update-premium
+// Set isPremium on a batch of videos
+router.post('/videos/bulk-update-premium', simpleAdminAuth, async (req, res) => {
+  try {
+    const { ids, isPremium } = req.body;
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'No video IDs provided' });
+    }
+    const premiumFlag = isPremium === true || isPremium === 'true';
+    const result = await Video.updateMany({ _id: { $in: ids } }, { $set: { isPremium: premiumFlag } });
+    res.json({
+      success: true,
+      modifiedCount: result.modifiedCount,
+      message: `${result.modifiedCount} videos set to ${premiumFlag ? 'premium' : 'public'}`,
+    });
+  } catch (error) {
+    console.error('Bulk Update Premium Error:', error);
+    res.status(500).json({ error: 'Failed to update premium status' });
   }
 });
 
@@ -250,22 +287,11 @@ router.post('/videos/bulk-update-titles', simpleAdminAuth, async (req, res) => {
           results.errors.push({ id: update.id, error: 'Missing ID or title' });
           continue;
         }
-
         const video = await Video.findById(update.id);
-        if (!video) {
-          results.failed++;
-          results.errors.push({ id: update.id, error: 'Video not found' });
-          continue;
-        }
+        if (!video) { results.failed++; results.errors.push({ id: update.id, error: 'Video not found' }); continue; }
 
         video.title = update.title.trim();
-        video.slug = video.title
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '-')
-          .replace(/^-|-$/g, '') +
-          '-' +
-          video.file_code.substring(0, 8);
-
+        video.slug  = video.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + video.file_code.substring(0, 8);
         await video.save();
         results.success++;
       } catch (err) {
@@ -274,11 +300,7 @@ router.post('/videos/bulk-update-titles', simpleAdminAuth, async (req, res) => {
       }
     }
 
-    res.json({
-      success: true,
-      message: `Updated ${results.success} titles, ${results.failed} failed`,
-      results,
-    });
+    res.json({ success: true, message: `Updated ${results.success} titles, ${results.failed} failed`, results });
   } catch (error) {
     console.error('Bulk Update Titles Error:', error);
     res.status(500).json({ error: 'Failed to bulk update titles' });
@@ -297,30 +319,19 @@ router.post('/videos/bulk-update-tags', simpleAdminAuth, async (req, res) => {
 
     for (const update of updates) {
       try {
-        if (!update.id) {
-          results.failed++;
-          results.errors.push({ id: update.id, error: 'Missing ID' });
-          continue;
-        }
-
+        if (!update.id) { results.failed++; results.errors.push({ id: update.id, error: 'Missing ID' }); continue; }
         const tags = Array.isArray(update.tags)
           ? update.tags.map(t => t.trim().toLowerCase()).filter(Boolean)
           : (update.tags || '').split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
 
-        if (tags.length === 0) {
-          results.failed++;
-          results.errors.push({ id: update.id, error: 'No valid tags' });
-          continue;
-        }
+        if (tags.length === 0) { results.failed++; results.errors.push({ id: update.id, error: 'No valid tags' }); continue; }
 
         const mode = update.mode || 'append';
-
         if (mode === 'replace') {
-          await Video.findByIdAndUpdate(update.id, { $set: { tags: tags } });
+          await Video.findByIdAndUpdate(update.id, { $set: { tags } });
         } else {
           await Video.findByIdAndUpdate(update.id, { $addToSet: { tags: { $each: tags } } });
         }
-
         results.success++;
       } catch (err) {
         results.failed++;
@@ -328,11 +339,7 @@ router.post('/videos/bulk-update-tags', simpleAdminAuth, async (req, res) => {
       }
     }
 
-    res.json({
-      success: true,
-      message: `Updated tags for ${results.success} videos, ${results.failed} failed`,
-      results,
-    });
+    res.json({ success: true, message: `Updated tags for ${results.success} videos, ${results.failed} failed`, results });
   } catch (error) {
     console.error('Bulk Update Tags Error:', error);
     res.status(500).json({ error: 'Failed to bulk update tags' });
@@ -343,22 +350,18 @@ router.post('/videos/bulk-update-tags', simpleAdminAuth, async (req, res) => {
 router.post('/videos/bulk-share-links', simpleAdminAuth, async (req, res) => {
   try {
     const { ids, count, mode } = req.body;
-
-    let videos;
     var frontendUrl = getFrontendUrl();
+    let videos;
 
     if (mode === 'first' && count) {
-      videos = await Video.find({
-        status: 'public',
-        isDuplicate: { $ne: true },
-      })
+      videos = await Video.find({ status: 'public', isDuplicate: { $ne: true } })
         .sort({ uploadDate: -1 })
         .limit(Math.min(parseInt(count) || 50, 5000))
-        .select('_id title slug views duration uploadDate tags')
+        .select('_id title slug views duration uploadDate tags isPremium')
         .lean();
     } else if (ids && Array.isArray(ids) && ids.length > 0) {
       videos = await Video.find({ _id: { $in: ids } })
-        .select('_id title slug views duration uploadDate tags')
+        .select('_id title slug views duration uploadDate tags isPremium')
         .lean();
     } else {
       return res.status(400).json({ error: 'Provide ids array or count number' });
@@ -366,26 +369,11 @@ router.post('/videos/bulk-share-links', simpleAdminAuth, async (req, res) => {
 
     const videosWithLinks = videos.map(function (v) {
       var videoUrl = frontendUrl + '/watch/' + v._id;
-      if (v.slug) {
-        videoUrl += '/' + encodeURIComponent(v.slug);
-      }
-      return {
-        _id: v._id,
-        title: v.title,
-        slug: v.slug,
-        shareUrl: videoUrl,
-        views: v.views,
-        duration: v.duration,
-        uploadDate: v.uploadDate,
-        tags: v.tags || [],
-      };
+      if (v.slug) videoUrl += '/' + encodeURIComponent(v.slug);
+      return { _id: v._id, title: v.title, slug: v.slug, shareUrl: videoUrl, views: v.views, duration: v.duration, uploadDate: v.uploadDate, tags: v.tags || [], isPremium: v.isPremium || false };
     });
 
-    res.json({
-      success: true,
-      videos: videosWithLinks,
-      count: videosWithLinks.length,
-    });
+    res.json({ success: true, videos: videosWithLinks, count: videosWithLinks.length });
   } catch (error) {
     console.error('Bulk Share Links Error:', error);
     res.status(500).json({ error: 'Failed to generate share links' });
@@ -399,53 +387,49 @@ router.get('/videos/export', simpleAdminAuth, async (req, res) => {
     var frontendUrl = getFrontendUrl();
 
     let query = { status: 'public', isDuplicate: { $ne: true } };
-
     if (ids) {
       const idArray = ids.split(',').map(id => id.trim()).filter(Boolean);
-      if (idArray.length > 0) {
-        query = { _id: { $in: idArray } };
-      }
+      if (idArray.length > 0) query = { _id: { $in: idArray } };
     }
 
     const videos = await Video.find(query)
       .sort({ uploadDate: -1 })
       .limit(Math.min(parseInt(limit) || 5000, 10000))
-      .select('_id title slug tags views duration uploadDate file_code category')
+      .select('_id title slug tags views duration uploadDate file_code category isPremium')
       .populate('category', 'name')
       .lean();
 
     const exportData = videos.map(function (v) {
       var videoUrl = frontendUrl + '/watch/' + v._id;
-      if (v.slug) {
-        videoUrl += '/' + encodeURIComponent(v.slug);
-      }
+      if (v.slug) videoUrl += '/' + encodeURIComponent(v.slug);
       return {
-        id: v._id,
-        title: v.title,
-        shareUrl: videoUrl,
-        tags: (v.tags || []).join(', '),
-        views: v.views || 0,
-        duration: v.duration || '00:00',
-        category: v.category?.name || 'General',
-        fileCode: v.file_code,
+        id:        v._id,
+        title:     v.title,
+        shareUrl:  videoUrl,
+        tags:      (v.tags || []).join(', '),
+        views:     v.views || 0,
+        duration:  v.duration || '00:00',
+        category:  v.category?.name || 'General',
+        fileCode:  v.file_code,
+        isPremium: v.isPremium ? 'Yes' : 'No',
         uploadDate: v.uploadDate ? new Date(v.uploadDate).toISOString().split('T')[0] : '',
       };
     });
 
     if (format === 'csv') {
-      const headers = ['ID', 'Title', 'Share URL', 'Tags', 'Views', 'Duration', 'Category', 'File Code', 'Upload Date'];
+      const headers = ['ID', 'Title', 'Share URL', 'Tags', 'Views', 'Duration', 'Category', 'File Code', 'Is Premium', 'Upload Date'];
       let csv = headers.join(',') + '\n';
-
       exportData.forEach(function (row) {
         csv += [
           row.id,
-          '"' + (row.title || '').replace(/"/g, '""') + '"',
+          '"' + (row.title     || '').replace(/"/g, '""') + '"',
           row.shareUrl,
-          '"' + (row.tags || '').replace(/"/g, '""') + '"',
+          '"' + (row.tags      || '').replace(/"/g, '""') + '"',
           row.views,
           row.duration,
-          '"' + (row.category || '').replace(/"/g, '""') + '"',
+          '"' + (row.category  || '').replace(/"/g, '""') + '"',
           row.fileCode,
+          row.isPremium,
           row.uploadDate,
         ].join(',') + '\n';
       });
@@ -455,11 +439,7 @@ router.get('/videos/export', simpleAdminAuth, async (req, res) => {
       return res.status(200).send(csv);
     }
 
-    res.json({
-      success: true,
-      videos: exportData,
-      total: exportData.length,
-    });
+    res.json({ success: true, videos: exportData, total: exportData.length });
   } catch (error) {
     console.error('Export Error:', error);
     res.status(500).json({ error: 'Failed to export video metadata' });
@@ -467,25 +447,25 @@ router.get('/videos/export', simpleAdminAuth, async (req, res) => {
 });
 
 // ==========================================
-// SINGLE VIDEO ROUTES (with :id parameter)
-// MUST be AFTER all bulk routes above
+// SINGLE VIDEO ROUTES (MUST be AFTER bulk routes)
 // ==========================================
 
 // PUT /api/admin/videos/:id
 router.put('/videos/:id', simpleAdminAuth, async (req, res) => {
   try {
-    const { title, description, thumbnail, category, tags, status, featured, duration } = req.body;
+    const { title, description, thumbnail, category, tags, status, featured, duration, isPremium } = req.body;
     const video = await Video.findById(req.params.id);
     if (!video) return res.status(404).json({ error: 'Video not found' });
 
-    if (title) video.title = title;
+    if (title)                  video.title       = title;
     if (description !== undefined) video.description = description;
-    if (thumbnail) video.thumbnail = thumbnail;
-    if (category !== undefined) video.category = category || null;
-    if (tags) video.tags = Array.isArray(tags) ? tags : tags.split(',').map(t => t.trim());
-    if (status) video.status = status;
-    if (featured !== undefined) video.featured = featured;
-    if (duration) video.duration = duration;
+    if (thumbnail)              video.thumbnail   = thumbnail;
+    if (category    !== undefined) video.category  = category || null;
+    if (tags)                   video.tags        = Array.isArray(tags) ? tags : tags.split(',').map(t => t.trim());
+    if (status)                 video.status      = status;
+    if (featured    !== undefined) video.featured  = featured;
+    if (duration)               video.duration    = duration;
+    if (isPremium   !== undefined) video.isPremium = isPremium === true || isPremium === 'true';
 
     await video.save();
     res.json({ success: true, video, message: 'Video updated successfully' });
@@ -516,7 +496,6 @@ router.put('/videos/:id/feature', simpleAdminAuth, async (req, res) => {
     await video.save();
     res.json({ success: true, featured: video.featured, message: video.featured ? 'Video featured' : 'Video unfeatured' });
   } catch (error) {
-    console.error('Toggle Feature Error:', error);
     res.status(500).json({ error: 'Failed to toggle featured status' });
   }
 });
@@ -532,32 +511,47 @@ router.put('/videos/:id/status', simpleAdminAuth, async (req, res) => {
     if (!video) return res.status(404).json({ error: 'Video not found' });
     res.json({ success: true, status: video.status, message: 'Video status updated' });
   } catch (error) {
-    console.error('Update Status Error:', error);
     res.status(500).json({ error: 'Failed to update status' });
   }
 });
 
-// ==========================================
-// CONTACT SUBMISSIONS — ADMIN ROUTES
-// ==========================================
-// PASTE THIS BLOCK into adminRoutes.js
-// immediately BEFORE: module.exports = router;
-// Also add at the top of the file:
-//   const ContactSubmission = require('../models/ContactSubmission');
-// ==========================================
+// PUT /api/admin/videos/:id/premium  — toggle premium flag on a single video
+router.put('/videos/:id/premium', simpleAdminAuth, async (req, res) => {
+  try {
+    const video = await Video.findById(req.params.id);
+    if (!video) return res.status(404).json({ error: 'Video not found' });
 
+    // If body sends explicit value, use it; otherwise toggle
+    if (req.body.isPremium !== undefined) {
+      video.isPremium = req.body.isPremium === true || req.body.isPremium === 'true';
+    } else {
+      video.isPremium = !video.isPremium;
+    }
+
+    await video.save();
+    res.json({
+      success:   true,
+      isPremium: video.isPremium,
+      message:   video.isPremium ? 'Video marked as Premium' : 'Video set to Public',
+    });
+  } catch (error) {
+    console.error('Toggle Premium Error:', error);
+    res.status(500).json({ error: 'Failed to toggle premium status' });
+  }
+});
+
+// ==========================================
+// CONTACT SUBMISSIONS
+// ==========================================
 const ContactSubmission = require('../models/ContactSubmission');
 
-// GET /api/admin/contacts
-// Query params: page, limit, unreadOnly
 router.get('/contacts', simpleAdminAuth, async (req, res) => {
   try {
     const page       = Math.max(1, parseInt(req.query.page)  || 1);
     const limit      = Math.min(50, parseInt(req.query.limit) || 25);
     const unreadOnly = req.query.unreadOnly === 'true';
-
-    const query = unreadOnly ? { read: false } : {};
-    const skip  = (page - 1) * limit;
+    const query      = unreadOnly ? { read: false } : {};
+    const skip       = (page - 1) * limit;
 
     const [submissions, total, unreadCount] = await Promise.all([
       ContactSubmission.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
@@ -565,90 +559,58 @@ router.get('/contacts', simpleAdminAuth, async (req, res) => {
       ContactSubmission.countDocuments({ read: false }),
     ]);
 
-    res.json({
-      success: true,
-      submissions,
-      total,
-      totalPages:  Math.ceil(total / limit),
-      page,
-      unreadCount,
-    });
+    res.json({ success: true, submissions, total, totalPages: Math.ceil(total / limit), page, unreadCount });
   } catch (error) {
     console.error('Get contacts error:', error);
     res.status(500).json({ error: 'Failed to get contact submissions.' });
   }
 });
 
-// PUT /api/admin/contacts/:id/read
 router.put('/contacts/:id/read', simpleAdminAuth, async (req, res) => {
   try {
-    const sub = await ContactSubmission.findByIdAndUpdate(
-      req.params.id,
-      { $set: { read: true } },
-      { new: true }
-    );
+    const sub = await ContactSubmission.findByIdAndUpdate(req.params.id, { $set: { read: true } }, { new: true });
     if (!sub) return res.status(404).json({ error: 'Submission not found.' });
     res.json({ success: true, submission: sub });
   } catch (error) {
-    console.error('Mark contact read error:', error);
     res.status(500).json({ error: 'Failed to mark as read.' });
   }
 });
 
-// PUT /api/admin/contacts/:id/note
 router.put('/contacts/:id/note', simpleAdminAuth, async (req, res) => {
   try {
     const { note } = req.body;
-    const sub = await ContactSubmission.findByIdAndUpdate(
-      req.params.id,
-      { $set: { adminNote: (note || '').trim().substring(0, 500) } },
-      { new: true }
-    );
+    const sub = await ContactSubmission.findByIdAndUpdate(req.params.id, { $set: { adminNote: (note || '').trim().substring(0, 500) } }, { new: true });
     if (!sub) return res.status(404).json({ error: 'Submission not found.' });
     res.json({ success: true, submission: sub });
   } catch (error) {
-    console.error('Update contact note error:', error);
     res.status(500).json({ error: 'Failed to update note.' });
   }
 });
 
-// DELETE /api/admin/contacts/:id
 router.delete('/contacts/:id', simpleAdminAuth, async (req, res) => {
   try {
     const sub = await ContactSubmission.findByIdAndDelete(req.params.id);
     if (!sub) return res.status(404).json({ error: 'Submission not found.' });
     res.json({ success: true, message: 'Submission deleted.' });
   } catch (error) {
-    console.error('Delete contact error:', error);
     res.status(500).json({ error: 'Failed to delete submission.' });
   }
 });
 
-// DELETE /api/admin/contacts/bulk-delete
-// Body: { ids: ['id1', 'id2'] } OR { deleteAll: true, readOnly: true }
 router.post('/contacts/bulk-delete', simpleAdminAuth, async (req, res) => {
   try {
     const { ids, deleteAll, readOnly } = req.body;
     let result;
-
     if (deleteAll && readOnly) {
       result = await ContactSubmission.deleteMany({ read: true });
     } else if (deleteAll) {
       result = await ContactSubmission.deleteMany({});
     } else {
-      if (!Array.isArray(ids) || ids.length === 0) {
-        return res.status(400).json({ error: 'No IDs provided.' });
-      }
+      if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'No IDs provided.' });
       result = await ContactSubmission.deleteMany({ _id: { $in: ids } });
     }
-
-    res.json({
-      success: true,
-      deletedCount: result.deletedCount,
-      message: `${result.deletedCount} submission(s) deleted.`,
-    });
+    res.json({ success: true, deletedCount: result.deletedCount, message: `${result.deletedCount} submission(s) deleted.` });
   } catch (error) {
-    console.error('Bulk delete contacts error:', error);
     res.status(500).json({ error: 'Failed to bulk delete submissions.' });
   }
 });
