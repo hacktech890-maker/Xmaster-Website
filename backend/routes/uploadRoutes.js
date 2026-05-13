@@ -1,20 +1,21 @@
-const express = require("express");
-const router = express.Router();
-const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
-const os = require("os");
+const express  = require("express");
+const router   = express.Router();
+const multer   = require("multer");
+const path     = require("path");
+const fs       = require("fs");
+const os       = require("os");
 const mongoose = require("mongoose");
 
 const abyssService = require("../abyssService");
-const Video = require("../models/Video");
-const Category = require("../models/Category");
+const Video        = require("../models/Video");
+const Category     = require("../models/Category");
 const DuplicateDetector = require("../utils/duplicateDetector");
 const { extractThumbnail, getVideoMetadata, cleanupThumbnail } = require("../utils/videoProcessor");
 const { uploadImage, deleteImage } = require("../config/cloudinary");
+const { extractAbyssSlug, buildEmbedUrl } = require("../utils/abyssHelper");
 
 // ============================================
-// DISK STORAGE for large files
+// DISK STORAGE
 // ============================================
 const uploadDir = path.join(os.tmpdir(), "xmaster-uploads");
 if (!fs.existsSync(uploadDir)) {
@@ -23,7 +24,7 @@ if (!fs.existsSync(uploadDir)) {
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
-  filename: (req, file, cb) => {
+  filename:    (req, file, cb) => {
     const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1e9)}${path.extname(file.originalname)}`;
     cb(null, uniqueName);
   },
@@ -35,7 +36,10 @@ const fileFilter = (req, file, cb) => {
     "video/x-msvideo", "video/x-matroska", "video/webm",
     "video/x-flv", "video/3gpp", "application/octet-stream",
   ];
-  if (allowed.includes(file.mimetype) || file.originalname.match(/\.(mp4|mkv|avi|mov|webm|flv|3gp)$/i)) {
+  if (
+    allowed.includes(file.mimetype) ||
+    file.originalname.match(/\.(mp4|mkv|avi|mov|webm|flv|3gp)$/i)
+  ) {
     cb(null, true);
   } else {
     cb(new Error("Invalid file type. Only video files are allowed."), false);
@@ -45,8 +49,12 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({
   storage,
   fileFilter,
-  limits: { fileSize: 10 * 1024 * 1024 * 1024 },
+  limits: { fileSize: 10 * 1024 * 1024 * 1024 }, // 10 GB
 });
+
+// ============================================
+// HELPERS
+// ============================================
 
 const cleanupFile = (filePath) => {
   try {
@@ -59,9 +67,9 @@ const cleanupFile = (filePath) => {
   }
 };
 
-// Helper: resolve category to ObjectId
 async function resolveCategory(categoryInput) {
-  if (!categoryInput || categoryInput === '' || categoryInput === 'null') return null;
+  if (!categoryInput || categoryInput === "" || categoryInput === "null")
+    return null;
 
   if (mongoose.Types.ObjectId.isValid(categoryInput)) {
     const exists = await Category.findById(categoryInput);
@@ -70,27 +78,49 @@ async function resolveCategory(categoryInput) {
 
   const existing = await Category.findOne({
     $or: [
-      { name: { $regex: new RegExp(`^${categoryInput}$`, 'i') } },
-      { slug: categoryInput.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') }
-    ]
+      { name: { $regex: new RegExp(`^${categoryInput}$`, "i") } },
+      {
+        slug: categoryInput
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, ""),
+      },
+    ],
   });
 
-  if (existing) return existing._id;
-  return null;
+  return existing ? existing._id : null;
 }
 
-// Helper: parse isPremium from request body (handles string 'true'/'false' and boolean)
 function parsePremiumFlag(value) {
-  if (value === true  || value === 'true'  || value === '1') return true;
-  if (value === false || value === 'false' || value === '0') return false;
-  return false; // default: not premium
+  if (value === true  || value === "true"  || value === "1") return true;
+  if (value === false || value === "false" || value === "0") return false;
+  return false;
 }
 
 /**
- * POST /api/upload/single
+ * Safely extract an Abyss slug from any input the user provides.
+ * Accepts: raw slug, full URL (old or new), iframe HTML.
+ * Returns the slug string or throws.
  */
+function safeExtractSlug(input) {
+  const slug = extractAbyssSlug(input);
+  if (!slug) {
+    throw new Error(
+      `Could not extract a valid Abyss slug from: "${input}". ` +
+      `Accepted formats: slug (A74YgdC0_), ` +
+      `https://abyssplayer.com/A74YgdC0_, ` +
+      `https://short.icu/A74YgdC0_, ` +
+      `or <iframe src="https://abyssplayer.com/A74YgdC0_">...`
+    );
+  }
+  return slug;
+}
+
+// ============================================
+// POST /api/upload/single
+// ============================================
 router.post("/single", upload.single("video"), async (req, res) => {
-  let videoTempPath    = null;
+  let videoTempPath     = null;
   let thumbnailTempPath = null;
 
   try {
@@ -99,15 +129,20 @@ router.post("/single", upload.single("video"), async (req, res) => {
     console.log("═══════════════════════════════════════");
 
     if (!req.file) {
-      return res.status(400).json({ success: false, error: "No video file uploaded" });
+      return res
+        .status(400)
+        .json({ success: false, error: "No video file uploaded" });
     }
 
     videoTempPath = req.file.path;
-    const { title, description, category, categories, status, tags, isPremium } = req.body;
+    const { title, description, category, categories, status, tags, isPremium } =
+      req.body;
 
     if (!title || title.trim() === "") {
       cleanupFile(videoTempPath);
-      return res.status(400).json({ success: false, error: "Title is required" });
+      return res
+        .status(400)
+        .json({ success: false, error: "Title is required" });
     }
 
     const premiumFlag = parsePremiumFlag(isPremium);
@@ -115,17 +150,25 @@ router.post("/single", upload.single("video"), async (req, res) => {
 
     let categoryIds = [];
     if (categories) {
-      const catArray = typeof categories === 'string' ? JSON.parse(categories) : categories;
+      const catArray =
+        typeof categories === "string"
+          ? JSON.parse(categories)
+          : categories;
       for (const catId of catArray) {
         const resolved = await resolveCategory(catId);
         if (resolved) categoryIds.push(resolved);
       }
     }
-    if (categoryId && !categoryIds.find(c => c.toString() === categoryId.toString())) {
+    if (
+      categoryId &&
+      !categoryIds.find((c) => c.toString() === categoryId.toString())
+    ) {
       categoryIds.unshift(categoryId);
     }
 
-    const safeStatus = ["public", "private", "unlisted"].includes(status) ? status : "public";
+    const safeStatus = ["public", "private", "unlisted"].includes(status)
+      ? status
+      : "public";
 
     console.log("📊 Upload details:", {
       fileName:  req.file.originalname,
@@ -158,173 +201,301 @@ router.post("/single", upload.single("video"), async (req, res) => {
       thumbnailTempPath = null;
     }
 
-    // STEP 3: Upload to Abyss.to
+    // STEP 3: Upload to Abyss
     console.log("📤 Uploading video to Abyss.to...");
-    const abyssData = await abyssService.uploadVideoFromPath(videoTempPath, req.file.originalname);
-    console.log("✅ Abyss upload complete:", { slug: abyssData.slug, embedUrl: abyssData.embedUrl });
+    const abyssData = await abyssService.uploadVideoFromPath(
+      videoTempPath,
+      req.file.originalname
+    );
+    console.log("✅ Abyss upload complete:", {
+      slug:     abyssData.slug,
+      embedUrl: abyssData.embedUrl,
+    });
 
     cleanupFile(videoTempPath);
     videoTempPath = null;
 
-    const finalFileCode = abyssData.filecode || abyssData.slug;
-    const finalEmbedUrl = abyssData.embedUrl || `https://short.icu/${finalFileCode}`;
-    if (!finalFileCode) throw new Error("Abyss upload succeeded but filecode/slug is missing");
+    const finalSlug     = abyssData.slug;
+    const finalEmbedUrl = abyssData.embedUrl; // https://abyssplayer.com/{slug}
 
-    const finalThumbnail = cloudinaryUrl || `https://abyss.to/splash/${finalFileCode}.jpg`;
+    if (!finalSlug) {
+      throw new Error("Abyss upload succeeded but slug is missing");
+    }
+
+    // file_code = slug (primary identifier)
+    const finalFileCode = finalSlug;
+
+    // Thumbnail fallback: Cloudinary → abyss.to splash
+    const finalThumbnail =
+      cloudinaryUrl || `https://abyss.to/splash/${finalSlug}.jpg`;
 
     const existing = await Video.findOne({ file_code: finalFileCode });
     if (existing) {
       if (cloudinaryPublicId) await deleteImage(cloudinaryPublicId);
-      return res.status(409).json({ success: false, error: "This video has already been uploaded", video: existing });
+      return res.status(409).json({
+        success: false,
+        error:   "This video has already been uploaded",
+        video:   existing,
+      });
     }
 
+    // Parse duration seconds
     const durationParts = durationFormatted.split(":").map(Number);
     let durationSeconds = 0;
-    if (durationParts.length === 3) durationSeconds = durationParts[0] * 3600 + durationParts[1] * 60 + durationParts[2];
-    else if (durationParts.length === 2) durationSeconds = durationParts[0] * 60 + durationParts[1];
+    if (durationParts.length === 3)
+      durationSeconds =
+        durationParts[0] * 3600 + durationParts[1] * 60 + durationParts[2];
+    else if (durationParts.length === 2)
+      durationSeconds = durationParts[0] * 60 + durationParts[1];
 
-    const dupCheck    = await DuplicateDetector.checkDuplicate({ title: title.trim(), duration_seconds: durationSeconds, file_code: finalFileCode });
+    const dupCheck = await DuplicateDetector.checkDuplicate({
+      title:            title.trim(),
+      duration_seconds: durationSeconds,
+      file_code:        finalFileCode,
+    });
     const finalStatus = dupCheck.isDuplicate ? "private" : safeStatus;
 
     let parsedTags = [];
     if (tags) {
-      parsedTags = typeof tags === 'string' ? tags.split(',').map(t => t.trim().toLowerCase()).filter(Boolean) : tags;
+      parsedTags =
+        typeof tags === "string"
+          ? tags
+              .split(",")
+              .map((t) => t.trim().toLowerCase())
+              .filter(Boolean)
+          : tags;
     }
 
     // STEP 4: Save to MongoDB
     const newVideo = new Video({
-      title:              title.trim(),
-      description:        description?.trim() || "",
-      file_code:          finalFileCode,
-      embed_code:         finalEmbedUrl,
-      thumbnail:          finalThumbnail,
+      title:               title.trim(),
+      description:         description?.trim() || "",
+      file_code:           finalFileCode,
+      abyssSlug:           finalSlug,
+      embedUrl:            finalEmbedUrl,
+      embed_code:          finalEmbedUrl, // legacy compat
+      thumbnail:           finalThumbnail,
       cloudinary_public_id: cloudinaryPublicId || "",
-      duration:           durationFormatted,
-      views:              0,
-      category:           categoryId,
-      categories:         categoryIds,
-      tags:               parsedTags,
-      status:             finalStatus,
-      isPremium:          premiumFlag,
-      isDuplicate:        dupCheck.isDuplicate,
-      duplicateOf:        dupCheck.duplicateOf,
-      duplicateReasons:   dupCheck.reasons,
-      uploadDate:         new Date(),
+      duration:            durationFormatted,
+      views:               0,
+      category:            categoryId,
+      categories:          categoryIds,
+      tags:                parsedTags,
+      status:              finalStatus,
+      isPremium:           premiumFlag,
+      isDuplicate:         dupCheck.isDuplicate,
+      duplicateOf:         dupCheck.duplicateOf,
+      duplicateReasons:    dupCheck.reasons,
+      uploadDate:          new Date(),
     });
 
     await newVideo.save();
-    console.log("✅ Video saved to DB:", { id: newVideo._id, file_code: newVideo.file_code, isPremium: newVideo.isPremium });
+    console.log("✅ Video saved to DB:", {
+      id:        newVideo._id,
+      file_code: newVideo.file_code,
+      slug:      newVideo.abyssSlug,
+      embedUrl:  newVideo.embedUrl,
+      isPremium: newVideo.isPremium,
+    });
 
     return res.status(201).json({
-      success: true,
-      message:   dupCheck.isDuplicate ? "Video uploaded but marked as duplicate" : "Video uploaded successfully",
+      success:   true,
+      message:   dupCheck.isDuplicate
+        ? "Video uploaded but marked as duplicate"
+        : "Video uploaded successfully",
       video:     newVideo,
-      duplicate: dupCheck.isDuplicate ? { reasons: dupCheck.reasons, matches: dupCheck.matches } : null,
+      duplicate: dupCheck.isDuplicate
+        ? { reasons: dupCheck.reasons, matches: dupCheck.matches }
+        : null,
     });
   } catch (error) {
-    if (videoTempPath)    cleanupFile(videoTempPath);
+    if (videoTempPath)     cleanupFile(videoTempPath);
     if (thumbnailTempPath) cleanupThumbnail(thumbnailTempPath);
     console.error("❌ Upload error:", error.message);
-    return res.status(500).json({ success: false, error: "Upload failed", message: error.message });
+    return res
+      .status(500)
+      .json({ success: false, error: "Upload failed", message: error.message });
   }
 });
 
-/**
- * POST /api/upload/file-code
- */
+// ============================================
+// POST /api/upload/file-code
+// Accepts: slug, old URL, new URL, iframe HTML
+// ============================================
 router.post("/file-code", async (req, res) => {
   try {
-    const { file_code, title, category, categories, status, tags, isPremium } = req.body;
+    const {
+      file_code,
+      embed_url,
+      embedUrl: bodyEmbedUrl,
+      title,
+      category,
+      categories,
+      status,
+      tags,
+      isPremium,
+    } = req.body;
 
-    if (!file_code?.trim()) {
-      return res.status(400).json({ success: false, error: "File code is required" });
+    // Accept from multiple field names for convenience
+    const rawInput = file_code || embed_url || bodyEmbedUrl;
+
+    if (!rawInput?.trim()) {
+      return res.status(400).json({
+        success: false,
+        error:
+          "file_code, embed_url, or embedUrl is required. " +
+          "Accepted formats: slug, https://abyssplayer.com/slug, " +
+          "https://short.icu/slug, or iframe HTML.",
+      });
     }
 
-    const cleanCode   = file_code.trim();
+    // Extract slug safely
+    let slug;
+    try {
+      slug = safeExtractSlug(rawInput.trim());
+    } catch (extractErr) {
+      return res
+        .status(400)
+        .json({ success: false, error: extractErr.message });
+    }
+
+    const cleanCode   = slug;
     const premiumFlag = parsePremiumFlag(isPremium);
+    const finalEmbed  = buildEmbedUrl(cleanCode);
 
     const existing = await Video.findOne({ file_code: cleanCode });
     if (existing) {
-      return res.status(409).json({ success: false, error: "Video already exists", video: existing });
+      return res
+        .status(409)
+        .json({ success: false, error: "Video already exists", video: existing });
     }
 
-    const videoTitle  = title?.trim() || cleanCode;
-    const categoryId  = await resolveCategory(category);
+    const videoTitle = title?.trim() || cleanCode;
+    const categoryId = await resolveCategory(category);
 
     let categoryIds = [];
     if (categories) {
-      const catArray = typeof categories === 'string' ? JSON.parse(categories) : (Array.isArray(categories) ? categories : []);
+      const catArray =
+        typeof categories === "string"
+          ? JSON.parse(categories)
+          : Array.isArray(categories)
+          ? categories
+          : [];
       for (const catId of catArray) {
         const resolved = await resolveCategory(catId);
         if (resolved) categoryIds.push(resolved);
       }
     }
-    if (categoryId && !categoryIds.find(c => c.toString() === categoryId.toString())) {
+    if (
+      categoryId &&
+      !categoryIds.find((c) => c.toString() === categoryId.toString())
+    ) {
       categoryIds.unshift(categoryId);
     }
 
-    const dupCheck    = await DuplicateDetector.checkDuplicate({ title: videoTitle, duration_seconds: 0, file_code: cleanCode });
-    const finalStatus = dupCheck.isDuplicate ? "private" : (status || "public");
+    const dupCheck = await DuplicateDetector.checkDuplicate({
+      title:            videoTitle,
+      duration_seconds: 0,
+      file_code:        cleanCode,
+    });
+    const finalStatus = dupCheck.isDuplicate
+      ? "private"
+      : status || "public";
 
     let parsedTags = [];
     if (tags) {
-      parsedTags = Array.isArray(tags) ? tags : tags.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+      parsedTags = Array.isArray(tags)
+        ? tags
+        : tags
+            .split(",")
+            .map((t) => t.trim().toLowerCase())
+            .filter(Boolean);
     }
 
     const newVideo = new Video({
-      title:     videoTitle,
-      file_code: cleanCode,
-      embed_code: `https://short.icu/${cleanCode}`,
-      thumbnail: `https://abyss.to/splash/${cleanCode}.jpg`,
-      duration:  "00:00",
-      views:     0,
-      category:  categoryId,
-      categories: categoryIds,
-      status:    finalStatus,
-      tags:      parsedTags,
-      isPremium: premiumFlag,
+      title:            videoTitle,
+      file_code:        cleanCode,
+      abyssSlug:        cleanCode,
+      embedUrl:         finalEmbed,
+      embed_code:       finalEmbed,
+      thumbnail:        `https://abyss.to/splash/${cleanCode}.jpg`,
+      duration:         "00:00",
+      views:            0,
+      category:         categoryId,
+      categories:       categoryIds,
+      status:           finalStatus,
+      tags:             parsedTags,
+      isPremium:        premiumFlag,
       isDuplicate:      dupCheck.isDuplicate,
       duplicateOf:      dupCheck.duplicateOf,
       duplicateReasons: dupCheck.reasons,
-      uploadDate: new Date(),
+      uploadDate:       new Date(),
     });
 
     await newVideo.save();
 
     return res.status(201).json({
       success: true,
-      message: dupCheck.isDuplicate ? "Video added but marked as duplicate" : "Video added successfully",
-      video:   newVideo,
+      message: dupCheck.isDuplicate
+        ? "Video added but marked as duplicate"
+        : "Video added successfully",
+      video: newVideo,
     });
   } catch (error) {
     console.error("❌ File code error:", error.message);
-    return res.status(500).json({ success: false, error: "Failed to add video", message: error.message });
+    return res.status(500).json({
+      success: false,
+      error:   "Failed to add video",
+      message: error.message,
+    });
   }
 });
 
-/**
- * POST /api/upload/bulk-file-codes
- */
+// ============================================
+// POST /api/upload/bulk-file-codes
+// ============================================
 router.post("/bulk-file-codes", async (req, res) => {
   try {
     const { videos } = req.body;
     if (!videos || !Array.isArray(videos) || videos.length === 0) {
-      return res.status(400).json({ success: false, error: "No videos provided" });
+      return res
+        .status(400)
+        .json({ success: false, error: "No videos provided" });
     }
 
     const results = { success: [], failed: [], duplicates: [] };
 
     for (const videoData of videos) {
       try {
-        const cleanCode = videoData.file_code?.trim();
-        if (!cleanCode) {
-          results.failed.push({ file_code: videoData.file_code, error: "Empty file code" });
+        // Accept file_code OR embed_url OR embedUrl
+        const rawInput =
+          videoData.file_code || videoData.embed_url || videoData.embedUrl;
+
+        if (!rawInput) {
+          results.failed.push({
+            file_code: videoData.file_code,
+            error: "Empty file_code / embed_url",
+          });
           continue;
         }
 
+        let slug;
+        try {
+          slug = safeExtractSlug(rawInput.trim());
+        } catch (e) {
+          results.failed.push({ file_code: rawInput, error: e.message });
+          continue;
+        }
+
+        const cleanCode  = slug;
+        const finalEmbed = buildEmbedUrl(cleanCode);
+
         const existing = await Video.findOne({ file_code: cleanCode });
         if (existing) {
-          results.failed.push({ file_code: cleanCode, error: "Already exists" });
+          results.failed.push({
+            file_code: cleanCode,
+            error: "Already exists",
+          });
           continue;
         }
 
@@ -332,98 +503,151 @@ router.post("/bulk-file-codes", async (req, res) => {
         const categoryId  = await resolveCategory(videoData.category);
         const premiumFlag = parsePremiumFlag(videoData.isPremium);
 
-        const dupCheck    = await DuplicateDetector.checkDuplicate({ title: videoTitle, duration_seconds: 0, file_code: cleanCode });
-        const finalStatus = dupCheck.isDuplicate ? "private" : (videoData.status || "public");
+        const dupCheck = await DuplicateDetector.checkDuplicate({
+          title:            videoTitle,
+          duration_seconds: 0,
+          file_code:        cleanCode,
+        });
+        const finalStatus = dupCheck.isDuplicate
+          ? "private"
+          : videoData.status || "public";
 
         const newVideo = new Video({
-          title:     videoTitle,
-          file_code: cleanCode,
-          embed_code: `https://short.icu/${cleanCode}`,
-          thumbnail: `https://abyss.to/splash/${cleanCode}.jpg`,
-          duration:  "00:00",
-          views:     0,
-          category:  categoryId,
-          categories: categoryId ? [categoryId] : [],
-          status:    finalStatus,
-          tags:      videoData.tags || [],
-          isPremium: premiumFlag,
+          title:            videoTitle,
+          file_code:        cleanCode,
+          abyssSlug:        cleanCode,
+          embedUrl:         finalEmbed,
+          embed_code:       finalEmbed,
+          thumbnail:        `https://abyss.to/splash/${cleanCode}.jpg`,
+          duration:         "00:00",
+          views:            0,
+          category:         categoryId,
+          categories:       categoryId ? [categoryId] : [],
+          status:           finalStatus,
+          tags:             videoData.tags || [],
+          isPremium:        premiumFlag,
           isDuplicate:      dupCheck.isDuplicate,
           duplicateOf:      dupCheck.duplicateOf,
           duplicateReasons: dupCheck.reasons,
-          uploadDate: new Date(),
+          uploadDate:       new Date(),
         });
 
         await newVideo.save();
 
         if (dupCheck.isDuplicate) {
-          results.duplicates.push({ file_code: cleanCode, id: newVideo._id, title: newVideo.title, reasons: dupCheck.reasons });
+          results.duplicates.push({
+            file_code: cleanCode,
+            id:        newVideo._id,
+            title:     newVideo.title,
+            reasons:   dupCheck.reasons,
+          });
         } else {
-          results.success.push({ file_code: cleanCode, id: newVideo._id, title: newVideo.title });
+          results.success.push({
+            file_code: cleanCode,
+            id:        newVideo._id,
+            title:     newVideo.title,
+          });
         }
       } catch (err) {
-        results.failed.push({ file_code: videoData.file_code, error: err.message });
+        results.failed.push({
+          file_code: videoData.file_code || videoData.embed_url,
+          error:     err.message,
+        });
       }
     }
 
     return res.status(200).json({ success: true, results });
   } catch (error) {
     console.error("❌ Bulk error:", error.message);
-    return res.status(500).json({ success: false, error: "Bulk add failed", message: error.message });
+    return res
+      .status(500)
+      .json({ success: false, error: "Bulk add failed", message: error.message });
   }
 });
 
-/**
- * POST /api/upload/thumbnail
- */
+// ============================================
+// POST /api/upload/thumbnail
+// ============================================
 router.post("/thumbnail", upload.single("thumbnail"), async (req, res) => {
   let tempPath = null;
   try {
-    if (!req.file) return res.status(400).json({ success: false, error: "No image file uploaded" });
+    if (!req.file)
+      return res
+        .status(400)
+        .json({ success: false, error: "No image file uploaded" });
+
     tempPath = req.file.path;
     const cloudResult = await uploadImage(tempPath, "xmaster-thumbnails");
     cleanupFile(tempPath);
-    return res.status(200).json({ success: true, url: cloudResult.url, publicId: cloudResult.publicId });
+    return res.status(200).json({
+      success:  true,
+      url:      cloudResult.url,
+      publicId: cloudResult.publicId,
+    });
   } catch (error) {
     if (tempPath) cleanupFile(tempPath);
-    return res.status(500).json({ success: false, error: "Thumbnail upload failed" });
+    return res
+      .status(500)
+      .json({ success: false, error: "Thumbnail upload failed" });
   }
 });
 
-/**
- * GET /api/upload/abyss-files
- */
+// ============================================
+// GET /api/upload/abyss-files
+// ============================================
 router.get("/abyss-files", async (req, res) => {
   try {
     const page      = parseInt(req.query.page)  || 1;
     const limit     = parseInt(req.query.limit) || 50;
     const abyssData = await abyssService.getFileList(page, limit);
+
     const existingVideos = await Video.find({}, { file_code: 1 }).lean();
     const existingCodes  = new Set(existingVideos.map((v) => v.file_code));
 
-    const files = (abyssData?.result?.files || abyssData?.files || []).map((file) => ({
-      file_code:    file.file_code || file.filecode || file.slug,
-      title:        file.title || file.name || file.file_code,
-      thumbnail:    `https://abyss.to/splash/${file.file_code || file.slug}.jpg`,
-      duration:     file.length || file.duration || 0,
-      views:        file.views || 0,
-      alreadyAdded: existingCodes.has(file.file_code || file.filecode || file.slug),
-    }));
+    const files = (
+      abyssData?.result?.files ||
+      abyssData?.files ||
+      []
+    ).map((file) => {
+      const slug = file.file_code || file.filecode || file.slug;
+      return {
+        file_code:    slug,
+        slug,
+        title:        file.title || file.name || slug,
+        thumbnail:    `https://abyss.to/splash/${slug}.jpg`,
+        embedUrl:     buildEmbedUrl(slug),
+        duration:     file.length || file.duration || 0,
+        views:        file.views || 0,
+        alreadyAdded: existingCodes.has(slug),
+      };
+    });
 
-    return res.status(200).json({ success: true, files, pagination: { page, total: abyssData?.result?.total || files.length } });
+    return res.status(200).json({
+      success:    true,
+      files,
+      pagination: {
+        page,
+        total: abyssData?.result?.total || files.length,
+      },
+    });
   } catch (error) {
-    return res.status(500).json({ success: false, error: "Failed to fetch files" });
+    return res
+      .status(500)
+      .json({ success: false, error: "Failed to fetch files" });
   }
 });
 
-/**
- * GET /api/upload/account-info
- */
+// ============================================
+// GET /api/upload/account-info
+// ============================================
 router.get("/account-info", async (req, res) => {
   try {
     const info = await abyssService.getAccountInfo();
     return res.status(200).json({ success: true, account: info });
   } catch (error) {
-    return res.status(500).json({ success: false, error: "Failed to fetch account info" });
+    return res
+      .status(500)
+      .json({ success: false, error: "Failed to fetch account info" });
   }
 });
 

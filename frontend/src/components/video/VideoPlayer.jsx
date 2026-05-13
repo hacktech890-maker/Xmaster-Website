@@ -1,6 +1,44 @@
 // src/components/video/VideoPlayer.jsx
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { FiPlay, FiAlertCircle, FiRefreshCw, FiMaximize2, FiClock } from 'react-icons/fi';
+// Updated for AbyssPlayer iframe-only embed system
+// Backward compatible with old short.icu / short.ink / abyss.to URLs
+
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+} from 'react';
+import {
+  FiPlay,
+  FiAlertCircle,
+  FiRefreshCw,
+  FiMaximize2,
+  FiClock,
+} from 'react-icons/fi';
+import { getEmbedUrl } from '../../utils/helpers';
+
+// ============================================================
+// CONSTANTS
+// ============================================================
+const ABYSS_PLAYER_BASE = 'https://abyssplayer.com';
+
+// ============================================================
+// SECURITY: validate that a URL is safe for our iframe
+// Only trust https://abyssplayer.com/*
+// ============================================================
+const isSafeEmbedUrl = (url) => {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.protocol === 'https:' &&
+      (parsed.hostname === 'abyssplayer.com' ||
+        parsed.hostname === 'www.abyssplayer.com')
+    );
+  } catch {
+    return false;
+  }
+};
 
 // ============================================================
 // FULLSCREEN HELPER
@@ -45,10 +83,24 @@ const markPlayerInteracting = () => {
 };
 
 // ============================================================
-// VIDEO PLAYER
+// MAIN VIDEO PLAYER
 // ============================================================
+/**
+ * VideoPlayer
+ *
+ * Props:
+ *   video      {object}  - Full video document from API (preferred)
+ *   embedUrl   {string}  - Direct embed URL (fallback if no video object)
+ *   fileCode   {string}  - Raw slug/filecode (fallback)
+ *   title      {string}
+ *   autoPlay   {boolean}
+ *   className  {string}
+ *   onLoad     {function}
+ *   onError    {function}
+ */
 const VideoPlayer = ({
-  embedUrl,
+  video     = null,
+  embedUrl  = null,
   fileCode  = null,
   title     = '',
   autoPlay  = false,
@@ -65,46 +117,61 @@ const VideoPlayer = ({
   const iframeRef    = useRef(null);
   const containerRef = useRef(null);
 
-  // ── Build embed URL ──────────────────────────────────────
-  const buildEmbedUrl = (url) => {
-    if (!url) return null;
-    try {
-      const parsed = new URL(url);
-      if (autoPlay && started) parsed.searchParams.set('autoplay', '1');
-      return parsed.toString();
-    } catch {
-      return url;
+  // ── Resolve the canonical, safe AbyssPlayer URL ──────────
+  const resolvedEmbedUrl = (() => {
+    // Priority 1: full video object (uses our getEmbedUrl helper)
+    if (video) {
+      return getEmbedUrl(video);
     }
-  };
+    // Priority 2: explicit embedUrl prop (normalize it)
+    if (embedUrl) {
+      // If already abyssplayer.com, use directly
+      if (embedUrl.includes('abyssplayer.com')) return embedUrl;
+      // Otherwise normalize from old format
+      try {
+        const { normalizeAbyssUrl } = require('../../utils/helpers');
+        const normalized = normalizeAbyssUrl(embedUrl);
+        if (normalized) return normalized;
+      } catch { /* ignore */ }
+      return embedUrl; // use as-is (will fail security check below)
+    }
+    // Priority 3: raw fileCode/slug
+    if (fileCode) {
+      return `${ABYSS_PLAYER_BASE}/${fileCode}`;
+    }
+    return null;
+  })();
 
-  const finalUrl = buildEmbedUrl(embedUrl);
+  // Security check — only render iframe for trusted URLs
+  const finalUrl = resolvedEmbedUrl && isSafeEmbedUrl(resolvedEmbedUrl)
+    ? resolvedEmbedUrl
+    : null;
 
-  // ── Reset error state when video changes ─────────────────
+  // ── Reset when video changes ─────────────────────────────
   useEffect(() => {
     setLoading(true);
     setError(false);
     setRetryCount(0);
     setStarted(autoPlay);
-  }, [embedUrl, fileCode, autoPlay]);
+  }, [resolvedEmbedUrl, autoPlay]);
 
-  // ── Iframe handlers ──────────────────────────────────────
-  const handleIframeLoad = () => {
+  // ── Iframe event handlers ────────────────────────────────
+  const handleIframeLoad = useCallback(() => {
     setLoading(false);
     setError(false);
     onLoad?.();
-  };
+  }, [onLoad]);
 
-  const handleIframeError = () => {
+  const handleIframeError = useCallback(() => {
     setLoading(false);
     setError(true);
     onError?.();
-  };
+  }, [onError]);
 
   const handleRetry = useCallback(() => {
     setLoading(true);
     setError(false);
     setRetryCount((p) => p + 1);
-    // Force iframe reload by resetting src
     if (iframeRef.current) {
       iframeRef.current.src = 'about:blank';
       setTimeout(() => {
@@ -167,7 +234,12 @@ const VideoPlayer = ({
     setError(false);
   }, []);
 
-  if (!embedUrl && !fileCode) return <NoVideoState className={className} />;
+  // No valid video to play
+  if (!finalUrl && !started) {
+    return <NoVideoState className={className} />;
+  }
+
+  const videoTitle = title || video?.title || 'Video Player';
 
   return (
     <div
@@ -188,10 +260,14 @@ const VideoPlayer = ({
       >
         {/* Click-to-play overlay */}
         {!started && (
-          <ClickToPlay title={title} onPlay={handleStart} />
+          <ClickToPlay
+            title={videoTitle}
+            thumbnail={video ? getThumbnailFromVideo(video) : null}
+            onPlay={handleStart}
+          />
         )}
 
-        {/* Loading */}
+        {/* Loading skeleton */}
         {started && loading && !error && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-dark-400 z-10">
             <div className="w-12 h-12 rounded-full border-2 border-white/10 border-t-primary-600 animate-spin mb-4" />
@@ -199,62 +275,26 @@ const VideoPlayer = ({
           </div>
         )}
 
-        {/* Error state — server temporarily down */}
+        {/* Error state */}
         {error && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-dark-400 z-10 px-6">
-            {retryCount < 2 ? (
-              // First 2 retries — show retry button
-              <>
-                <FiAlertCircle className="w-10 h-10 text-red-400/60 mb-3" />
-                <p className="text-sm font-semibold text-white/60 mb-1 text-center">
-                  Failed to load video
-                </p>
-                <p className="text-xs text-white/30 mb-5 text-center leading-relaxed">
-                  The video server may be temporarily unavailable.
-                  Please try again.
-                </p>
-                <button
-                  onClick={handleRetry}
-                  className="btn-secondary flex items-center gap-2 text-sm"
-                >
-                  <FiRefreshCw className="w-4 h-4" />
-                  Retry
-                </button>
-              </>
-            ) : (
-              // After 2 retries — show "come back later" message
-              <>
-                <FiClock className="w-10 h-10 text-amber-400/60 mb-3" />
-                <p className="text-sm font-semibold text-white/60 mb-1 text-center">
-                  Video temporarily unavailable
-                </p>
-                <p className="text-xs text-white/30 mb-5 text-center leading-relaxed max-w-xs">
-                  Our video server is experiencing issues.
-                  Please check back in a few minutes.
-                </p>
-                <button
-                  onClick={handleRetry}
-                  className="
-                    flex items-center gap-2 px-4 py-2 rounded-xl text-xs
-                    font-medium text-white/40 border border-white/10
-                    hover:text-white/70 hover:border-white/20
-                    transition-all duration-200
-                  "
-                >
-                  <FiRefreshCw className="w-3.5 h-3.5" />
-                  Try again anyway
-                </button>
-              </>
-            )}
-          </div>
+          <ErrorState
+            retryCount={retryCount}
+            onRetry={handleRetry}
+          />
         )}
 
-        {/* Iframe */}
+        {/* ── IFRAME — only renders when started + URL is safe ── */}
         {started && finalUrl && (
           <iframe
             ref={iframeRef}
+            /*
+             * SECURITY:
+             *   - finalUrl is validated to be https://abyssplayer.com/*
+             *   - We never dangerously inject raw HTML
+             *   - We construct the URL ourselves from the extracted slug
+             */
             src={finalUrl}
-            title={title || 'Video Player'}
+            title={videoTitle}
             allow="autoplay; fullscreen; encrypted-media; picture-in-picture; web-share"
             allowFullScreen
             webkitallowfullscreen="true"
@@ -271,6 +311,19 @@ const VideoPlayer = ({
             `}
             style={{ border: 'none' }}
           />
+        )}
+
+        {/* Fallback: started but no safe URL */}
+        {started && !finalUrl && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-dark-400 z-10 px-6">
+            <FiAlertCircle className="w-10 h-10 text-red-400/60 mb-3" />
+            <p className="text-sm font-semibold text-white/60 mb-1 text-center">
+              Invalid video URL
+            </p>
+            <p className="text-xs text-white/30 text-center leading-relaxed">
+              Could not build a valid player URL for this video.
+            </p>
+          </div>
         )}
       </div>
 
@@ -301,9 +354,23 @@ const VideoPlayer = ({
 };
 
 // ============================================================
+// INTERNAL HELPERS
+// ============================================================
+
+/** Get thumbnail URL from a video object (inline for this component) */
+const getThumbnailFromVideo = (video) => {
+  if (!video) return null;
+  if (video.thumbnailUrl?.startsWith('http')) return video.thumbnailUrl;
+  if (video.thumbnail?.startsWith('http'))    return video.thumbnail;
+  if (video.abyssSlug) return `https://abyss.to/splash/${video.abyssSlug}.jpg`;
+  if (video.file_code) return `https://abyss.to/splash/${video.file_code}.jpg`;
+  return null;
+};
+
+// ============================================================
 // CLICK TO PLAY OVERLAY
 // ============================================================
-const ClickToPlay = ({ title, onPlay }) => {
+const ClickToPlay = ({ title, thumbnail, onPlay }) => {
   const [hovered, setHovered] = useState(false);
 
   const handleClick = () => {
@@ -318,14 +385,29 @@ const ClickToPlay = ({ title, onPlay }) => {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <div className="absolute inset-0 bg-gradient-to-br from-dark-400 via-dark-400 to-dark-500" />
-      <div
-        className="absolute inset-0 opacity-[0.02]"
-        style={{
-          backgroundImage: `linear-gradient(rgba(255,255,255,1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,1) 1px, transparent 1px)`,
-          backgroundSize: '40px 40px',
-        }}
-      />
+      {/* Background: thumbnail or gradient */}
+      {thumbnail ? (
+        <>
+          <img
+            src={thumbnail}
+            alt={title}
+            className="absolute inset-0 w-full h-full object-cover opacity-40"
+          />
+          <div className="absolute inset-0 bg-black/50" />
+        </>
+      ) : (
+        <>
+          <div className="absolute inset-0 bg-gradient-to-br from-dark-400 via-dark-400 to-dark-500" />
+          <div
+            className="absolute inset-0 opacity-[0.02]"
+            style={{
+              backgroundImage: `linear-gradient(rgba(255,255,255,1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,1) 1px, transparent 1px)`,
+              backgroundSize:  '40px 40px',
+            }}
+          />
+        </>
+      )}
+
       <div className="relative z-10 flex flex-col items-center gap-4">
         <div
           className={`
@@ -344,16 +426,65 @@ const ClickToPlay = ({ title, onPlay }) => {
         </div>
 
         {title && (
-          <div className="text-sm font-medium text-white/60 text-center max-w-xs px-4 bg-black/30 backdrop-blur-sm py-2 rounded-xl">
+          <div className="text-sm font-medium text-white/80 text-center max-w-xs px-4 bg-black/40 backdrop-blur-sm py-2 rounded-xl">
             {title}
           </div>
         )}
 
-        <p className="text-xs text-white/30">Click to play</p>
+        <p className="text-xs text-white/40">Click to play</p>
       </div>
     </div>
   );
 };
+
+// ============================================================
+// ERROR STATE
+// ============================================================
+const ErrorState = ({ retryCount, onRetry }) => (
+  <div className="absolute inset-0 flex flex-col items-center justify-center bg-dark-400 z-10 px-6">
+    {retryCount < 2 ? (
+      <>
+        <FiAlertCircle className="w-10 h-10 text-red-400/60 mb-3" />
+        <p className="text-sm font-semibold text-white/60 mb-1 text-center">
+          Failed to load video
+        </p>
+        <p className="text-xs text-white/30 mb-5 text-center leading-relaxed">
+          The video server may be temporarily unavailable.
+        </p>
+        <button
+          onClick={onRetry}
+          className="btn-secondary flex items-center gap-2 text-sm"
+        >
+          <FiRefreshCw className="w-4 h-4" />
+          Retry
+        </button>
+      </>
+    ) : (
+      <>
+        <FiClock className="w-10 h-10 text-amber-400/60 mb-3" />
+        <p className="text-sm font-semibold text-white/60 mb-1 text-center">
+          Video temporarily unavailable
+        </p>
+        <p className="text-xs text-white/30 mb-5 text-center leading-relaxed max-w-xs">
+          Our video server is experiencing issues.
+          Please check back in a few minutes.
+        </p>
+        <button
+          onClick={onRetry}
+          className="
+            flex items-center gap-2 px-4 py-2 rounded-xl text-xs
+            font-medium text-white/40 border border-white/10
+            hover:text-white/70 hover:border-white/20
+            transition-all duration-200
+          "
+        >
+          <FiRefreshCw className="w-3.5 h-3.5" />
+          Try again anyway
+        </button>
+      </>
+    )}
+  </div>
+);
 
 // ============================================================
 // NO VIDEO STATE

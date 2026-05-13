@@ -9,6 +9,28 @@ const videoSchema = new mongoose.Schema(
       index: true,
     },
 
+    // ============================
+    // ABYSS SLUG (new primary key for embed)
+    // Extracted from upload response or URL
+    // Example: "A74YgdC0_"
+    // ============================
+    abyssSlug: {
+      type: String,
+      default: "",
+      index: true,
+    },
+
+    // ============================
+    // EMBED URL
+    // Always: https://abyssplayer.com/{slug}
+    // Auto-generated from abyssSlug or file_code
+    // ============================
+    embedUrl: {
+      type: String,
+      default: "",
+    },
+
+    // Legacy field — kept for backward compat
     embed_code: {
       type: String,
       default: "",
@@ -71,10 +93,12 @@ const videoSchema = new mongoose.Schema(
       index: true,
     },
 
-    categories: [{
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Category",
-    }],
+    categories: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Category",
+      },
+    ],
 
     tags: [
       {
@@ -110,13 +134,13 @@ const videoSchema = new mongoose.Schema(
     },
 
     sharePlatforms: {
-      telegram: { type: Number, default: 0 },
-      whatsapp: { type: Number, default: 0 },
-      facebook: { type: Number, default: 0 },
-      twitter: { type: Number, default: 0 },
-      copy: { type: Number, default: 0 },
-      native: { type: Number, default: 0 },
-      unknown: { type: Number, default: 0 },
+      telegram:  { type: Number, default: 0 },
+      whatsapp:  { type: Number, default: 0 },
+      facebook:  { type: Number, default: 0 },
+      twitter:   { type: Number, default: 0 },
+      copy:      { type: Number, default: 0 },
+      native:    { type: Number, default: 0 },
+      unknown:   { type: Number, default: 0 },
     },
 
     sharedOnTG: {
@@ -140,9 +164,6 @@ const videoSchema = new mongoose.Schema(
     // ============================
     // PREMIUM FLAG
     // ============================
-    // isPremium: true  → video appears ONLY in Premium section
-    // isPremium: false → video appears in public/free section (default)
-    // Backward-safe: all existing videos default to false
     isPremium: {
       type: Boolean,
       default: false,
@@ -155,9 +176,9 @@ const videoSchema = new mongoose.Schema(
       index: true,
     },
 
-    // ==========================================
-    // DUPLICATE DETECTION FIELDS
-    // ==========================================
+    // ============================
+    // DUPLICATE DETECTION
+    // ============================
     isDuplicate: {
       type: Boolean,
       default: false,
@@ -189,6 +210,20 @@ const videoSchema = new mongoose.Schema(
       index: true,
     },
 
+    // ============================
+    // FUTURE: WATERMARK / CUSTOM DOMAIN
+    // Fields prepared — UI not yet implemented
+    // ============================
+    watermarkLogo: {
+      type: String,
+      default: "",
+    },
+
+    customDomain: {
+      type: String,
+      default: "",
+    },
+
     uploadDate: {
       type: Date,
       default: Date.now,
@@ -197,7 +232,7 @@ const videoSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-    toJSON: { virtuals: true },
+    toJSON:   { virtuals: true },
     toObject: { virtuals: true },
   }
 );
@@ -205,14 +240,99 @@ const videoSchema = new mongoose.Schema(
 // ==========================================
 // VIRTUALS
 // ==========================================
+
+/**
+ * bestThumbnail — preferred thumbnail URL
+ */
 videoSchema.virtual("bestThumbnail").get(function () {
   return this.thumbnailUrl || this.thumbnail || "";
 });
+
+/**
+ * resolvedEmbedUrl — always returns a valid abyssplayer.com URL
+ * Handles backward compat with old short.icu / short.ink / abyss.to formats
+ */
+videoSchema.virtual("resolvedEmbedUrl").get(function () {
+  // 1. Use stored embedUrl if it's already the new format
+  if (this.embedUrl && this.embedUrl.includes("abyssplayer.com")) {
+    return this.embedUrl;
+  }
+
+  // 2. Use abyssSlug if available
+  if (this.abyssSlug) {
+    return `https://abyssplayer.com/${this.abyssSlug}`;
+  }
+
+  // 3. Try to normalize embed_code (legacy)
+  if (this.embed_code) {
+    const slug = extractSlugFromUrl(this.embed_code);
+    if (slug) return `https://abyssplayer.com/${slug}`;
+  }
+
+  // 4. Try to normalize embedUrl (legacy format)
+  if (this.embedUrl) {
+    const slug = extractSlugFromUrl(this.embedUrl);
+    if (slug) return `https://abyssplayer.com/${slug}`;
+  }
+
+  // 5. Fall back to file_code as slug
+  if (this.file_code) {
+    return `https://abyssplayer.com/${this.file_code}`;
+  }
+
+  return "";
+});
+
+// ==========================================
+// HELPER: Extract slug from any legacy URL
+// ==========================================
+function extractSlugFromUrl(input) {
+  if (!input || typeof input !== "string") return null;
+
+  // Handle iframe embed HTML
+  const iframeSrcMatch = input.match(/src=["']([^"']+)["']/i);
+  if (iframeSrcMatch) {
+    return extractSlugFromUrl(iframeSrcMatch[1]);
+  }
+
+  try {
+    // Normalize to URL object
+    let url = input.trim();
+    if (!url.startsWith("http")) url = "https://" + url;
+
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+
+    // Already new format
+    if (hostname === "abyssplayer.com") {
+      return parsed.pathname.replace(/^\//, "").split("/")[0] || null;
+    }
+
+    // Old formats
+    const oldHosts = [
+      "short.icu",
+      "short.ink",
+      "abyss.to",
+      "www.abyss.to",
+    ];
+    if (oldHosts.some((h) => hostname === h || hostname.endsWith("." + h))) {
+      return parsed.pathname.replace(/^\//, "").split("/")[0] || null;
+    }
+  } catch {
+    // Not a URL — might be a raw slug
+    if (/^[A-Za-z0-9_\-]{4,32}$/.test(input.trim())) {
+      return input.trim();
+    }
+  }
+
+  return null;
+}
 
 // ==========================================
 // Pre-save
 // ==========================================
 videoSchema.pre("save", function (next) {
+  // Auto-generate SEO slug from title
   if (this.title && !this.slug) {
     this.slug =
       this.title
@@ -223,10 +343,37 @@ videoSchema.pre("save", function (next) {
       this.file_code.substring(0, 8);
   }
 
-  if (this.file_code && !this.embed_code) {
-    this.embed_code = `https://short.icu/${this.file_code}`;
+  // Derive abyssSlug from multiple sources
+  if (!this.abyssSlug) {
+    // Try embedUrl first
+    if (this.embedUrl) {
+      const s = extractSlugFromUrl(this.embedUrl);
+      if (s) this.abyssSlug = s;
+    }
+    // Try embed_code (legacy)
+    if (!this.abyssSlug && this.embed_code) {
+      const s = extractSlugFromUrl(this.embed_code);
+      if (s) this.abyssSlug = s;
+    }
+    // Fall back to file_code
+    if (!this.abyssSlug && this.file_code) {
+      this.abyssSlug = this.file_code;
+    }
   }
 
+  // Always ensure embedUrl is the canonical new format
+  if (this.abyssSlug) {
+    this.embedUrl = `https://abyssplayer.com/${this.abyssSlug}`;
+  } else if (this.file_code) {
+    this.embedUrl = `https://abyssplayer.com/${this.file_code}`;
+  }
+
+  // Keep embed_code in sync for legacy consumers
+  if (this.embedUrl && !this.embed_code) {
+    this.embed_code = this.embedUrl;
+  }
+
+  // Normalize title
   if (this.title) {
     this.titleNormalized = this.title
       .toLowerCase()
@@ -234,6 +381,7 @@ videoSchema.pre("save", function (next) {
       .trim();
   }
 
+  // Parse duration to seconds
   if (this.duration && this.duration !== "00:00") {
     const parts = this.duration.split(":").map(Number);
     if (parts.length === 3) {
@@ -243,6 +391,7 @@ videoSchema.pre("save", function (next) {
     }
   }
 
+  // Keep category / categories in sync
   if (this.category && (!this.categories || this.categories.length === 0)) {
     this.categories = [this.category];
   }
@@ -254,18 +403,22 @@ videoSchema.pre("save", function (next) {
 });
 
 // ==========================================
-// Pre-remove
+// Pre-remove — cleanup Cloudinary
 // ==========================================
-videoSchema.pre("deleteOne", { document: true, query: false }, async function () {
-  if (this.cloudinary_public_id) {
-    try {
-      const { deleteImage } = require("../config/cloudinary");
-      await deleteImage(this.cloudinary_public_id);
-    } catch (err) {
-      console.error("⚠️ Failed to delete Cloudinary image:", err.message);
+videoSchema.pre(
+  "deleteOne",
+  { document: true, query: false },
+  async function () {
+    if (this.cloudinary_public_id) {
+      try {
+        const { deleteImage } = require("../config/cloudinary");
+        await deleteImage(this.cloudinary_public_id);
+      } catch (err) {
+        console.error("⚠️ Failed to delete Cloudinary image:", err.message);
+      }
     }
   }
-});
+);
 
 // ==========================================
 // Indexes
@@ -274,7 +427,9 @@ videoSchema.index({ title: "text", tags: "text", description: "text" });
 videoSchema.index({ shares: -1 });
 videoSchema.index({ "sharePlatforms.telegram": -1 });
 videoSchema.index({ categories: 1 });
-// Compound index for premium video queries
 videoSchema.index({ isPremium: 1, status: 1, uploadDate: -1 });
+videoSchema.index({ abyssSlug: 1 });
 
+// Export the slug extractor so other modules can reuse it
 module.exports = mongoose.model("Video", videoSchema);
+module.exports.extractSlugFromUrl = extractSlugFromUrl;

@@ -1,14 +1,10 @@
 // src/utils/helpers.js
-// UPDATED: Deduplicated + new utilities added
-// Single source of truth — import from here, do not inline in components
+// UPDATED: Full AbyssPlayer support + backward compat with old URLs
 
 // ============================================================
 // NUMBER FORMATTING
 // ============================================================
 
-/**
- * Format view count: 1234567 → "1.2M views"
- */
 export const formatViews = (views) => {
   if (!views && views !== 0) return '0 views';
   const n = Number(views);
@@ -17,9 +13,6 @@ export const formatViews = (views) => {
   return `${n} views`;
 };
 
-/**
- * Format short view count: 1234567 → "1.2M"
- */
 export const formatViewsShort = (views) => {
   if (!views && views !== 0) return '0';
   const n = Number(views);
@@ -28,9 +21,6 @@ export const formatViewsShort = (views) => {
   return `${n}`;
 };
 
-/**
- * Format file size: 1073741824 → "1.0 GB"
- */
 export const formatFileSize = (bytes) => {
   if (!bytes) return '0 B';
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -42,27 +32,21 @@ export const formatFileSize = (bytes) => {
 // DATE FORMATTING
 // ============================================================
 
-/**
- * Format relative date: "2 days ago", "3 months ago"
- */
 export const formatDate = (dateStr) => {
   if (!dateStr) return '';
   const date = new Date(dateStr);
   const now  = new Date();
-  const diff = Math.floor((now - date) / 1000); // seconds
+  const diff = Math.floor((now - date) / 1000);
 
-  if (diff < 60)              return 'Just now';
-  if (diff < 3600)            return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400)           return `${Math.floor(diff / 3600)}h ago`;
-  if (diff < 604800)          return `${Math.floor(diff / 86400)}d ago`;
-  if (diff < 2592000)         return `${Math.floor(diff / 604800)}w ago`;
-  if (diff < 31536000)        return `${Math.floor(diff / 2592000)} months ago`;
+  if (diff < 60)       return 'Just now';
+  if (diff < 3600)     return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400)    return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 604800)   return `${Math.floor(diff / 86400)}d ago`;
+  if (diff < 2592000)  return `${Math.floor(diff / 604800)}w ago`;
+  if (diff < 31536000) return `${Math.floor(diff / 2592000)} months ago`;
   return `${Math.floor(diff / 31536000)} years ago`;
 };
 
-/**
- * Format absolute date: "Jan 15, 2025"
- */
 export const formatDateAbsolute = (dateStr) => {
   if (!dateStr) return '';
   return new Date(dateStr).toLocaleDateString('en-US', {
@@ -70,9 +54,6 @@ export const formatDateAbsolute = (dateStr) => {
   });
 };
 
-/**
- * Format full datetime: "Jan 15, 2025 at 3:42 PM"
- */
 export const formatDateTime = (dateStr) => {
   if (!dateStr) return '';
   return new Date(dateStr).toLocaleDateString('en-US', {
@@ -85,36 +66,149 @@ export const formatDateTime = (dateStr) => {
 // DURATION FORMATTING
 // ============================================================
 
-/**
- * Format duration string or seconds → "MM:SS" or "HH:MM:SS"
- * Handles: "1234" (seconds) | "12:34" (already formatted) | number
- */
 export const formatDuration = (input) => {
   if (!input && input !== 0) return '';
-
-  // Already formatted (contains colon)
   if (typeof input === 'string' && input.includes(':')) return input;
-
   const totalSeconds = parseInt(input, 10);
   if (isNaN(totalSeconds)) return String(input);
-
-  const h = Math.floor(totalSeconds / 3600);
-  const m = Math.floor((totalSeconds % 3600) / 60);
-  const s = totalSeconds % 60;
-
+  const h   = Math.floor(totalSeconds / 3600);
+  const m   = Math.floor((totalSeconds % 3600) / 60);
+  const s   = totalSeconds % 60;
   const pad = (n) => String(n).padStart(2, '0');
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+};
 
-  if (h > 0) return `${h}:${pad(m)}:${pad(s)}`;
-  return `${m}:${pad(s)}`;
+// ============================================================
+// ABYSS URL UTILITIES
+// ============================================================
+
+const ABYSS_PLAYER_BASE = 'https://abyssplayer.com';
+
+const OLD_ABYSS_HOSTS = [
+  'short.icu',
+  'short.ink',
+  'abyss.to',
+  'www.abyss.to',
+  'abyssplayer.com',
+  'www.abyssplayer.com',
+];
+
+/**
+ * Extract the raw Abyss slug from any supported input:
+ *   - https://abyssplayer.com/A74YgdC0_
+ *   - https://short.icu/A74YgdC0_
+ *   - https://short.ink/A74YgdC0_
+ *   - https://abyss.to/A74YgdC0_
+ *   - <iframe src="https://abyssplayer.com/A74YgdC0_">...</iframe>
+ *   - A74YgdC0_  (raw slug)
+ *
+ * @param {string} input
+ * @returns {string|null}
+ */
+export const extractAbyssSlug = (input) => {
+  if (!input || typeof input !== 'string') return null;
+
+  const trimmed = input.trim();
+
+  // 1. Extract src from iframe HTML
+  const iframeMatch = trimmed.match(/src=["']([^"']+)["']/i);
+  if (iframeMatch) return extractAbyssSlug(iframeMatch[1]);
+
+  // 2. Try URL parsing
+  try {
+    let urlStr = trimmed;
+    if (!urlStr.startsWith('http')) urlStr = 'https://' + urlStr;
+
+    const parsed   = new URL(urlStr);
+    const hostname = parsed.hostname.toLowerCase();
+
+    const isKnown = OLD_ABYSS_HOSTS.some(
+      (h) => hostname === h || hostname.endsWith('.' + h)
+    );
+
+    if (isKnown) {
+      const slug = parsed.pathname
+        .replace(/^\//, '')
+        .split('?')[0]
+        .split('/')[0];
+      return slug || null;
+    }
+  } catch {
+    // Not a URL — fall through
+  }
+
+  // 3. Raw slug: alphanumeric + underscore/dash, 4–40 chars
+  if (/^[A-Za-z0-9_\-]{4,40}$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  return null;
+};
+
+/**
+ * Normalize any Abyss URL / slug / iframe HTML to the canonical
+ * https://abyssplayer.com/{slug} embed URL.
+ *
+ * Returns empty string if slug cannot be extracted.
+ *
+ * @param {string} input
+ * @returns {string}
+ */
+export const normalizeAbyssUrl = (input) => {
+  const slug = extractAbyssSlug(input);
+  return slug ? `${ABYSS_PLAYER_BASE}/${slug}` : '';
+};
+
+/**
+ * Get the canonical embed URL for a video object.
+ * Handles:
+ *   - New format (video.embedUrl already set to abyssplayer.com)
+ *   - New abyssSlug field
+ *   - Legacy embed_code / embedUrl in old formats
+ *   - file_code as fallback
+ *
+ * This is the ONLY function that should build embed URLs in the frontend.
+ *
+ * @param {object} video  - Video document from API
+ * @returns {string}      - Safe https://abyssplayer.com/... URL
+ */
+export const getEmbedUrl = (video) => {
+  if (!video) return '';
+
+  // 1. Already correct new format
+  if (video.embedUrl && video.embedUrl.includes('abyssplayer.com')) {
+    return video.embedUrl;
+  }
+
+  // 2. abyssSlug field (new schema)
+  if (video.abyssSlug) {
+    return `${ABYSS_PLAYER_BASE}/${video.abyssSlug}`;
+  }
+
+  // 3. Normalize embedUrl (might be old format)
+  if (video.embedUrl) {
+    const normalized = normalizeAbyssUrl(video.embedUrl);
+    if (normalized) return normalized;
+  }
+
+  // 4. Legacy embed_code field
+  if (video.embed_code) {
+    const normalized = normalizeAbyssUrl(video.embed_code);
+    if (normalized) return normalized;
+  }
+
+  // 5. Fall back to file_code
+  if (video.file_code) {
+    return `${ABYSS_PLAYER_BASE}/${video.file_code}`;
+  }
+
+  return '';
 };
 
 // ============================================================
 // STRING UTILITIES
 // ============================================================
 
-/**
- * Generate URL slug: "Hello World! 123" → "hello-world-123"
- */
 export const generateSlug = (text) => {
   if (!text) return '';
   return text
@@ -126,18 +220,12 @@ export const generateSlug = (text) => {
     .replace(/^-+|-+$/g, '');
 };
 
-/**
- * Truncate text with ellipsis
- */
 export const truncateText = (text, maxLength = 60) => {
   if (!text) return '';
   if (text.length <= maxLength) return text;
   return `${text.substring(0, maxLength).trim()}...`;
 };
 
-/**
- * Capitalize first letter of each word
- */
 export const titleCase = (str) => {
   if (!str) return '';
   return str.replace(/\w\S*/g, (word) =>
@@ -149,7 +237,6 @@ export const titleCase = (str) => {
 // THUMBNAIL UTILITIES
 // ============================================================
 
-// Base64 SVG placeholder for failed thumbnails
 const PLACEHOLDER_SVG = `data:image/svg+xml;base64,${btoa(`
   <svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180">
     <rect width="320" height="180" fill="#1a1a1a"/>
@@ -161,28 +248,44 @@ const PLACEHOLDER_SVG = `data:image/svg+xml;base64,${btoa(`
 `)}`;
 
 /**
- * Get thumbnail URL with abyss.to fallback chain
- * Single source of truth — was duplicated in VideoCard + WatchPage
+ * Get thumbnail URL for a video.
+ * Priority:
+ *   1. Direct HTTP URL (Cloudinary or external)
+ *   2. abyss.to splash from thumbnail code
+ *   3. abyss.to splash from file_code / abyssSlug
+ *   4. SVG placeholder
+ *
+ * @param {object} video
+ * @returns {string}
  */
 export const getThumbnailUrl = (video) => {
   if (!video) return PLACEHOLDER_SVG;
 
-  // 1. Direct HTTP thumbnail URL
+  // 1. thumbnailUrl (Cloudinary preferred)
+  if (video.thumbnailUrl && video.thumbnailUrl.startsWith('http')) {
+    return video.thumbnailUrl;
+  }
+
+  // 2. thumbnail as direct HTTP URL (Cloudinary)
   if (video.thumbnail && video.thumbnail.startsWith('http')) {
     return video.thumbnail;
   }
 
-  // 2. abyss.to splash from thumbnail code
+  // 3. thumbnail as a short code → abyss.to splash
   if (video.thumbnail && video.thumbnail.length > 3) {
     return `https://abyss.to/splash/${video.thumbnail}.jpg`;
   }
 
-  // 3. abyss.to splash from file_code
+  // 4. abyssSlug → abyss.to splash
+  if (video.abyssSlug) {
+    return `https://abyss.to/splash/${video.abyssSlug}.jpg`;
+  }
+
+  // 5. file_code → abyss.to splash
   if (video.file_code) {
     return `https://abyss.to/splash/${video.file_code}.jpg`;
   }
 
-  // 4. SVG placeholder
   return PLACEHOLDER_SVG;
 };
 
@@ -190,9 +293,6 @@ export const getThumbnailUrl = (video) => {
 // FUNCTIONAL UTILITIES
 // ============================================================
 
-/**
- * Debounce function
- */
 export const debounce = (fn, delay = 400) => {
   let timer;
   return (...args) => {
@@ -201,15 +301,11 @@ export const debounce = (fn, delay = 400) => {
   };
 };
 
-/**
- * Copy text to clipboard
- */
 export const copyToClipboard = async (text) => {
   try {
     await navigator.clipboard.writeText(text);
     return true;
   } catch {
-    // Fallback for older browsers
     const el = document.createElement('textarea');
     el.value = text;
     document.body.appendChild(el);
@@ -220,9 +316,6 @@ export const copyToClipboard = async (text) => {
   }
 };
 
-/**
- * Generate unique session ID for view tracking
- */
 export const getSessionId = () => {
   let sessionId = sessionStorage.getItem('xmaster_session');
   if (!sessionId) {
@@ -232,30 +325,20 @@ export const getSessionId = () => {
   return sessionId;
 };
 
-/**
- * Build watch URL with SEO slug
- */
 export const getWatchUrl = (video) => {
   if (!video?._id) return '/';
   const slug = video.slug || generateSlug(video.title || '');
   return slug ? `/watch/${video._id}/${slug}` : `/watch/${video._id}`;
 };
 
-/**
- * Check if disclaimer has been accepted
- */
 export const isDisclaimerAccepted = () => {
   const accepted = localStorage.getItem('xmaster_age_verified');
   if (!accepted) return false;
-  // Re-show after 30 days
   const acceptedAt = parseInt(accepted, 10);
   const thirtyDays = 30 * 24 * 60 * 60 * 1000;
   return Date.now() - acceptedAt < thirtyDays;
 };
 
-/**
- * Mark disclaimer as accepted
- */
 export const acceptDisclaimer = () => {
   localStorage.setItem('xmaster_age_verified', Date.now().toString());
 };

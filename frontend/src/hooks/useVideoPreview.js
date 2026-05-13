@@ -1,10 +1,16 @@
 // src/hooks/useVideoPreview.js
-// Singleton hover preview system
-// Only one video card can have an active preview at a time
+//
+// Singleton hover preview system.
+// Only one video card can have an active preview at a time.
+//
+// NOTE: With AbyssPlayer, mp4 hover previews are not possible.
+// This hook now only manages thumbnail-based hover states.
+// Direct mp4 URLs no longer exist — we intentionally disable
+// any autoplay/embed preview to avoid console errors.
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 
-// Module-level singleton — tracks which video is currently previewing
+// ── Module-level singleton ───────────────────────────────────
 let _activeVideoId = null;
 const _listeners   = new Set();
 
@@ -21,22 +27,29 @@ const setActiveVideo = (id) => {
 // ============================================================
 // useVideoPreview hook
 // ============================================================
+//
+// Returns:
+//   isPreviewActive  - whether this card is the active hovered card
+//   isTouch          - whether the user is on a touch/coarse device
+//   previewMode      - always 'thumbnail' (mp4 previews not supported)
+//   handleMouseEnter
+//   handleMouseLeave
+//
 // Usage:
 //   const { isPreviewActive, isTouch, handleMouseEnter, handleMouseLeave }
-//     = useVideoPreview(videoId, { delay: 480, leaveDelay: 180 });
-// ============================================================
-
+//     = useVideoPreview(videoId);
+//
 export const useVideoPreview = (videoId, options = {}) => {
   const { delay = 480, leaveDelay = 180 } = options;
 
-  const [activeId,  setActiveId]  = useState(_activeVideoId);
-  const [isTouch,   setIsTouch]   = useState(false);
+  const [activeId, setActiveId] = useState(_activeVideoId);
+  const [isTouch,  setIsTouch]  = useState(false);
 
   const enterTimerRef = useRef(null);
   const leaveTimerRef = useRef(null);
   const mountedRef    = useRef(true);
 
-  // Detect touch/coarse-pointer devices — disable hover on these
+  // Detect touch / coarse-pointer devices — disable hover on these
   useEffect(() => {
     const mq = window.matchMedia('(pointer: coarse)');
     setIsTouch(mq.matches);
@@ -60,13 +73,11 @@ export const useVideoPreview = (videoId, options = {}) => {
   const handleMouseEnter = useCallback(() => {
     if (isTouch) return;
 
-    // Clear any pending leave timer
     if (leaveTimerRef.current) {
       clearTimeout(leaveTimerRef.current);
       leaveTimerRef.current = null;
     }
 
-    // Activate after delay
     enterTimerRef.current = setTimeout(() => {
       if (mountedRef.current) setActiveVideo(videoId);
     }, delay);
@@ -75,13 +86,11 @@ export const useVideoPreview = (videoId, options = {}) => {
   const handleMouseLeave = useCallback(() => {
     if (isTouch) return;
 
-    // Clear pending enter timer
     if (enterTimerRef.current) {
       clearTimeout(enterTimerRef.current);
       enterTimerRef.current = null;
     }
 
-    // Deactivate after short leave delay (prevents flicker)
     leaveTimerRef.current = setTimeout(() => {
       if (mountedRef.current && _activeVideoId === videoId) {
         setActiveVideo(null);
@@ -89,12 +98,11 @@ export const useVideoPreview = (videoId, options = {}) => {
     }, leaveDelay);
   }, [videoId, leaveDelay, isTouch]);
 
-  // Cleanup timers on unmount
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (enterTimerRef.current) clearTimeout(enterTimerRef.current);
       if (leaveTimerRef.current) clearTimeout(leaveTimerRef.current);
-      // If this card was active, clear the singleton
       if (_activeVideoId === videoId) setActiveVideo(null);
     };
   }, [videoId]);
@@ -102,6 +110,8 @@ export const useVideoPreview = (videoId, options = {}) => {
   return {
     isPreviewActive: activeId === videoId,
     isTouch,
+    // Always 'thumbnail' — mp4 previews are not supported with AbyssPlayer
+    previewMode: 'thumbnail',
     handleMouseEnter,
     handleMouseLeave,
   };

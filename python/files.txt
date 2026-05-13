@@ -1,2 +1,10 @@
+../backend/models/Video.js
+../backend/routes/uploadRoutes.js
+../backend/routes/videoRoutes.js
+../backend/utils/videoProcessor.js
 ../backend/abyssService.js
-../backend/server.js
+../frontend/src/components/video/VideoPlayer.jsx
+../frontend/src/components/video/VideoCard.jsx
+../frontend/src/hooks/useVideoPreview.js
+../frontend/src/utils/helpers.js
+../frontend/public/index.html
